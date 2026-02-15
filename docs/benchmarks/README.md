@@ -181,6 +181,16 @@ Manifest quality artifacts (2026-02-15):
 - `docs/benchmarks/2026-02-15-manifest-quality-multilingual100.json`
 - `docs/benchmarks/2026-02-15-manifest-quality-multilingual100.md`
 - `docs/benchmarks/2026-02-15-manifest-quality-multilingual100-post-langcanon.json`
+- `docs/benchmarks/2026-02-15-manifest-quality-earnings22-full-longform3-0p6b.json`
+- `docs/benchmarks/2026-02-15-manifest-quality-earnings22-full-longform3-0p6b.md`
+- `docs/benchmarks/2026-02-15-manifest-quality-earnings22-full-longform1-0p6b.json`
+- `docs/benchmarks/2026-02-15-manifest-quality-earnings22-full-longform1-0p6b.md`
+
+Real-world full-length head-to-head artifacts (2026-02-15):
+
+- `docs/benchmarks/2026-02-15-quality-head2head-mlx-vs-pytorch-earnings22-full-longform1.json`
+- `docs/benchmarks/2026-02-15-quality-head2head-mlx-vs-pytorch-earnings22-full-longform1.md`
+- `docs/benchmarks/2026-02-15-quality-head2head-mlx-vs-pytorch-earnings22-full-longform1-checkpoint.json`
 
 Post-canonicalization multilingual triage artifacts (2026-02-15):
 

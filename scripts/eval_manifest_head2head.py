@@ -21,6 +21,8 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from eval.metrics import edit_distance  # noqa: E402
 
+from mlx_qwen3_asr.chunking import split_audio_into_chunks  # noqa: E402
+
 _WS_RE = re.compile(r"\s+")
 
 
@@ -127,6 +129,15 @@ def main() -> int:
     parser.add_argument("--json-output", default=None)
     parser.add_argument("--md-output", default=None)
     parser.add_argument(
+        "--reference-max-chunk-sec",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional max chunk size (seconds) for reference transcribe. "
+            "When >0, long clips are split by energy before qwen_asr inference."
+        ),
+    )
+    parser.add_argument(
         "--progress-every",
         type=int,
         default=1,
@@ -151,6 +162,10 @@ def main() -> int:
         raise ValueError(f"--progress-every must be >= 0, got: {args.progress_every}")
     if args.checkpoint_every <= 0:
         raise ValueError(f"--checkpoint-every must be > 0, got: {args.checkpoint_every}")
+    if args.reference_max_chunk_sec < 0:
+        raise ValueError(
+            f"--reference-max-chunk-sec must be >= 0, got: {args.reference_max_chunk_sec}"
+        )
 
     try:
         import qwen_asr
@@ -204,11 +219,29 @@ def main() -> int:
 
         audio, sr = _read_audio(audio_path)
         language_arg = _select_language_arg(lang)
-        t0 = time.perf_counter()
-        out = ref.transcribe((audio, sr), language=language_arg)
-        dt = time.perf_counter() - t0
+        if args.reference_max_chunk_sec > 0:
+            chunks = split_audio_into_chunks(
+                audio,
+                sr=sr,
+                max_chunk_sec=float(args.reference_max_chunk_sec),
+            )
+            ref_text_parts: list[str] = []
+            dt = 0.0
+            for chunk_audio, _offset in chunks:
+                t0 = time.perf_counter()
+                out = ref.transcribe((chunk_audio, sr), language=language_arg)
+                dt += time.perf_counter() - t0
+                text = out[0].text if out else ""
+                text = str(text).strip()
+                if text:
+                    ref_text_parts.append(text)
+            ref_text = " ".join(ref_text_parts).strip()
+        else:
+            t0 = time.perf_counter()
+            out = ref.transcribe((audio, sr), language=language_arg)
+            dt = time.perf_counter() - t0
+            ref_text = out[0].text if out else ""
         ref_latencies.append(dt)
-        ref_text = out[0].text if out else ""
         ref_hyp_norm = _normalize_quality_text(ref_text)
 
         ref_wer_tokens = _wer_tokens(ref_norm)
@@ -370,6 +403,7 @@ def main() -> int:
         "suite": "quality-head2head-manifest-v1",
         "source_mlx_artifact": str(src),
         "model": args.model,
+        "reference_max_chunk_sec": float(args.reference_max_chunk_sec),
         "samples": len(rows),
         "systems": {
             "mlx": {
@@ -414,6 +448,7 @@ def main() -> int:
             "",
             f"- model: `{args.model}`",
             f"- samples: `{len(rows)}`",
+            f"- reference_max_chunk_sec: `{float(args.reference_max_chunk_sec):.1f}`",
             f"- MLX primary: `{systems['mlx']['primary_error_rate']:.4f}`",
             f"- PyTorch primary: `{systems['pytorch_ref']['primary_error_rate']:.4f}`",
             (
