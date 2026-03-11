@@ -77,6 +77,7 @@ class TranscriptionResult:
 class TranscribeOptions:
     """Shared transcribe runtime options used across sync/async/session entry points."""
 
+    context: str = ""
     language: Optional[str] = None
     return_timestamps: bool = False
     diarize: bool = False
@@ -103,6 +104,7 @@ def _join_chunk_texts(texts: list[str], language: str) -> str:
 
 def _build_transcribe_options(
     *,
+    context: str = "",
     language: Optional[str] = None,
     return_timestamps: bool = False,
     diarize: bool = False,
@@ -118,6 +120,7 @@ def _build_transcribe_options(
     on_progress: Optional[ProgressCallback] = None,
 ) -> TranscribeOptions:
     return TranscribeOptions(
+        context=context or "",
         language=language,
         return_timestamps=return_timestamps,
         diarize=diarize,
@@ -140,6 +143,7 @@ def _transcribe_options_to_kwargs(
     include_dtype: bool = True,
 ) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
+        "context": options.context,
         "language": options.language,
         "return_timestamps": options.return_timestamps,
         "diarize": options.diarize,
@@ -193,6 +197,7 @@ def transcribe(
     *,
     model: Union[str, Qwen3ASRModel] = DEFAULT_MODEL_ID,
     draft_model: Optional[Union[str, Qwen3ASRModel]] = None,
+    context: str = "",
     language: Optional[str] = None,
     return_timestamps: bool = False,
     diarize: bool = False,
@@ -222,6 +227,10 @@ def transcribe(
         model: Model name/path or pre-loaded model instance
         draft_model: Optional smaller model for speculative decoding.
             Must share tokenizer/vocabulary with ``model``.
+        context: Domain-specific context string injected as the system prompt
+            content. Provide space-separated terms (e.g., ``"交易 停滞"``) to
+            bias the decoder toward domain vocabulary. Empty string by default,
+            matching the official Qwen3-ASR implementation.
         language: Force language detection (e.g., "English", "Chinese")
         return_timestamps: Whether to return word-level timestamps.
         diarize: Whether to attach speaker labels to transcript output.
@@ -240,6 +249,7 @@ def transcribe(
         TranscriptionResult with text, language, and optional segments
     """
     options = _build_transcribe_options(
+        context=context,
         language=language,
         return_timestamps=return_timestamps,
         diarize=diarize,
@@ -281,6 +291,7 @@ def transcribe(
         tokenizer=tokenizer,
         dtype=options.dtype,
         draft_model_obj=draft_model_obj,
+        context=options.context,
         language=options.language,
         aligner=aligner,
         return_timestamps=options.return_timestamps,
@@ -298,6 +309,7 @@ async def transcribe_async(
     *,
     model: Union[str, Qwen3ASRModel] = DEFAULT_MODEL_ID,
     draft_model: Optional[Union[str, Qwen3ASRModel]] = None,
+    context: str = "",
     language: Optional[str] = None,
     return_timestamps: bool = False,
     diarize: bool = False,
@@ -314,6 +326,7 @@ async def transcribe_async(
 ) -> TranscriptionResult:
     """Async wrapper for ``transcribe`` using ``asyncio.to_thread``."""
     options = _build_transcribe_options(
+        context=context,
         language=language,
         return_timestamps=return_timestamps,
         diarize=diarize,
@@ -342,6 +355,7 @@ def transcribe_batch(
     *,
     model: Union[str, Qwen3ASRModel] = DEFAULT_MODEL_ID,
     draft_model: Optional[Union[str, Qwen3ASRModel]] = None,
+    context: Union[str, list[str]] = "",
     language: Optional[str] = None,
     return_timestamps: bool = False,
     diarize: bool = False,
@@ -356,9 +370,26 @@ def transcribe_batch(
     verbose: bool = False,
     on_progress: Optional[ProgressCallback] = None,
 ) -> list[TranscriptionResult]:
-    """Transcribe multiple audio inputs while reusing loaded model/tokenizer."""
+    """Transcribe multiple audio inputs while reusing loaded model/tokenizer.
+
+    Args:
+        context: Domain-specific context string or list of per-audio context
+            strings. When a single string is given it applies to all audios.
+            When a list is given it must have the same length as *audios*.
+    """
     if not audios:
         return []
+
+    # Normalize context to per-audio list.
+    if isinstance(context, str):
+        contexts = [context or ""] * len(audios)
+    else:
+        if len(context) != len(audios):
+            raise ValueError(
+                f"context list length ({len(context)}) must match "
+                f"audios length ({len(audios)})"
+            )
+        contexts = [c or "" for c in context]
 
     options = _build_transcribe_options(
         language=language,
@@ -404,6 +435,7 @@ def transcribe_batch(
             tokenizer=tokenizer,
             dtype=options.dtype,
             draft_model_obj=draft_model_obj,
+            context=contexts[index - 1],
             language=options.language,
             aligner=aligner,
             return_timestamps=options.return_timestamps,
@@ -436,6 +468,7 @@ async def transcribe_batch_async(
     *,
     model: Union[str, Qwen3ASRModel] = DEFAULT_MODEL_ID,
     draft_model: Optional[Union[str, Qwen3ASRModel]] = None,
+    context: Union[str, list[str]] = "",
     language: Optional[str] = None,
     return_timestamps: bool = False,
     diarize: bool = False,
@@ -466,12 +499,16 @@ async def transcribe_batch_async(
         verbose=verbose,
         on_progress=on_progress,
     )
+    kwargs = _transcribe_options_to_kwargs(options)
+    # Override scalar context from options with the original (possibly list)
+    # context so per-audio context propagates correctly.
+    kwargs["context"] = context
     return await asyncio.to_thread(
         transcribe_batch,
         audios,
         model=model,
         draft_model=draft_model,
-        **_transcribe_options_to_kwargs(options),
+        **kwargs,
     )
 
 
@@ -580,6 +617,7 @@ def _transcribe_loaded_components(
     tokenizer: Tokenizer,
     dtype: mx.Dtype,
     draft_model_obj: Optional[Qwen3ASRModel],
+    context: str = "",
     language: Optional[str],
     aligner: Optional[ForcedAligner],
     return_timestamps: bool,
@@ -658,6 +696,7 @@ def _transcribe_loaded_components(
         prompt_tokens = tokenizer.build_prompt_tokens(
             n_audio_tokens=n_audio_tokens,
             language=forced_language,
+            context=context,
         )
         input_ids = mx.array([prompt_tokens])
 

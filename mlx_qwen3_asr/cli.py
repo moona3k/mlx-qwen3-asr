@@ -284,6 +284,15 @@ def main():
         help=f"Model name or path (default: {DEFAULT_MODEL_ID})",
     )
     parser.add_argument(
+        "--context",
+        default="",
+        help=(
+            "Domain-specific context string for the system prompt. "
+            "Provide space-separated terms (e.g., '交易 停滞') to bias "
+            "transcription toward domain vocabulary."
+        ),
+    )
+    parser.add_argument(
         "--language",
         default=None,
         help="Force language (e.g., English, Chinese)",
@@ -623,6 +632,7 @@ def main():
         chunk_samples = max(1, int(args.stream_chunk_sec * args.mic_sample_rate))
         state = init_streaming(
             model=args.model,
+            context=args.context,
             chunk_size_sec=args.stream_chunk_sec,
             max_context_sec=args.stream_max_context_sec,
             sample_rate=args.mic_sample_rate,
@@ -722,6 +732,7 @@ def main():
                     audio=audio_path,
                     model=args.model,
                     draft_model=args.draft_model,
+                    context=args.context,
                     language=args.language,
                     return_timestamps=effective_timestamps,
                     diarize=args.diarize,
@@ -741,6 +752,7 @@ def main():
                 chunk_samples = max(1, int(args.stream_chunk_sec * SAMPLE_RATE))
                 state = init_streaming(
                     model=args.model,
+                    context=args.context,
                     chunk_size_sec=args.stream_chunk_sec,
                     max_context_sec=args.stream_max_context_sec,
                     sample_rate=SAMPLE_RATE,

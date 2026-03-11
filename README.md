@@ -641,8 +641,8 @@ Audio (16kHz mono)
   → Windowed transformer encoder (18 or 24 layers, hybrid dense/segmented attention)
   → LayerNorm + GELU projection → audio features
 
-Chat-template prompt:
-  <|im_start|>system\nYou are a helpful assistant.<|im_end|>
+Chat-template prompt (context is optional domain vocabulary, empty by default):
+  <|im_start|>system\n{context}<|im_end|>
   <|im_start|>user\n<|audio_start|><|audio_pad|>*N<|audio_end|><|im_end|>
   <|im_start|>assistant\n
 

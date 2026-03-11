@@ -435,7 +435,7 @@ class TestFinishStreaming:
 
         calls = {"full": 0}
 
-        def fake_transcribe(audio, model, max_new_tokens, verbose):  # noqa: ANN001
+        def fake_transcribe(audio, model, max_new_tokens, verbose, context=""):  # noqa: ANN001
             calls["full"] += 1
             return SimpleNamespace(text="same text plus tail", language="English")
 
@@ -464,7 +464,7 @@ class TestFinishStreaming:
 
         seen = {}
 
-        def fake_transcribe(audio, model, max_new_tokens, verbose):  # noqa: ANN001
+        def fake_transcribe(audio, model, max_new_tokens, verbose, context=""):  # noqa: ANN001
             seen["len"] = len(np.asarray(audio))
             return SimpleNamespace(text="tail", language="English")
 
@@ -590,10 +590,10 @@ class TestIncrementalDecode:
         class _FakeTokenizer:
             EOS_TOKEN_IDS = [2]
 
-            def build_prompt_tokens(self, n_audio_tokens, language=None):  # noqa: ANN001
+            def build_prompt_tokens(self, n_audio_tokens, language=None, context=""):  # noqa: ANN001
                 return [11, 12]
 
-            def build_followup_prompt_tokens(self, n_audio_tokens, language=None):  # noqa: ANN001
+            def build_followup_prompt_tokens(self, n_audio_tokens, language=None, context=""):  # noqa: ANN001
                 return [13]
 
             def decode(self, ids):  # noqa: ANN001

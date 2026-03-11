@@ -359,7 +359,7 @@ class Tokenizer:
         self.AUDIO_TOKEN_ID = vocab.get("<|audio_pad|>", 151676)
         self.AUDIO_START_TOKEN_ID = vocab.get("<|audio_start|>", 151669)
         self.AUDIO_END_TOKEN_ID = vocab.get("<|audio_end|>", 151670)
-        self._system_tokens = self.encode("system\nYou are a helpful assistant.")
+        self._system_prefix_tokens = self.encode("system\n")
         self._user_tokens = self.encode("user\n")
         self._assistant_tokens = self.encode("assistant\n")
         self._newline_id = self.encode("\n")[0]
@@ -374,12 +374,13 @@ class Tokenizer:
         self,
         n_audio_tokens: int,
         language: Optional[str] = None,
+        context: str = "",
     ) -> list[int]:
         """Build chat-template prompt with audio placeholder tokens.
 
-        Prompt template:
+        Prompt template (matching official Qwen3-ASR chat_template.json):
             <|im_start|>system
-            You are a helpful assistant.<|im_end|>
+            {context}<|im_end|>
             <|im_start|>user
             <|audio_start|><|audio_pad|>...(N times)...<|audio_pad|><|audio_end|><|im_end|>
             <|im_start|>assistant
@@ -391,13 +392,19 @@ class Tokenizer:
         Args:
             n_audio_tokens: Number of audio feature tokens to placeholder
             language: Optional language to force (e.g., "English", "Chinese")
+            context: Domain-specific context string for the system prompt
+                (e.g., space-separated terms like "交易 停滞" to bias
+                transcription toward domain vocabulary). Empty string by
+                default, matching the official Qwen3-ASR implementation.
 
         Returns:
             List of token IDs forming the complete prompt
         """
         # System message
         tokens = [self.IM_START_ID]
-        tokens.extend(self._system_tokens)
+        tokens.extend(self._system_prefix_tokens)
+        if context:
+            tokens.extend(self.encode(context))
         tokens.append(self.IM_END_ID)
         tokens.append(self._newline_id)
 
@@ -426,6 +433,7 @@ class Tokenizer:
         self,
         n_audio_tokens: int,
         language: Optional[str] = None,
+        context: str = "",
     ) -> list[int]:
         """Build a follow-up chat turn for incremental streaming.
 
@@ -434,6 +442,12 @@ class Tokenizer:
             <|im_start|>user
             <|audio_start|><|audio_pad|>*N<|audio_end|><|im_end|>
             <|im_start|>assistant
+
+        Args:
+            n_audio_tokens: Number of audio feature tokens to placeholder.
+            language: Optional language to force.
+            context: Domain-specific context (currently unused in follow-up
+                turns, accepted for API consistency).
         """
         tokens = [self.IM_END_ID, self._newline_id, self.IM_START_ID]
         tokens.extend(self._user_tokens)

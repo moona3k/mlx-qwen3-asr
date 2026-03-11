@@ -192,11 +192,16 @@ Conv2d weights: transpose (out, in, kH, kW) -> (out, kH, kW, in) via transpose(0
 
 ```
 <|im_start|>system
-You are a helpful assistant.<|im_end|>
+{context}<|im_end|>
 <|im_start|>user
 <|audio_start|><|audio_pad|>...(N times)...<|audio_pad|><|audio_end|>
 <|im_start|>assistant
 ```
+
+The `context` string is injected as the system message content. It defaults to
+empty (`""`), matching the official Qwen3-ASR implementation. Pass
+space-separated domain terms (e.g., `"交易 停滞"`) to bias the decoder toward
+specialized vocabulary.
 
 Output format: `language {detected_language}<asr_text>{transcription text}`
 

@@ -69,6 +69,7 @@ class Session:
         audio: AudioInput,
         *,
         draft_model: Optional[Union[str, Qwen3ASRModel]] = None,
+        context: str = "",
         language: Optional[str] = None,
         return_timestamps: bool = False,
         diarize: bool = False,
@@ -84,6 +85,7 @@ class Session:
     ) -> TranscriptionResult:
         """Transcribe audio using this session's loaded model/tokenizer."""
         options = _build_transcribe_options(
+            context=context,
             language=language,
             return_timestamps=return_timestamps,
             diarize=diarize,
@@ -120,6 +122,7 @@ class Session:
             tokenizer=self.tokenizer,
             dtype=self.dtype,
             draft_model_obj=draft_model_obj,
+            context=options.context,
             language=options.language,
             aligner=aligner,
             return_timestamps=options.return_timestamps,
@@ -136,6 +139,7 @@ class Session:
         audio: AudioInput,
         *,
         draft_model: Optional[Union[str, Qwen3ASRModel]] = None,
+        context: str = "",
         language: Optional[str] = None,
         return_timestamps: bool = False,
         diarize: bool = False,
@@ -151,6 +155,7 @@ class Session:
     ) -> TranscriptionResult:
         """Async wrapper for ``transcribe`` using ``asyncio.to_thread``."""
         options = _build_transcribe_options(
+            context=context,
             language=language,
             return_timestamps=return_timestamps,
             diarize=diarize,
@@ -175,6 +180,7 @@ class Session:
     def init_streaming(
         self,
         *,
+        context: str = "",
         language: Optional[str] = None,
         unfixed_chunk_num: int = 2,
         unfixed_token_num: int = 5,
@@ -192,6 +198,7 @@ class Session:
         """Create streaming state bound to this session's model settings."""
         return streaming_mod.init_streaming(
             model=self.model_id,
+            context=context,
             language=language,
             unfixed_chunk_num=unfixed_chunk_num,
             unfixed_token_num=unfixed_token_num,

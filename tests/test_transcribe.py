@@ -31,7 +31,9 @@ class _DummyTokenizer:
     def __init__(self, model_path: str):
         self.model_path = model_path
 
-    def build_prompt_tokens(self, n_audio_tokens: int, language: str | None = None) -> list[int]:
+    def build_prompt_tokens(
+        self, n_audio_tokens: int, language: str | None = None, context: str = "",
+    ) -> list[int]:
         return [1, 2, 3]
 
     def decode(self, ids: list[int]) -> str:
@@ -42,9 +44,13 @@ class _RecordingLanguageTokenizer(_DummyTokenizer):
     def __init__(self, model_path: str):
         super().__init__(model_path)
         self.languages: list[str | None] = []
+        self.contexts: list[str] = []
 
-    def build_prompt_tokens(self, n_audio_tokens: int, language: str | None = None) -> list[int]:
+    def build_prompt_tokens(
+        self, n_audio_tokens: int, language: str | None = None, context: str = "",
+    ) -> list[int]:
         self.languages.append(language)
+        self.contexts.append(context)
         return [1, 2, 3]
 
 
@@ -378,6 +384,137 @@ def test_transcribe_canonicalizes_forced_language(monkeypatch):
     assert tokenizer.languages == ["German"]
     assert result.language == "German"
     assert result.text == "hallo welt"
+
+
+def test_transcribe_passes_context_to_tokenizer(monkeypatch):
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    tokenizer = _RecordingLanguageTokenizer("repo/a")
+
+    class _RecordingTokenizerHolder:
+        @staticmethod
+        def get(model_path: str):
+            return tokenizer
+
+    monkeypatch.setattr(tmod, "_TokenizerHolder", _RecordingTokenizerHolder)
+    monkeypatch.setattr(tmod._ModelHolder, "get", lambda *a, **k: (_DummyModel(), None))
+    monkeypatch.setattr(
+        tmod._ModelHolder,
+        "get_resolved_path",
+        lambda path, dtype=mx.float16: path,
+    )
+    monkeypatch.setattr(
+        tmod,
+        "compute_features",
+        lambda audio: (mx.zeros((1, 128, 100), dtype=mx.float32), mx.array([100], dtype=mx.int32)),
+    )
+    monkeypatch.setattr(tmod, "generate", lambda **kwargs: [10, 11, 12])
+
+    result = transcribe(np.zeros(3200, dtype=np.float32), context="交易 停滞")
+
+    assert tokenizer.contexts == ["交易 停滞"]
+    assert result.text == "hello world"
+
+
+def test_transcribe_default_context_is_empty(monkeypatch):
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    tokenizer = _RecordingLanguageTokenizer("repo/a")
+
+    class _RecordingTokenizerHolder:
+        @staticmethod
+        def get(model_path: str):
+            return tokenizer
+
+    monkeypatch.setattr(tmod, "_TokenizerHolder", _RecordingTokenizerHolder)
+    monkeypatch.setattr(tmod._ModelHolder, "get", lambda *a, **k: (_DummyModel(), None))
+    monkeypatch.setattr(
+        tmod._ModelHolder,
+        "get_resolved_path",
+        lambda path, dtype=mx.float16: path,
+    )
+    monkeypatch.setattr(
+        tmod,
+        "compute_features",
+        lambda audio: (mx.zeros((1, 128, 100), dtype=mx.float32), mx.array([100], dtype=mx.int32)),
+    )
+    monkeypatch.setattr(tmod, "generate", lambda **kwargs: [10, 11, 12])
+
+    transcribe(np.zeros(3200, dtype=np.float32))
+
+    assert tokenizer.contexts == [""]
+
+
+def test_transcribe_batch_per_audio_context(monkeypatch):
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    tokenizer = _RecordingLanguageTokenizer("repo/a")
+
+    class _RecordingTokenizerHolder:
+        @staticmethod
+        def get(model_path: str):
+            return tokenizer
+
+    monkeypatch.setattr(tmod, "_TokenizerHolder", _RecordingTokenizerHolder)
+    monkeypatch.setattr(tmod._ModelHolder, "get", lambda *a, **k: (_DummyModel(), None))
+    monkeypatch.setattr(
+        tmod._ModelHolder,
+        "get_resolved_path",
+        lambda path, dtype=mx.float16: path,
+    )
+    monkeypatch.setattr(
+        tmod,
+        "compute_features",
+        lambda audio: (mx.zeros((1, 128, 100), dtype=mx.float32), mx.array([100], dtype=mx.int32)),
+    )
+    monkeypatch.setattr(tmod, "generate", lambda **kwargs: [10, 11, 12])
+
+    results = transcribe_batch(
+        [np.zeros(3200, dtype=np.float32), np.zeros(3200, dtype=np.float32)],
+        context=["ctx_a", "ctx_b"],
+    )
+
+    assert len(results) == 2
+    assert tokenizer.contexts == ["ctx_a", "ctx_b"]
+
+
+def test_transcribe_batch_broadcasts_single_context(monkeypatch):
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    tokenizer = _RecordingLanguageTokenizer("repo/a")
+
+    class _RecordingTokenizerHolder:
+        @staticmethod
+        def get(model_path: str):
+            return tokenizer
+
+    monkeypatch.setattr(tmod, "_TokenizerHolder", _RecordingTokenizerHolder)
+    monkeypatch.setattr(tmod._ModelHolder, "get", lambda *a, **k: (_DummyModel(), None))
+    monkeypatch.setattr(
+        tmod._ModelHolder,
+        "get_resolved_path",
+        lambda path, dtype=mx.float16: path,
+    )
+    monkeypatch.setattr(
+        tmod,
+        "compute_features",
+        lambda audio: (mx.zeros((1, 128, 100), dtype=mx.float32), mx.array([100], dtype=mx.int32)),
+    )
+    monkeypatch.setattr(tmod, "generate", lambda **kwargs: [10, 11, 12])
+
+    results = transcribe_batch(
+        [np.zeros(3200, dtype=np.float32), np.zeros(3200, dtype=np.float32)],
+        context="shared_ctx",
+    )
+
+    assert len(results) == 2
+    assert tokenizer.contexts == ["shared_ctx", "shared_ctx"]
+
+
+def test_transcribe_batch_context_length_mismatch():
+    import pytest
+
+    with pytest.raises(ValueError, match="context list length"):
+        transcribe_batch(
+            [np.zeros(3200, dtype=np.float32)],
+            context=["a", "b"],
+        )
 
 
 def test_transcribe_uses_speculative_path_when_draft_model_is_set(monkeypatch):

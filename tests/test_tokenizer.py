@@ -295,3 +295,51 @@ def test_native_tokenizer_skip_special_tokens(tmp_path):
 
     ids = [151669, 151676, 151670, 151704]
     assert tok.decode(ids, skip_special_tokens=True) == "<asr_text>"
+
+
+class TestBuildPromptTokensContext:
+    """Test that context parameter flows into the system message."""
+
+    def test_default_context_produces_empty_system_content(self, tmp_path):
+        model_dir = _write_min_tokenizer_files(tmp_path)
+        tok = tokmod.Tokenizer(model_dir)
+        tokens = tok.build_prompt_tokens(n_audio_tokens=2)
+        # System message: <|im_start|> + "system\n" + <|im_end|>
+        assert tokens[0] == 151644  # <|im_start|>
+        # The next tokens should be the system prefix immediately followed by
+        # <|im_end|> (no content tokens between them).
+        im_end_idx = tokens.index(151645)
+        system_prefix = tok.encode("system\n")
+        assert tokens[1 : 1 + len(system_prefix)] == system_prefix
+        # With empty context, <|im_end|> follows right after system prefix.
+        assert im_end_idx == 1 + len(system_prefix)
+
+    def test_custom_context_injects_tokens(self, tmp_path):
+        model_dir = _write_min_tokenizer_files(tmp_path)
+        tok = tokmod.Tokenizer(model_dir)
+        tokens_empty = tok.build_prompt_tokens(n_audio_tokens=2, context="")
+        tokens_ctx = tok.build_prompt_tokens(n_audio_tokens=2, context="hello")
+        # Custom context should produce more tokens in the system message.
+        assert len(tokens_ctx) > len(tokens_empty)
+        # The context tokens should appear between system prefix and <|im_end|>.
+        ctx_encoded = tok.encode("hello")
+        system_prefix = tok.encode("system\n")
+        start = 1 + len(system_prefix)
+        assert tokens_ctx[start : start + len(ctx_encoded)] == ctx_encoded
+
+    def test_followup_accepts_context_kwarg(self, tmp_path):
+        model_dir = _write_min_tokenizer_files(tmp_path)
+        tok = tokmod.Tokenizer(model_dir)
+        # Should not raise — context is accepted but not used in follow-up.
+        tokens = tok.build_followup_prompt_tokens(
+            n_audio_tokens=2, context="hello"
+        )
+        assert isinstance(tokens, list)
+
+    def test_audio_tokens_present_with_context(self, tmp_path):
+        model_dir = _write_min_tokenizer_files(tmp_path)
+        tok = tokmod.Tokenizer(model_dir)
+        tokens = tok.build_prompt_tokens(n_audio_tokens=3, context="hello world")
+        assert tokens.count(151676) == 3  # <|audio_pad|> count
+        assert 151669 in tokens  # <|audio_start|>
+        assert 151670 in tokens  # <|audio_end|>

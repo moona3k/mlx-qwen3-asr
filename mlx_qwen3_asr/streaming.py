@@ -61,6 +61,7 @@ class StreamingState:
     buffer: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float32))
     audio_accum: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float32))
     text: str = ""
+    context: str = ""
     language: str = "unknown"
     forced_language: Optional[str] = None
     chunk_id: int = 0
@@ -91,6 +92,7 @@ class StreamingState:
 
 def init_streaming(
     model: str = DEFAULT_MODEL_ID,
+    context: str = "",
     unfixed_chunk_num: int = UNFIXED_CHUNK_NUM,
     unfixed_token_num: int = UNFIXED_TOKEN_NUM,
     chunk_size_sec: float = 2.0,
@@ -150,6 +152,7 @@ def init_streaming(
         mode = "accuracy" if tail_refine else "latency"
 
     return StreamingState(
+        context=context or "",
         unfixed_chunk_num=int(unfixed_chunk_num),
         unfixed_token_num=int(unfixed_token_num),
         chunk_size_samples=int(chunk_size_sec * sample_rate),
@@ -275,6 +278,7 @@ def finish_streaming(
         refined = transcribe(
             audio=refine_audio,
             model=decode_model,
+            context=state.context,
             max_new_tokens=state.max_new_tokens,
             verbose=False,
         )
@@ -411,6 +415,7 @@ def _decode_chunk_incremental(
         prompt_tokens = tokenizer.build_prompt_tokens(
             n_audio_tokens=n_audio_tokens,
             language=initial_language,
+            context=state.context,
         )
     else:
         follow_lang = state.forced_language or (
@@ -419,6 +424,7 @@ def _decode_chunk_incremental(
         prompt_tokens = tokenizer.build_followup_prompt_tokens(
             n_audio_tokens=n_audio_tokens,
             language=follow_lang,
+            context=state.context,
         )
 
     input_ids = mx.array([prompt_tokens])
