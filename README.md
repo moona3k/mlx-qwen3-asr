@@ -502,6 +502,44 @@ result = transcribe(
 
 Status: greedy parity verified, but 0.53-0.55x on short/10s clips. Not enabled by default until benchmark evidence shows net speed wins.
 
+### Domain vocabulary context
+
+When transcribing specialized audio — earnings calls, medical dictation, legal
+proceedings — the model can confuse rare terms with more common homophones.
+The `context` parameter lets you provide a hint: a string of domain-specific
+words or phrases that gets injected into the system prompt, nudging the decoder
+toward the correct vocabulary.
+
+This matches the official Qwen3-ASR `context` API. The format is
+space-separated terms:
+
+```python
+# Finance: avoids "e-bit-da" → "EBITDA", "FX" not "effects", etc.
+result = transcribe("earnings-call.wav", context="EBITDA non-GAAP FX hedging")
+
+# Medical
+result = transcribe("consult.wav", context="metformin HbA1c nephropathy")
+
+# Also works with streaming
+state = init_streaming(context="EBITDA non-GAAP FX hedging")
+```
+
+```bash
+mlx-qwen3-asr earnings-call.wav --context "EBITDA non-GAAP FX hedging"
+```
+
+For batch transcription, pass a list of per-audio context strings:
+
+```python
+results = transcribe_batch(
+    [audio_en, audio_zh],
+    context=["EBITDA non-GAAP", "交易 停滞"],
+)
+```
+
+When omitted, the system prompt is empty (matching the official default) — no
+domain bias is applied.
+
 ### Streaming
 
 Rolling decode implementation for near-real-time transcription:
@@ -553,7 +591,7 @@ Optional microphone flags: `--mic-device`, `--mic-duration-sec`, `--mic-sample-r
 
 ## API reference
 
-### `transcribe(audio, *, model, draft_model, language, return_timestamps, diarize, diarization_num_speakers, diarization_min_speakers, diarization_max_speakers, return_chunks, forced_aligner, dtype, max_new_tokens, num_draft_tokens, verbose, on_progress)`
+### `transcribe(audio, *, model, draft_model, context, language, return_timestamps, diarize, diarization_num_speakers, diarization_min_speakers, diarization_max_speakers, return_chunks, forced_aligner, dtype, max_new_tokens, num_draft_tokens, verbose, on_progress)`
 
 Transcribe audio to text. Accepts a file path, numpy array, `mx.array`, or `(array, sample_rate)` tuple. Returns a `TranscriptionResult`.
 
