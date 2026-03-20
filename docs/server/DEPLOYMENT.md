@@ -2,6 +2,13 @@
 
 How to run `mlx-qwen3-asr serve` as an internet-facing transcription server.
 
+## Prerequisites
+
+- Apple Silicon Mac (M1 or later)
+- Python 3.10+
+- `ffmpeg` installed (`brew install ffmpeg`) — required for non-WAV audio formats.
+  WAV uploads work without ffmpeg.
+
 ## Quick start (LAN)
 
 ```bash
@@ -44,7 +51,7 @@ server {
     ssl_certificate     /path/to/cert.pem;
     ssl_certificate_key /path/to/key.pem;
 
-    client_max_body_size 500M;
+    client_max_body_size 200M;
 
     location / {
         proxy_pass http://127.0.0.1:8765;
@@ -124,27 +131,32 @@ python -c "from mlx_qwen3_asr import load_model; load_model()"
 
 ### Memory usage
 
-| Model | Approximate RAM |
-|-------|----------------|
-| 0.6B fp16 | ~1.5 GB |
-| 0.6B 4-bit | ~0.5 GB |
-| 1.7B fp16 | ~3.5 GB |
-| 1.7B 4-bit | ~1.2 GB |
+| Model | ASR model RAM | + Forced aligner | Total |
+|-------|--------------|-----------------|-------|
+| 0.6B fp16 | ~1.5 GB | +~1.5 GB | ~3 GB |
+| 0.6B 4-bit | ~0.5 GB | +~1.5 GB | ~2 GB |
+| 1.7B fp16 | ~3.5 GB | +~1.5 GB | ~5 GB |
+| 1.7B 4-bit | ~1.2 GB | +~1.5 GB | ~2.7 GB |
 
-Plus overhead for audio processing and job state. A Mac Mini with 16 GB RAM
-handles the 0.6B model comfortably with room for the OS and other processes.
+Forced aligner is only loaded when `timestamps: true` is requested (lazy load
+on first timestamped request, stays in memory after that).
+
+Plus overhead for audio processing, temp files, and job state. A Mac Mini with
+16 GB RAM handles the 0.6B model comfortably with room for the OS and other
+processes.
 
 ### Monitoring
 
-- `GET /health` — check server status, model info, active job count
+- `GET /health` — check server status, model info, queue depth
 - Log output goes to stdout/stderr (capture via launchd or redirect)
 - Watch for OOM: if the Mac starts swapping, the model is too large for
   available memory
 
 ### Security checklist
 
-- [ ] TLS via reverse proxy (never expose HTTP to the internet)
-- [ ] Strong API key (at least 32 hex characters)
-- [ ] File size limit configured appropriately
-- [ ] Rate limit configured appropriately
+- [ ] TLS via reverse proxy (never expose HTTP directly to the internet)
+- [ ] Strong API key (at least 32 hex characters: `openssl rand -hex 16`)
+- [ ] File size limit configured appropriately (`--max-file-size`)
+- [ ] Max audio duration configured (`--max-duration`)
+- [ ] Rate limit configured appropriately (`--rate-limit`)
 - [ ] Firewall rules if not using tunnel

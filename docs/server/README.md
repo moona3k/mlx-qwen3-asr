@@ -26,28 +26,23 @@ GET /jobs/{id}    ─────────→  Return result
                           (Metal GPU)
 ```
 
+Jobs process sequentially (one at a time, FIFO). Queue capped at 10 by default;
+returns `503` when full.
+
 ## API at a glance
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Server status (no auth) |
-| `/transcribe` | POST | Submit audio for transcription |
-| `/jobs/{id}` | GET | Poll job status / get result |
-| `/jobs/{id}` | DELETE | Delete a job |
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/health` | GET | No | Server status, queue depth |
+| `/transcribe` | POST | Yes | Submit audio file for transcription |
+| `/jobs/{id}` | GET | Yes | Poll job status / get result |
 
 ### Submit audio
 
 ```bash
-# File upload
 curl -X POST http://localhost:8765/transcribe \
   -H "Authorization: Bearer YOUR_KEY" \
   -F "audio=@recording.wav"
-
-# URL reference
-curl -X POST http://localhost:8765/transcribe \
-  -H "Authorization: Bearer YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://storage.example.com/audio.wav"}'
 ```
 
 ### Get result
@@ -63,11 +58,14 @@ curl http://localhost:8765/jobs/j_a1b2c3d4 \
   "status": "completed",
   "result": {
     "text": "Your transcribed text here.",
-    "language": "en",
-    "duration": 12.5
+    "language": "English"
   }
 }
 ```
+
+The `result` object mirrors the library's `TranscriptionResult` directly —
+includes `segments` (word timestamps) and `chunks` (long-audio chunks) when
+applicable.
 
 ## Configuration
 
@@ -77,11 +75,18 @@ curl http://localhost:8765/jobs/j_a1b2c3d4 \
 | `--host` | `0.0.0.0` | Bind address |
 | `--api-key` | — (required) | API key(s), comma-separated |
 | `--model` | `Qwen/Qwen3-ASR-0.6B` | Model to load |
-| `--rate-limit` | `60` | Max requests per minute per key |
-| `--max-file-size` | `500` | Max upload size in MB |
+| `--rate-limit` | `60` | Max submissions per minute per key |
+| `--max-file-size` | `200` | Max upload size in MB |
+| `--max-duration` | `1800` | Max audio duration in seconds |
+| `--max-queue-depth` | `10` | Max queued jobs before 503 |
 | `--job-ttl` | `3600` | Seconds to keep completed jobs |
 
 API key can also be set via `MLX_ASR_API_KEY` environment variable.
+
+## Prerequisites
+
+- Apple Silicon Mac (M1+)
+- `ffmpeg` for non-WAV formats (`brew install ffmpeg`). WAV uploads work without it.
 
 ## Internet-facing deployment
 
@@ -102,12 +107,12 @@ tailscale serve --bg 8765
 ```
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for full deployment guide including launchd
-service configuration.
+service configuration and security checklist.
 
 ## Documentation
 
 | Document | Contents |
 |----------|----------|
-| [API-SPEC.md](API-SPEC.md) | Full API specification — endpoints, schemas, auth, rate limiting |
-| [ADR-001-transcription-server.md](ADR-001-transcription-server.md) | Architecture decision record — design choices and rationale |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment guide — reverse proxy, launchd, security checklist |
+| [API-SPEC.md](API-SPEC.md) | Full API specification — endpoints, schemas, auth, rate limiting, backpressure |
+| [ADR-001-transcription-server.md](ADR-001-transcription-server.md) | Architecture decision record — design choices, rationale, alternatives rejected |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment guide — reverse proxy, launchd, memory sizing, security checklist |

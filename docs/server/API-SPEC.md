@@ -1,6 +1,6 @@
 # Transcription Server — API Specification
 
-**Version:** 1.0 (draft)
+**Version:** 1.0 (draft, revised)
 **Date:** 2026-03-20
 
 ## Overview
@@ -9,6 +9,12 @@ HTTP JSON API served by `mlx-qwen3-asr serve`. Turns any Apple Silicon Mac into
 a speech-to-text endpoint.
 
 **Base URL:** `http://<host>:<port>` (default port: `8765`)
+
+## Prerequisites
+
+- Apple Silicon Mac with `pip install mlx-qwen3-asr[serve]`
+- `ffmpeg` installed on the host (`brew install ffmpeg`) — required for non-WAV
+  audio formats (mp3, flac, m4a, ogg, etc.). WAV files work without ffmpeg.
 
 ## Authentication
 
@@ -20,17 +26,25 @@ Authorization: Bearer <api-key>
 
 API keys are configured at server startup via `--api-key` flag or
 `MLX_ASR_API_KEY` environment variable. Multiple keys can be specified
-(comma-separated).
+(comma-separated). **The server refuses to start without at least one key.**
 
 Unauthenticated requests receive `401 Unauthorized`.
 Invalid keys receive `403 Forbidden`.
 
 ## Rate Limiting
 
-Per-key rate limiting. Default: 60 requests/minute. Configurable via
-`--rate-limit`.
+Per-key rate limiting on submission endpoints. Default: 60 requests/minute.
+Configurable via `--rate-limit`.
+
+`GET /jobs/{id}` polling does **not** count against the rate limit, so clients
+can poll freely without burning their submission budget.
 
 Exceeded limits return `429 Too Many Requests` with `Retry-After` header.
+
+## Backpressure
+
+The job queue has a configurable max depth (default: 10). When the queue is full,
+`POST /transcribe` returns `503 Service Unavailable` with a `Retry-After` header.
 
 ---
 
@@ -48,7 +62,8 @@ Health check. No auth required.
   "model": "Qwen/Qwen3-ASR-0.6B",
   "dtype": "float16",
   "uptime_seconds": 3421,
-  "active_jobs": 2
+  "queued_jobs": 2,
+  "max_queue_depth": 10
 }
 ```
 
@@ -58,27 +73,14 @@ Health check. No auth required.
 
 Submit a transcription job. Returns immediately with a job ID.
 
-**Content-Type:** `multipart/form-data` or `application/json`
-
-#### Option A: File upload (multipart)
+**Content-Type:** `multipart/form-data`
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `audio` | file | yes | Audio file (wav, mp3, flac, m4a, ogg, etc.) |
-| `language` | string | no | ISO 639-1 language code (e.g., `en`, `ja`). Auto-detect if omitted. |
-| `timestamps` | bool | no | Include word-level timestamps. Default: `false`. |
+| `language` | string | no | Language code (e.g., `en`, `ja`, `zh`). Auto-detect if omitted. |
+| `timestamps` | string | no | `"true"` to include word-level timestamps. Default: `"false"`. Note: timestamps require the forced aligner model (~1.2 GB additional download on first use, ~1.5 GB additional RAM). |
 | `context` | string | no | Custom system prompt for domain vocabulary biasing. |
-
-#### Option B: URL reference (JSON)
-
-```json
-{
-  "url": "https://storage.example.com/meeting.wav",
-  "language": "en",
-  "timestamps": true,
-  "context": ""
-}
-```
 
 **Response** `202 Accepted`:
 
@@ -94,17 +96,29 @@ Submit a transcription job. Returns immediately with a job ID.
 
 | Code | Condition |
 |------|-----------|
-| `400` | No audio provided, unsupported format, or file exceeds size limit |
+| `400` | No audio file provided, or unsupported format |
 | `401` | Missing auth token |
 | `403` | Invalid auth token |
+| `413` | File too large (default max: 200 MB) |
+| `422` | Audio duration exceeds max allowed (default: 30 minutes) |
 | `429` | Rate limit exceeded |
-| `413` | File too large (default max: 500 MB) |
+| `503` | Queue full — server is at capacity |
 
 ---
 
 ### `GET /jobs/{job_id}`
 
-Poll job status and retrieve results.
+Poll job status and retrieve results. Does not count against rate limit.
+
+**Response** `200 OK` (queued):
+
+```json
+{
+  "job_id": "j_a1b2c3d4",
+  "status": "queued",
+  "created_at": "2026-03-20T14:30:00Z"
+}
+```
 
 **Response** `200 OK` (processing):
 
@@ -112,8 +126,7 @@ Poll job status and retrieve results.
 {
   "job_id": "j_a1b2c3d4",
   "status": "processing",
-  "created_at": "2026-03-20T14:30:00Z",
-  "progress": null
+  "created_at": "2026-03-20T14:30:00Z"
 }
 ```
 
@@ -127,32 +140,45 @@ Poll job status and retrieve results.
   "completed_at": "2026-03-20T14:30:12Z",
   "result": {
     "text": "The full transcription text here.",
-    "language": "en",
-    "duration": 45.2,
+    "language": "English",
     "segments": [
       {
-        "start": 0.0,
-        "end": 3.5,
-        "text": "The full transcription"
-      },
-      {
-        "start": 3.5,
-        "end": 5.1,
-        "text": "text here."
-      }
-    ],
-    "words": [
-      {
-        "word": "The",
+        "text": "The",
         "start": 0.0,
         "end": 0.3
+      },
+      {
+        "text": "full",
+        "start": 0.3,
+        "end": 0.6
+      }
+    ],
+    "chunks": [
+      {
+        "text": "The full transcription text here.",
+        "start": 0.0,
+        "end": 5.1,
+        "chunk_index": 0,
+        "language": "English"
       }
     ]
   }
 }
 ```
 
-`words` array is only present when `timestamps: true` was requested.
+**Response schema notes:**
+
+The `result` object directly mirrors the library's `TranscriptionResult` dataclass:
+
+| Field | Type | Always present | Description |
+|-------|------|---------------|-------------|
+| `text` | string | yes | Full transcription text |
+| `language` | string | yes | Detected or forced language. Returns the library's canonical form (e.g., `"English"`, `"Japanese"`), not ISO codes. |
+| `segments` | array | only with `timestamps: true` | Word-level timestamps from forced aligner. Each item: `{text, start, end}`. |
+| `chunks` | array | only for chunked audio | Chunk-level transcripts for long audio. Each item: `{text, start, end, chunk_index, language}`. |
+| `speaker_segments` | array | only with diarization | Speaker-attributed spans (future). Each item: `{speaker, start, end, text}`. |
+
+The server passes through the library output as-is — no schema translation layer.
 
 **Response** `200 OK` (failed):
 
@@ -173,14 +199,6 @@ Poll job status and retrieve results.
 
 ---
 
-### `DELETE /jobs/{job_id}`
-
-Delete a job and its results. Useful for cleanup.
-
-**Response** `204 No Content`
-
----
-
 ## Job lifecycle
 
 ```
@@ -188,10 +206,32 @@ queued → processing → completed
                     → failed
 ```
 
-- Jobs are stored in-memory. Default TTL: 1 hour after completion.
+- Jobs are stored in-memory. Default TTL: 1 hour after completion/failure.
 - Server restart clears all jobs.
 - Only one job processes at a time (sequential model inference). Queued jobs
   wait in FIFO order.
+- Max queue depth: 10 (configurable). Submissions beyond this return `503`.
+
+## Temp file lifecycle
+
+Uploaded audio is written to a `tempfile.NamedTemporaryFile` on disk (system
+temp directory). The file is deleted in a `finally` block after transcription
+completes or fails. Temp files for expired jobs are also cleaned up during
+TTL expiry sweeps.
+
+## CLI subcommand
+
+The `serve` subcommand requires converting the existing CLI to a subcommand
+architecture. The current CLI treats the first positional arg as an audio file
+path. After the change:
+
+```
+mlx-qwen3-asr transcribe audio.wav    # explicit transcribe subcommand
+mlx-qwen3-asr audio.wav               # legacy shorthand (positional arg without subcommand)
+mlx-qwen3-asr serve [options]         # start server
+```
+
+Backward compatibility: bare `mlx-qwen3-asr audio.wav` continues to work.
 
 ## CLI usage
 
@@ -205,7 +245,9 @@ mlx-qwen3-asr serve \
   --api-key mykey123 \
   --model Qwen/Qwen3-ASR-1.7B \
   --rate-limit 30 \
-  --max-file-size 500 \
+  --max-file-size 200 \
+  --max-duration 1800 \
+  --max-queue-depth 10 \
   --job-ttl 3600 \
   --host 0.0.0.0
 
@@ -216,33 +258,27 @@ mlx-qwen3-asr serve
 
 ## Client examples
 
-### cURL — file upload
+### cURL
 
 ```bash
+# Submit
 curl -X POST http://localhost:8765/transcribe \
   -H "Authorization: Bearer mykey123" \
   -F "audio=@meeting.wav" \
   -F "language=en"
 # → {"job_id": "j_a1b2c3d4", "status": "queued", ...}
 
-curl http://localhost:8765/transcribe/jobs/j_a1b2c3d4 \
+# Poll
+curl http://localhost:8765/jobs/j_a1b2c3d4 \
   -H "Authorization: Bearer mykey123"
 # → {"job_id": "j_a1b2c3d4", "status": "completed", "result": {...}}
-```
-
-### cURL — URL reference
-
-```bash
-curl -X POST http://localhost:8765/transcribe \
-  -H "Authorization: Bearer mykey123" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://storage.example.com/clip.wav"}'
 ```
 
 ### Python
 
 ```python
 import requests
+import time
 
 API = "http://192.168.1.42:8765"
 KEY = "mykey123"
@@ -254,7 +290,6 @@ with open("meeting.wav", "rb") as f:
 job_id = r.json()["job_id"]
 
 # Poll
-import time
 while True:
     r = requests.get(f"{API}/jobs/{job_id}", headers=headers)
     data = r.json()
@@ -274,12 +309,16 @@ print(data["result"]["text"])
 | API key(s) | — (required) | `--api-key` | `MLX_ASR_API_KEY` |
 | Model | `Qwen/Qwen3-ASR-0.6B` | `--model` | — |
 | Rate limit | `60` req/min | `--rate-limit` | — |
-| Max file size | `500` MB | `--max-file-size` | — |
+| Max file size | `200` MB | `--max-file-size` | — |
+| Max audio duration | `1800` seconds (30 min) | `--max-duration` | — |
+| Max queue depth | `10` | `--max-queue-depth` | — |
 | Job TTL | `3600` seconds | `--job-ttl` | — |
 
 ## Future (not in v1)
 
+- URL ingestion (requires SSRF mitigation: scheme allowlist, private-IP blocking, redirect limits)
 - WebSocket streaming for real-time audio
+- Job cancellation and `DELETE /jobs/{id}`
 - Callback/webhook on job completion
 - Batch endpoint (multiple files in one request)
 - TLS termination (use reverse proxy for now)
