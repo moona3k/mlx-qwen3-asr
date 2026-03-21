@@ -63,6 +63,7 @@ Health check. No auth required.
   "dtype": "float16",
   "uptime_seconds": 3421,
   "queued_jobs": 2,
+  "processing_jobs": 1,
   "max_queue_depth": 10
 }
 ```
