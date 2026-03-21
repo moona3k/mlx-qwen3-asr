@@ -1157,3 +1157,128 @@ async def test_openai_model_field_accepted():
         )
         assert resp.status_code == 200
         assert resp.json()["text"] == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_openai_500_on_transcription_failure():
+    """OpenAI compat returns 500 when transcription fails."""
+    session = MagicMock()
+    session.transcribe_async = AsyncMock(
+        side_effect=RuntimeError("Audio is corrupted")
+    )
+    app = _create_test_app(mock_session_obj=session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("bad.wav", b"RIFF" * 10, "audio/wav")},
+        )
+        assert resp.status_code == 500
+        assert "detail" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_openai_verbose_json_includes_segments():
+    """verbose_json includes segments from chunks."""
+    from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+    session = MagicMock()
+    session.transcribe_async = AsyncMock(
+        return_value=TranscriptionResult(
+            text="Hello world",
+            language="English",
+            segments=[
+                {"text": "Hello", "start": 0.0, "end": 0.5},
+                {"text": "world", "start": 0.5, "end": 1.0},
+            ],
+            chunks=[{
+                "text": "Hello world",
+                "start": 0.0,
+                "end": 1.0,
+                "chunk_index": 0,
+                "language": "English",
+            }],
+        )
+    )
+    app = _create_test_app(mock_session_obj=session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 100, "audio/wav")},
+            data={"response_format": "verbose_json"},
+        )
+        data = resp.json()
+        assert "segments" in data
+        assert data["segments"][0]["id"] == 0
+        assert data["segments"][0]["text"] == "Hello world"
+        assert "words" in data
+
+
+@pytest.mark.asyncio
+async def test_openai_backpressure_returns_503():
+    """OpenAI compat returns 503 when server is at capacity."""
+    from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+    session = MagicMock()
+
+    async def slow_transcribe(*args, **kwargs):
+        await asyncio.sleep(10)
+        return TranscriptionResult(text="done", language="English")
+
+    session.transcribe_async = slow_transcribe
+
+    async with _create_test_app_with_worker(
+        max_queue_depth=1, mock_session_obj=session
+    ) as app:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            headers = {"Authorization": "Bearer testkey"}
+            audio = ("test.wav", b"RIFF" * 10, "audio/wav")
+
+            # Fill native queue: submit a job to occupy the worker
+            resp1 = await client.post(
+                "/transcribe", headers=headers, files={"audio": audio}
+            )
+            assert resp1.status_code == 202
+            await asyncio.sleep(0.1)
+
+            # Fill queue slot
+            resp2 = await client.post(
+                "/transcribe", headers=headers, files={"audio": audio}
+            )
+            assert resp2.status_code == 202
+
+            # OpenAI endpoint should get 503
+            resp3 = await client.post(
+                "/v1/audio/transcriptions", headers=headers, files={"file": audio}
+            )
+            assert resp3.status_code == 503
+            assert "Retry-After" in resp3.headers
+
+
+@pytest.mark.asyncio
+async def test_openai_verbose_json_no_segments():
+    """verbose_json omits words key when no timestamps available."""
+    from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+    session = MagicMock()
+    session.transcribe_async = AsyncMock(
+        return_value=TranscriptionResult(text="Hello", language="English")
+    )
+    app = _create_test_app(mock_session_obj=session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 100, "audio/wav")},
+            data={"response_format": "verbose_json"},
+        )
+        data = resp.json()
+        assert data["task"] == "transcribe"
+        assert data["text"] == "Hello"
+        assert "words" not in data
+        assert "segments" not in data

@@ -118,6 +118,8 @@ class _AppState:
     api_keys_set: set[str] = field(default_factory=set)
     session: object = None  # Session instance
     config: Optional[ServerConfig] = None
+    inference_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    sync_inflight: int = 0  # count of /v1 requests waiting for inference
 
 
 # ---------------------------------------------------------------------------
@@ -192,13 +194,14 @@ def create_app(config: ServerConfig):
     async def _run_transcription(job: Job) -> dict:
         """Run transcription via Session.transcribe_async (thread offload)."""
         session = state.session
-        result = await session.transcribe_async(
-            job.temp_path,
-            language=job.language,
-            context=job.context,
-            return_timestamps=job.timestamps,
-            return_chunks=True,
-        )
+        async with state.inference_lock:
+            result = await session.transcribe_async(
+                job.temp_path,
+                language=job.language,
+                context=job.context,
+                return_timestamps=job.timestamps,
+                return_chunks=True,
+            )
         return _result_to_dict(result)
 
     async def _ttl_sweeper() -> None:
@@ -452,19 +455,32 @@ def create_app(config: ServerConfig):
         # Timestamps needed for verbose_json, srt, vtt
         need_timestamps = fmt in ("verbose_json", "srt", "vtt")
 
-        # Synchronous transcription — bypasses job queue
-        try:
-            result = await state.session.transcribe_async(
-                tmp.name,
-                language=language,
-                context=prompt or "",
-                return_timestamps=need_timestamps,
+        # Backpressure: count queued jobs + in-flight /v1 requests
+        if state.job_queue.qsize() + state.sync_inflight >= config.max_queue_depth:
+            Path(tmp.name).unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=503,
+                detail="Server at capacity",
+                headers={"Retry-After": "10"},
             )
+
+        # Synchronous transcription — serialized via inference lock
+        state.sync_inflight += 1
+        try:
+            async with state.inference_lock:
+                result = await state.session.transcribe_async(
+                    tmp.name,
+                    language=language,
+                    context=prompt or "",
+                    return_timestamps=need_timestamps,
+                    return_chunks=True,
+                )
         except Exception as exc:
             raise HTTPException(
                 status_code=500, detail=_sanitize_error(exc)
             )
         finally:
+            state.sync_inflight -= 1
             Path(tmp.name).unlink(missing_ok=True)
 
         return _openai_format_response(result, fmt)
@@ -558,13 +574,25 @@ def _openai_format_response(result: object, fmt: str):
                 {"word": s["text"], "start": s["start"], "end": s["end"]}
                 for s in result.segments
             ]
+        if result.chunks:
+            resp["segments"] = [
+                {
+                    "id": c.get("chunk_index", i),
+                    "start": c["start"],
+                    "end": c["end"],
+                    "text": c["text"],
+                }
+                for i, c in enumerate(result.chunks)
+            ]
         return resp
 
     # srt / vtt — need subtitle grouping
     from .writers import group_subtitle_segments
 
     if not result.segments:
-        return PlainTextResponse(result.text, media_type="text/plain")
+        if fmt == "vtt":
+            return PlainTextResponse("WEBVTT\n\n", media_type="text/plain")
+        return PlainTextResponse("", media_type="text/plain")
 
     grouped = group_subtitle_segments(
         result.segments, language=result.language or ""
