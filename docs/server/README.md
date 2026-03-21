@@ -34,8 +34,9 @@ returns `503` when full.
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/health` | GET | No | Server status, queue depth |
-| `/transcribe` | POST | Yes | Submit audio file for transcription |
+| `/transcribe` | POST | Yes | Submit audio → async job (poll for result) |
 | `/jobs/{id}` | GET | Yes | Poll job status / get result |
+| `/v1/audio/transcriptions` | POST | Yes | OpenAI-compatible (synchronous) |
 
 ### Submit audio
 
@@ -66,6 +67,25 @@ curl http://localhost:8765/jobs/j_a1b2c3d4 \
 The `result` object mirrors the library's `TranscriptionResult` directly —
 includes `segments` (word timestamps) and `chunks` (long-audio chunks) when
 applicable.
+
+### OpenAI-compatible endpoint
+
+Existing OpenAI SDK code works with zero changes — just point at your Mac:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(api_key="YOUR_KEY", base_url="http://localhost:8765/v1")
+result = client.audio.transcriptions.create(
+    model="Qwen/Qwen3-ASR-0.6B",
+    file=open("recording.wav", "rb"),
+)
+print(result.text)
+```
+
+Supports `response_format`: `json`, `text`, `verbose_json`, `srt`, `vtt`.
+This endpoint is synchronous (blocks until done) — for long audio, use the
+async `/transcribe` + polling flow instead.
 
 ## Configuration
 

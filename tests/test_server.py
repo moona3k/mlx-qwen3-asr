@@ -15,7 +15,10 @@ from mlx_qwen3_asr.server import (
     ServerConfig,
     _AppState,
     _cleanup_temp,
+    _estimate_duration,
+    _format_srt,
     _format_time,
+    _format_vtt,
     _parse_bool,
     _RateLimiter,
     _result_to_dict,
@@ -813,3 +816,344 @@ def test_run_server_rejects_zero_queue_depth():
     config = ServerConfig(api_keys=["k"], max_queue_depth=0)
     with pytest.raises(SystemExit, match="max-queue-depth"):
         run_server(config)
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-compatible response helpers
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateDuration:
+    def test_from_segments(self):
+        from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+        result = TranscriptionResult(
+            text="hi", language="en",
+            segments=[{"text": "hi", "start": 0.0, "end": 2.5}],
+        )
+        assert _estimate_duration(result) == 2.5
+
+    def test_from_chunks(self):
+        from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+        result = TranscriptionResult(
+            text="hi", language="en",
+            chunks=[{"text": "hi", "start": 0.0, "end": 5.0}],
+        )
+        assert _estimate_duration(result) == 5.0
+
+    def test_no_timestamps(self):
+        from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+        result = TranscriptionResult(text="hi", language="en")
+        assert _estimate_duration(result) == 0.0
+
+
+class TestFormatSrt:
+    def test_basic(self):
+        segments = [
+            {"text": "Hello world", "start": 0.0, "end": 1.0},
+            {"text": "How are you", "start": 1.5, "end": 2.5},
+        ]
+        srt = _format_srt(segments)
+        assert "1\n00:00:00,000 --> 00:00:01,000\nHello world" in srt
+        assert "2\n00:00:01,500 --> 00:00:02,500\nHow are you" in srt
+
+    def test_empty(self):
+        assert _format_srt([]) == ""
+
+
+class TestFormatVtt:
+    def test_basic(self):
+        segments = [
+            {"text": "Hello world", "start": 0.0, "end": 1.0},
+        ]
+        vtt = _format_vtt(segments)
+        assert vtt.startswith("WEBVTT")
+        assert "00:00:00.000 --> 00:00:01.000" in vtt
+        assert "Hello world" in vtt
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-compatible endpoint tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_openai_json_default():
+    """OpenAI compat returns JSON with text field by default."""
+    app = _create_test_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 100, "audio/wav")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data == {"text": "Hello world"}
+
+
+@pytest.mark.asyncio
+async def test_openai_text_format():
+    """OpenAI compat returns plain text when response_format=text."""
+    app = _create_test_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 100, "audio/wav")},
+            data={"response_format": "text"},
+        )
+        assert resp.status_code == 200
+        assert resp.text == "Hello world"
+        assert "text/plain" in resp.headers.get("content-type", "")
+
+
+@pytest.mark.asyncio
+async def test_openai_verbose_json():
+    """OpenAI compat verbose_json includes words and duration."""
+    from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+    session = MagicMock()
+    session.transcribe_async = AsyncMock(
+        return_value=TranscriptionResult(
+            text="Hello world",
+            language="English",
+            segments=[
+                {"text": "Hello", "start": 0.0, "end": 0.5},
+                {"text": "world", "start": 0.5, "end": 1.0},
+            ],
+        )
+    )
+    app = _create_test_app(mock_session_obj=session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 100, "audio/wav")},
+            data={"response_format": "verbose_json"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["task"] == "transcribe"
+        assert data["language"] == "english"
+        assert data["text"] == "Hello world"
+        assert data["duration"] == 1.0
+        assert len(data["words"]) == 2
+        assert data["words"][0] == {"word": "Hello", "start": 0.0, "end": 0.5}
+
+
+@pytest.mark.asyncio
+async def test_openai_srt_format():
+    """OpenAI compat returns SRT subtitles."""
+    from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+    session = MagicMock()
+    session.transcribe_async = AsyncMock(
+        return_value=TranscriptionResult(
+            text="Hello world",
+            language="English",
+            segments=[
+                {"text": "Hello", "start": 0.0, "end": 0.5},
+                {"text": "world", "start": 0.5, "end": 1.0},
+            ],
+        )
+    )
+    app = _create_test_app(mock_session_obj=session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 100, "audio/wav")},
+            data={"response_format": "srt"},
+        )
+        assert resp.status_code == 200
+        assert "text/plain" in resp.headers.get("content-type", "")
+        assert "00:00:00,000" in resp.text
+        assert "-->" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_openai_vtt_format():
+    """OpenAI compat returns WebVTT subtitles."""
+    from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+    session = MagicMock()
+    session.transcribe_async = AsyncMock(
+        return_value=TranscriptionResult(
+            text="Hello world",
+            language="English",
+            segments=[
+                {"text": "Hello", "start": 0.0, "end": 0.5},
+                {"text": "world", "start": 0.5, "end": 1.0},
+            ],
+        )
+    )
+    app = _create_test_app(mock_session_obj=session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 100, "audio/wav")},
+            data={"response_format": "vtt"},
+        )
+        assert resp.status_code == 200
+        assert "WEBVTT" in resp.text
+        assert "00:00:00.000" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_openai_requires_auth():
+    """OpenAI compat endpoint requires authentication."""
+    app = _create_test_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            files={"file": ("test.wav", b"RIFF" * 10, "audio/wav")},
+        )
+        assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_openai_rejects_bad_key():
+    """OpenAI compat endpoint rejects invalid API key."""
+    app = _create_test_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer wrongkey"},
+            files={"file": ("test.wav", b"RIFF" * 10, "audio/wav")},
+        )
+        assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_openai_rate_limited():
+    """OpenAI compat respects rate limiting."""
+    app = _create_test_app(rate_limit=1)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer testkey"}
+        audio = ("test.wav", b"RIFF" * 10, "audio/wav")
+
+        # First request uses the rate limit
+        await client.post(
+            "/v1/audio/transcriptions", headers=headers, files={"file": audio}
+        )
+        # Second should be limited
+        resp = await client.post(
+            "/v1/audio/transcriptions", headers=headers, files={"file": audio}
+        )
+        assert resp.status_code == 429
+        assert "Retry-After" in resp.headers
+
+
+@pytest.mark.asyncio
+async def test_openai_prompt_maps_to_context():
+    """OpenAI 'prompt' field maps to our 'context' parameter."""
+    from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+    captured = {}
+
+    async def capture(*args, **kwargs):
+        captured.update(kwargs)
+        return TranscriptionResult(text="ok", language="English")
+
+    session = MagicMock()
+    session.transcribe_async = capture
+
+    app = _create_test_app(mock_session_obj=session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 10, "audio/wav")},
+            data={"prompt": "Medical terminology"},
+        )
+
+    assert captured.get("context") == "Medical terminology"
+
+
+@pytest.mark.asyncio
+async def test_openai_verbose_json_enables_timestamps():
+    """verbose_json format automatically enables timestamp generation."""
+    from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+    captured = {}
+
+    async def capture(*args, **kwargs):
+        captured.update(kwargs)
+        return TranscriptionResult(
+            text="ok", language="English",
+            segments=[{"text": "ok", "start": 0.0, "end": 0.5}],
+        )
+
+    session = MagicMock()
+    session.transcribe_async = capture
+
+    app = _create_test_app(mock_session_obj=session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 10, "audio/wav")},
+            data={"response_format": "verbose_json"},
+        )
+
+    assert captured.get("return_timestamps") is True
+
+
+@pytest.mark.asyncio
+async def test_openai_invalid_format():
+    """OpenAI compat rejects invalid response_format."""
+    app = _create_test_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 10, "audio/wav")},
+            data={"response_format": "xml"},
+        )
+        assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_openai_file_size_limit():
+    """OpenAI compat respects file size limits."""
+    app = _create_test_app(max_file_size_mb=1)
+    big_data = b"x" * (2 * 1024 * 1024)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", big_data, "audio/wav")},
+        )
+        assert resp.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_openai_model_field_accepted():
+    """OpenAI compat accepts model field without error."""
+    app = _create_test_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            headers={"Authorization": "Bearer testkey"},
+            files={"file": ("test.wav", b"RIFF" * 100, "audio/wav")},
+            data={"model": "Qwen/Qwen3-ASR-1.7B"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["text"] == "Hello world"

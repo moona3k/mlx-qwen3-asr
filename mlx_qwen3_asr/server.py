@@ -383,6 +383,92 @@ def create_app(config: ServerConfig):
 
         return resp
 
+    # ---- OpenAI-compatible endpoint ----
+
+    @app.post("/v1/audio/transcriptions")
+    async def openai_transcriptions(
+        request: Request,
+        file: UploadFile = File(...),
+        model: Optional[str] = Form(None),
+        language: Optional[str] = Form(None),
+        prompt: Optional[str] = Form(None),
+        response_format: Optional[str] = Form("json"),
+        temperature: Optional[float] = Form(None),
+    ):
+        """OpenAI-compatible transcription endpoint.
+
+        Synchronous — blocks until transcription completes and returns the
+        result directly.  Accepts the same fields as OpenAI's
+        ``POST /v1/audio/transcriptions``.
+        """
+        key = _check_auth(request)
+
+        # Rate limit
+        if not state.rate_limiter.is_allowed(key):
+            retry = state.rate_limiter.retry_after(key)
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": str(int(retry) + 1)},
+            )
+
+        # Validate response_format
+        fmt = (response_format or "json").strip().lower()
+        if fmt not in _OPENAI_FORMATS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid response_format '{response_format}'. "
+                    f"Supported: {', '.join(sorted(_OPENAI_FORMATS))}"
+                ),
+            )
+
+        # File size check
+        contents = await file.read()
+        size_mb = len(contents) / (1024 * 1024)
+        if size_mb > config.max_file_size_mb:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"File too large ({size_mb:.1f} MB). "
+                    f"Max: {config.max_file_size_mb} MB"
+                ),
+            )
+
+        # Write temp file
+        suffix = Path(file.filename or "upload.wav").suffix or ".wav"
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=suffix, delete=False, prefix="mlx_asr_"
+        )
+        try:
+            tmp.write(contents)
+            tmp.flush()
+            tmp.close()
+        except Exception:
+            tmp.close()
+            Path(tmp.name).unlink(missing_ok=True)
+            raise
+
+        # Timestamps needed for verbose_json, srt, vtt
+        need_timestamps = fmt in ("verbose_json", "srt", "vtt")
+
+        # Synchronous transcription — bypasses job queue
+        try:
+            result = await state.session.transcribe_async(
+                tmp.name,
+                language=language,
+                context=prompt or "",
+                return_timestamps=need_timestamps,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500, detail=_sanitize_error(exc)
+            )
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+        return _openai_format_response(result, fmt)
+
     return app
 
 
@@ -436,6 +522,106 @@ def _cleanup_temp(job: Job) -> None:
     if job.temp_path:
         Path(job.temp_path).unlink(missing_ok=True)
         job.temp_path = None
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-compatible response formatting
+# ---------------------------------------------------------------------------
+
+_OPENAI_FORMATS = frozenset({"json", "text", "verbose_json", "srt", "vtt"})
+
+
+def _openai_format_response(result: object, fmt: str):
+    """Format a TranscriptionResult as an OpenAI-compatible response."""
+    from fastapi.responses import PlainTextResponse
+
+    from .transcribe import TranscriptionResult
+
+    if not isinstance(result, TranscriptionResult):
+        return {"text": str(result)}
+
+    if fmt == "text":
+        return PlainTextResponse(result.text)
+
+    if fmt == "json":
+        return {"text": result.text}
+
+    if fmt == "verbose_json":
+        resp: dict = {
+            "task": "transcribe",
+            "language": (result.language or "").lower(),
+            "duration": _estimate_duration(result),
+            "text": result.text,
+        }
+        if result.segments:
+            resp["words"] = [
+                {"word": s["text"], "start": s["start"], "end": s["end"]}
+                for s in result.segments
+            ]
+        return resp
+
+    # srt / vtt — need subtitle grouping
+    from .writers import group_subtitle_segments
+
+    if not result.segments:
+        return PlainTextResponse(result.text, media_type="text/plain")
+
+    grouped = group_subtitle_segments(
+        result.segments, language=result.language or ""
+    )
+
+    if fmt == "srt":
+        return PlainTextResponse(_format_srt(grouped), media_type="text/plain")
+
+    return PlainTextResponse(_format_vtt(grouped), media_type="text/plain")
+
+
+def _estimate_duration(result: object) -> float:
+    """Estimate audio duration from transcription result timestamps."""
+    segments = getattr(result, "segments", None)
+    if segments:
+        return max((s.get("end", 0.0) for s in segments), default=0.0)
+    chunks = getattr(result, "chunks", None)
+    if chunks:
+        return max((c.get("end", 0.0) for c in chunks), default=0.0)
+    return 0.0
+
+
+def _format_srt(segments: list[dict]) -> str:
+    """Format grouped subtitle segments as an SRT string."""
+    lines: list[str] = []
+    for i, seg in enumerate(segments, 1):
+        lines.append(str(i))
+        lines.append(f"{_ts_srt(seg['start'])} --> {_ts_srt(seg['end'])}")
+        lines.append(seg["text"])
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _format_vtt(segments: list[dict]) -> str:
+    """Format grouped subtitle segments as a WebVTT string."""
+    lines = ["WEBVTT", ""]
+    for seg in segments:
+        lines.append(f"{_ts_vtt(seg['start'])} --> {_ts_vtt(seg['end'])}")
+        lines.append(seg["text"])
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _ts_srt(seconds: float) -> str:
+    ms = max(0, int(round(seconds * 1000)))
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _ts_vtt(seconds: float) -> str:
+    ms = max(0, int(round(seconds * 1000)))
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
 
 # ---------------------------------------------------------------------------

@@ -200,6 +200,92 @@ The server passes through the library output as-is — no schema translation lay
 
 ---
 
+### `POST /v1/audio/transcriptions`
+
+OpenAI-compatible transcription endpoint. Drop-in replacement for the
+OpenAI Audio API — existing clients just change the base URL.
+
+**Key difference from `/transcribe`:** This endpoint is **synchronous** — it
+blocks until transcription completes and returns the result directly. No job
+queue, no polling. Best for short audio or when you need OpenAI SDK
+compatibility.
+
+**Content-Type:** `multipart/form-data`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | file | yes | Audio file (wav, mp3, flac, m4a, ogg, etc.) |
+| `model` | string | no | Model identifier. Accepted for compatibility; server uses its loaded model. |
+| `language` | string | no | Language code (e.g., `en`, `ja`, `zh`). Auto-detect if omitted. |
+| `prompt` | string | no | Text to guide transcription (maps to `context` internally). |
+| `response_format` | string | no | `json` (default), `text`, `verbose_json`, `srt`, `vtt` |
+| `temperature` | float | no | Accepted for compatibility. Ignored (greedy decoding). |
+
+**Response** (`response_format=json`, default) `200 OK`:
+
+```json
+{"text": "The transcribed text."}
+```
+
+**Response** (`response_format=text`) `200 OK`:
+
+```
+The transcribed text.
+```
+
+**Response** (`response_format=verbose_json`) `200 OK`:
+
+```json
+{
+  "task": "transcribe",
+  "language": "english",
+  "duration": 5.1,
+  "text": "The transcribed text.",
+  "words": [
+    {"word": "The", "start": 0.0, "end": 0.3},
+    {"word": "transcribed", "start": 0.3, "end": 0.8},
+    {"word": "text.", "start": 0.8, "end": 1.2}
+  ]
+}
+```
+
+**Response** (`response_format=srt`) `200 OK`:
+
+```
+1
+00:00:00,000 --> 00:00:01,200
+The transcribed text.
+```
+
+**Response** (`response_format=vtt`) `200 OK`:
+
+```
+WEBVTT
+
+00:00:00.000 --> 00:00:01.200
+The transcribed text.
+```
+
+**Notes:**
+
+- `verbose_json`, `srt`, and `vtt` formats automatically enable word-level
+  timestamps (forced aligner). First use downloads the aligner model (~1.2 GB).
+- The `words` array in `verbose_json` maps OpenAI's `word` field from our
+  word-level segments. Duration is estimated from the last timestamp.
+
+**Error responses:**
+
+| Code | Condition |
+|------|-----------|
+| `400` | Invalid `response_format` |
+| `401` | Missing auth token |
+| `403` | Invalid auth token |
+| `413` | File too large |
+| `429` | Rate limit exceeded |
+| `500` | Transcription failed |
+
+---
+
 ## Job lifecycle
 
 ```
@@ -299,6 +385,34 @@ while True:
     time.sleep(1)
 
 print(data["result"]["text"])
+```
+
+### OpenAI Python SDK
+
+Existing OpenAI client code works with zero changes — just point at your Mac:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="mykey123",
+    base_url="http://localhost:8765/v1",
+)
+
+result = client.audio.transcriptions.create(
+    model="Qwen/Qwen3-ASR-0.6B",
+    file=open("meeting.wav", "rb"),
+)
+print(result.text)
+
+# With word timestamps
+result = client.audio.transcriptions.create(
+    model="Qwen/Qwen3-ASR-0.6B",
+    file=open("meeting.wav", "rb"),
+    response_format="verbose_json",
+)
+for word in result.words:
+    print(f"{word['start']:.2f}s: {word['word']}")
 ```
 
 ## Configuration defaults
