@@ -107,7 +107,16 @@ Performance progress:
 
 Near-term work should remain correctness-gated and benchmark-driven:
 
-1. Native MLX forced aligner (timestamps) quality hardening
+1. **Transcription server** (`mlx-qwen3-asr serve`)
+- Status: spec complete (`docs/server/`). Implementation next.
+- Scope: FastAPI + uvicorn behind `[serve]` optional extra. Single-tenant,
+  API key auth, async job model, sequential FIFO, in-memory job store with TTL.
+  File upload only (no URL ingestion in v1). Backpressure via max queue depth.
+- Gate: server starts, accepts uploads, returns correct transcriptions,
+  handles auth/rate-limiting/backpressure. Integration tests.
+- Spec: `docs/server/ADR-001-transcription-server.md`, `docs/server/API-SPEC.md`
+
+2. Native MLX forced aligner (timestamps) quality hardening
 - Goal: continue quality hardening now that runtime PyTorch dependency is removed.
 - Gate: word-level timing quality must be competitive with current `qwen-asr` backend.
 

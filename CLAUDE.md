@@ -16,12 +16,12 @@ Ground-up MLX reimplementation of Qwen3-ASR. Same HuggingFace weights, same outp
 - **Fast** — Metal-optimized inference, sub-200ms latency on short clips
 - **Production-grade** — bounds checks, multi-slot model cache, Session API, proper error paths
 - **No PyTorch in the core path** — core ASR pipeline (audio → mel → encoder → decoder → text) must never import torch
+- **Built-in server** — `mlx-qwen3-asr serve` turns any Mac into a transcription API endpoint (optional `[serve]` extra)
 
 ### What this is NOT
 
 - Not a multi-model toolkit (that's mlx-audio)
 - Not a training framework
-- Not a server/API — library + CLI only
 
 ## Current Status (v0.1.0)
 
@@ -29,7 +29,8 @@ Published on PyPI. 441 tests (440 passed, 1 skipped). Core pipeline stable.
 
 ### What's next
 
-1. **Swift port** — once Python proves every decision, native Swift+MLX for apps and system integration (separate repo: `qwen3-asr-swift`)
+1. **Transcription server** — built-in HTTP server (`mlx-qwen3-asr serve`) with async jobs, API key auth, backpressure. See `docs/server/` for spec.
+2. **Swift port** — once Python proves every decision, native Swift+MLX for apps and system integration (separate repo: `qwen3-asr-swift`)
 
 ### What's done
 
@@ -88,7 +89,8 @@ mlx_qwen3_asr/
 ├── forced_aligner.py    # MLX forced aligner + LIS timestamp correction
 ├── streaming.py         # KV-cache streaming with context trimming + tail refinement
 ├── writers.py           # Output format writers (txt, srt, vtt, json, tsv)
-├── cli.py               # CLI entry point
+├── server.py            # Optional HTTP server (FastAPI, async jobs, API key auth)
+├── cli.py               # CLI entry point (transcribe + serve subcommands)
 └── assets/
     ├── mel_filters.npz        # Pre-computed 128-bin Slaney mel filterbanks
     └── korean_dict_jieba.dict # Korean tokenizer dictionary for aligner
@@ -104,6 +106,7 @@ mlx_qwen3_asr/
 | Weight format | safetensors | MLX ecosystem standard |
 | Mel spectrogram | Custom MLX (default) | HF fallback for non-16kHz only |
 | Forced aligner | Native MLX (default) | PyTorch `qwen-asr` as optional fallback |
+| Server | FastAPI + uvicorn (optional `[serve]`) | Async, lightweight, OpenAPI docs free |
 
 ## Code Conventions
 
@@ -215,6 +218,10 @@ PyPI account: moona3k@gmail.com. Token scope: `mlx-qwen3-asr` project. Pure Pyth
 | `docs/BENCHMARKING.md` | Runtime measurement protocol and methodology |
 | `docs/memory/operating-memory.md` | Agent memory front door (protocol + compacted guidance) |
 | `docs/memory/events/` | Append-only implementation memory events |
+| `docs/server/README.md` | Server feature overview and quick start |
+| `docs/server/API-SPEC.md` | Full server API specification |
+| `docs/server/ADR-001-transcription-server.md` | Server architecture decision record |
+| `docs/server/DEPLOYMENT.md` | Server deployment and operations guide |
 
 ## Continuous Learning
 

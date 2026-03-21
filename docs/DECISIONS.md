@@ -295,3 +295,23 @@ local-only prompt feature that diverges from upstream batch/streaming semantics.
   and avoids local prompt drift.
 - Keeping one prompt contract across Python API, Session API, streaming, and
   CLI reduces surprise and keeps parity reasoning straightforward.
+
+## Decision 24: Built-in HTTP Transcription Server as Optional Feature
+
+**Choice:** Ship `server.py` inside `mlx_qwen3_asr` with FastAPI + uvicorn as
+optional `[serve]` dependencies. Activated via `mlx-qwen3-asr serve`.
+**Alternatives:** (1) separate package (`mlx-qwen3-asr-server`), (2) no server
+at all — library + CLI only.
+
+**Rationale:**
+- Apple Silicon Macs are efficient inference machines; users want to turn them
+  into transcription endpoints accessible from any device on the network or
+  internet.
+- In-package keeps it one repo, one install. Optional deps keep the core lean.
+- Single-tenant, API-key auth, async job model (POST returns job ID, poll for
+  result), sequential FIFO processing, in-memory job store with TTL.
+- v1 scope deliberately narrow: file upload only (no URL ingestion — SSRF risk),
+  no WebSocket streaming, no job cancellation, no multi-tenancy.
+- Server response mirrors `TranscriptionResult` directly — no translation layer.
+
+**Full spec:** `docs/server/` (ADR, API spec, deployment guide).
