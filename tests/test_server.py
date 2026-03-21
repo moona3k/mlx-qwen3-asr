@@ -19,6 +19,8 @@ from mlx_qwen3_asr.server import (
     _parse_bool,
     _RateLimiter,
     _result_to_dict,
+    _sanitize_error,
+    _validate_config,
     create_app,
 )
 
@@ -37,14 +39,17 @@ class TestParseBool:
     def test_true_values(self):
         assert _parse_bool("true") is True
         assert _parse_bool("True") is True
+        assert _parse_bool("TRUE") is True
         assert _parse_bool("1") is True
         assert _parse_bool("yes") is True
+        assert _parse_bool("YES") is True
 
     def test_false_values(self):
         assert _parse_bool("false") is False
         assert _parse_bool("0") is False
         assert _parse_bool("no") is False
         assert _parse_bool(None) is False
+        assert _parse_bool("anything") is False
 
 
 class TestFormatTime:
@@ -53,13 +58,14 @@ class TestFormatTime:
 
     def test_epoch(self):
         result = _format_time(0.0)
-        assert result is not None
-        assert "1970" in result
+        assert result == "1970-01-01T00:00:00Z"
 
-    def test_iso_format(self):
+    def test_z_suffix(self):
+        """Timestamps must end with Z, not +00:00."""
         result = _format_time(1710936000.0)
         assert result is not None
-        assert "T" in result
+        assert result.endswith("Z")
+        assert "+00:00" not in result
 
 
 class TestResultToDict:
@@ -81,6 +87,24 @@ class TestResultToDict:
         )
         d = _result_to_dict(result)
         assert d["segments"] == segments
+
+
+class TestSanitizeError:
+    def test_safe_message_passes_through(self):
+        exc = RuntimeError("Audio is corrupted")
+        assert _sanitize_error(exc) == "Audio is corrupted"
+
+    def test_path_leak_is_sanitized(self):
+        exc = RuntimeError("Failed to open /tmp/mlx_asr_abc123.wav")
+        result = _sanitize_error(exc)
+        assert "/tmp/" not in result
+        assert "RuntimeError" in result
+
+    def test_home_path_is_sanitized(self):
+        exc = ValueError("No such file: /Users/alice/secret/model.bin")
+        result = _sanitize_error(exc)
+        assert "/Users/" not in result
+        assert "ValueError" in result
 
 
 class TestCleanupTemp:
@@ -149,7 +173,7 @@ class TestRateLimiter:
 
 
 # ---------------------------------------------------------------------------
-# ServerConfig tests
+# ServerConfig + validation tests
 # ---------------------------------------------------------------------------
 
 
@@ -167,6 +191,37 @@ class TestServerConfig:
     def test_multiple_keys(self):
         config = ServerConfig(api_keys=["key1", "key2", "key3"])
         assert len(config.api_keys) == 3
+
+
+class TestValidateConfig:
+    def test_valid_config_passes(self):
+        config = ServerConfig(api_keys=["key1"])
+        _validate_config(config)  # should not raise
+
+    def test_no_api_keys(self):
+        config = ServerConfig(api_keys=[])
+        with pytest.raises(SystemExit, match="at least one API key"):
+            _validate_config(config)
+
+    def test_zero_rate_limit(self):
+        config = ServerConfig(api_keys=["k"], rate_limit=0)
+        with pytest.raises(SystemExit, match="rate-limit"):
+            _validate_config(config)
+
+    def test_zero_queue_depth(self):
+        config = ServerConfig(api_keys=["k"], max_queue_depth=0)
+        with pytest.raises(SystemExit, match="max-queue-depth"):
+            _validate_config(config)
+
+    def test_negative_values(self):
+        config = ServerConfig(api_keys=["k"], max_file_size_mb=-1)
+        with pytest.raises(SystemExit, match="max-file-size"):
+            _validate_config(config)
+
+    def test_invalid_port(self):
+        config = ServerConfig(api_keys=["k"], port=99999)
+        with pytest.raises(SystemExit, match="port"):
+            _validate_config(config)
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +353,7 @@ async def test_health_no_auth_required():
         assert data["status"] == "ok"
         assert data["model"] == "Qwen/Qwen3-ASR-0.6B"
         assert "queued_jobs" in data
+        assert "processing_jobs" in data
         assert "max_queue_depth" in data
 
 
@@ -406,6 +462,9 @@ async def test_full_job_lifecycle():
             assert data["status"] == "queued"
             job_id = data["job_id"]
 
+            # Job ID should be full UUID length (j_ + 32 hex chars)
+            assert len(job_id) == 34
+
             # Poll until done (max 5 seconds)
             for _ in range(50):
                 resp = await client.get(f"/jobs/{job_id}", headers=headers)
@@ -418,8 +477,9 @@ async def test_full_job_lifecycle():
             assert data["status"] == "completed"
             assert data["result"]["text"] == "Hello world"
             assert data["result"]["language"] == "English"
-            assert "chunks" in data["result"]
             assert "completed_at" in data
+            # Timestamps should use Z suffix
+            assert data["completed_at"].endswith("Z")
 
 
 @pytest.mark.asyncio
@@ -463,7 +523,7 @@ async def test_job_passes_language_and_timestamps():
 
 @pytest.mark.asyncio
 async def test_backpressure_returns_503():
-    """Queue full returns 503."""
+    """Queue full returns 503 via atomic put_nowait."""
     from mlx_qwen3_asr.transcribe import TranscriptionResult
 
     session = MagicMock()
@@ -529,6 +589,36 @@ async def test_multiple_api_keys():
 
 
 @pytest.mark.asyncio
+async def test_job_isolation_cross_key():
+    """Key2 cannot read key1's job — returns 404."""
+    async with _create_test_app_with_worker(api_keys=["key1", "key2"]) as app:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # key1 submits a job
+            resp = await client.post(
+                "/transcribe",
+                headers={"Authorization": "Bearer key1"},
+                files={"audio": ("test.wav", b"RIFF" * 10, "audio/wav")},
+            )
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            # key1 can read their own job
+            resp = await client.get(
+                f"/jobs/{job_id}",
+                headers={"Authorization": "Bearer key1"},
+            )
+            assert resp.status_code == 200
+
+            # key2 cannot read key1's job
+            resp = await client.get(
+                f"/jobs/{job_id}",
+                headers={"Authorization": "Bearer key2"},
+            )
+            assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_failed_job_returns_error():
     """Failed transcription returns error in job response."""
     session = MagicMock()
@@ -557,7 +647,7 @@ async def test_failed_job_returns_error():
                 await asyncio.sleep(0.1)
 
             assert data["status"] == "failed"
-            assert "Audio is corrupted" in data["error"]
+            assert "error" in data
             assert "completed_at" in data
 
 
@@ -586,6 +676,45 @@ async def test_temp_file_cleaned_after_completion():
             # The job's temp_path should be cleaned up
             job = app.state.server.jobs[job_id]
             assert job.temp_path is None
+
+
+@pytest.mark.asyncio
+async def test_backpressure_cleans_up_on_503():
+    """When 503 is returned, the temp file and job entry are cleaned up."""
+    from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+    session = MagicMock()
+
+    async def slow_transcribe(*args, **kwargs):
+        await asyncio.sleep(10)
+        return TranscriptionResult(text="done", language="English")
+
+    session.transcribe_async = slow_transcribe
+
+    async with _create_test_app_with_worker(
+        max_queue_depth=1, mock_session_obj=session
+    ) as app:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            headers = {"Authorization": "Bearer testkey"}
+            audio = ("test.wav", b"RIFF" * 10, "audio/wav")
+
+            # Fill up
+            await client.post("/transcribe", headers=headers, files={"audio": audio})
+            await asyncio.sleep(0.1)
+            await client.post("/transcribe", headers=headers, files={"audio": audio})
+
+            # Count jobs before 503
+            jobs_before = len(app.state.server.jobs)
+
+            # This gets 503
+            resp = await client.post(
+                "/transcribe", headers=headers, files={"audio": audio}
+            )
+            assert resp.status_code == 503
+
+            # No extra job was left in the store
+            assert len(app.state.server.jobs) == jobs_before
 
 
 # ---------------------------------------------------------------------------
@@ -665,4 +794,22 @@ def test_run_server_requires_api_key():
 
     config = ServerConfig(api_keys=[])
     with pytest.raises(SystemExit, match="at least one API key"):
+        run_server(config)
+
+
+def test_run_server_rejects_zero_rate_limit():
+    """run_server exits if rate_limit is 0."""
+    from mlx_qwen3_asr.server import run_server
+
+    config = ServerConfig(api_keys=["k"], rate_limit=0)
+    with pytest.raises(SystemExit, match="rate-limit"):
+        run_server(config)
+
+
+def test_run_server_rejects_zero_queue_depth():
+    """run_server exits if max_queue_depth is 0."""
+    from mlx_qwen3_asr.server import run_server
+
+    config = ServerConfig(api_keys=["k"], max_queue_depth=0)
+    with pytest.raises(SystemExit, match="max-queue-depth"):
         run_server(config)

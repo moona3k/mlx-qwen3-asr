@@ -41,6 +41,7 @@ class Job:
     job_id: str
     status: JobStatus
     created_at: float
+    api_key: str = ""
     completed_at: Optional[float] = None
     result: Optional[dict] = None
     error: Optional[str] = None
@@ -183,13 +184,13 @@ def create_app(config: ServerConfig):
                 logger.exception("Job %s failed", job_id)
                 job.status = JobStatus.FAILED
                 job.completed_at = time.time()
-                job.error = str(exc)
+                job.error = _sanitize_error(exc)
             finally:
                 _cleanup_temp(job)
                 state.job_queue.task_done()
 
     async def _run_transcription(job: Job) -> dict:
-        """Run transcription in a thread to avoid blocking the event loop."""
+        """Run transcription via Session.transcribe_async (thread offload)."""
         session = state.session
         result = await session.transcribe_async(
             job.temp_path,
@@ -242,6 +243,12 @@ def create_app(config: ServerConfig):
 
         worker_task.cancel()
         sweeper_task.cancel()
+        # Await cancellation to ensure cleanup runs
+        for task in (worker_task, sweeper_task):
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     app = FastAPI(
         title="mlx-qwen3-asr",
@@ -265,7 +272,8 @@ def create_app(config: ServerConfig):
             "model": config.model,
             "dtype": config.dtype,
             "uptime_seconds": round(time.monotonic() - state.start_time),
-            "queued_jobs": queued + processing,
+            "queued_jobs": queued,
+            "processing_jobs": processing,
             "max_queue_depth": config.max_queue_depth,
         }
 
@@ -286,14 +294,6 @@ def create_app(config: ServerConfig):
                 status_code=429,
                 detail="Rate limit exceeded",
                 headers={"Retry-After": str(int(retry) + 1)},
-            )
-
-        # Backpressure
-        if state.job_queue.full():
-            raise HTTPException(
-                status_code=503,
-                detail="Server at capacity",
-                headers={"Retry-After": "10"},
             )
 
         # File size check
@@ -323,11 +323,12 @@ def create_app(config: ServerConfig):
             raise
 
         # Create job
-        job_id = f"j_{uuid.uuid4().hex[:8]}"
+        job_id = f"j_{uuid.uuid4().hex}"
         job = Job(
             job_id=job_id,
             status=JobStatus.QUEUED,
             created_at=time.time(),
+            api_key=key,
             temp_path=tmp.name,
             language=language,
             timestamps=_parse_bool(timestamps),
@@ -335,8 +336,18 @@ def create_app(config: ServerConfig):
         )
         state.jobs[job_id] = job
 
-        # Enqueue
-        await state.job_queue.put(job_id)
+        # Atomic enqueue with backpressure
+        try:
+            state.job_queue.put_nowait(job_id)
+        except asyncio.QueueFull:
+            # Clean up the job and temp file we just created
+            state.jobs.pop(job_id, None)
+            _cleanup_temp(job)
+            raise HTTPException(
+                status_code=503,
+                detail="Server at capacity",
+                headers={"Retry-After": "10"},
+            )
 
         return {
             "job_id": job_id,
@@ -346,11 +357,15 @@ def create_app(config: ServerConfig):
 
     @app.get("/jobs/{job_id}")
     async def get_job(request: Request, job_id: str) -> dict:
-        _check_auth(request)
+        key = _check_auth(request)
         # Polling does NOT count against rate limit
 
         job = state.jobs.get(job_id)
         if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # Enforce job ownership — only the submitting key can read the job
+        if job.api_key and job.api_key != key:
             raise HTTPException(status_code=404, detail="Job not found")
 
         resp: dict = {
@@ -402,7 +417,19 @@ def _format_time(ts: Optional[float]) -> Optional[str]:
         return None
     from datetime import datetime, timezone
 
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _sanitize_error(exc: Exception) -> str:
+    """Return a safe error message without leaking internal paths."""
+    msg = str(exc)
+    # Strip common path prefixes that leak server internals
+    for prefix in ("/tmp/", "/var/", "/Users/", "/home/"):
+        if prefix in msg:
+            msg = type(exc).__name__ + ": transcription failed"
+            break
+    return msg
 
 
 def _cleanup_temp(job: Job) -> None:
@@ -415,6 +442,27 @@ def _cleanup_temp(job: Job) -> None:
 # Entry point (called from CLI)
 # ---------------------------------------------------------------------------
 
+def _validate_config(config: ServerConfig) -> None:
+    """Validate server config at startup. Raises SystemExit on invalid values."""
+    errors: list[str] = []
+    if not config.api_keys:
+        errors.append("at least one API key is required (--api-key or MLX_ASR_API_KEY)")
+    if config.rate_limit < 1:
+        errors.append("--rate-limit must be >= 1")
+    if config.max_queue_depth < 1:
+        errors.append("--max-queue-depth must be >= 1")
+    if config.max_file_size_mb < 1:
+        errors.append("--max-file-size must be >= 1")
+    if config.max_duration_sec < 1:
+        errors.append("--max-duration must be >= 1")
+    if config.job_ttl_sec < 1:
+        errors.append("--job-ttl must be >= 1")
+    if config.port < 1 or config.port > 65535:
+        errors.append("--port must be between 1 and 65535")
+    if errors:
+        raise SystemExit("Error: " + "; ".join(errors))
+
+
 def run_server(config: ServerConfig) -> None:
     """Start the server with uvicorn."""
     try:
@@ -425,10 +473,7 @@ def run_server(config: ServerConfig) -> None:
             'Install with: pip install "mlx-qwen3-asr[serve]"'
         ) from exc
 
-    if not config.api_keys:
-        raise SystemExit(
-            "Error: at least one API key is required (--api-key or MLX_ASR_API_KEY)"
-        )
+    _validate_config(config)
 
     app = create_app(config)
     logger.info(
