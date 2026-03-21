@@ -266,8 +266,81 @@ def _emit_new_stable_text(
     return current
 
 
+def _parse_serve_args(argv: list[str]) -> None:
+    """Parse and run the ``serve`` subcommand."""
+    parser = argparse.ArgumentParser(
+        prog="mlx-qwen3-asr serve",
+        description="Start the transcription HTTP server",
+    )
+    parser.add_argument(
+        "--host", default=os.environ.get("MLX_ASR_HOST", "0.0.0.0"),
+        help="Bind address (default: 0.0.0.0, env: MLX_ASR_HOST)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=int(os.environ.get("MLX_ASR_PORT", "8765")),
+        help="Server port (default: 8765, env: MLX_ASR_PORT)",
+    )
+    parser.add_argument(
+        "--api-key", default=os.environ.get("MLX_ASR_API_KEY", ""),
+        help="API key(s), comma-separated (env: MLX_ASR_API_KEY)",
+    )
+    parser.add_argument(
+        "--model", default=DEFAULT_MODEL_ID,
+        help=f"Model name or path (default: {DEFAULT_MODEL_ID})",
+    )
+    parser.add_argument(
+        "--dtype", default="float16",
+        choices=["float16", "float32", "bfloat16"],
+        help="Model dtype (default: float16)",
+    )
+    parser.add_argument(
+        "--rate-limit", type=int, default=60,
+        help="Max submissions per minute per key (default: 60)",
+    )
+    parser.add_argument(
+        "--max-file-size", type=int, default=200,
+        help="Max upload size in MB (default: 200)",
+    )
+    parser.add_argument(
+        "--max-duration", type=int, default=1800,
+        help="Max audio duration in seconds (default: 1800)",
+    )
+    parser.add_argument(
+        "--max-queue-depth", type=int, default=10,
+        help="Max queued jobs before 503 (default: 10)",
+    )
+    parser.add_argument(
+        "--job-ttl", type=int, default=3600,
+        help="Seconds to keep completed jobs (default: 3600)",
+    )
+    args = parser.parse_args(argv)
+
+    api_keys = [k.strip() for k in args.api_key.split(",") if k.strip()]
+
+    from .server import ServerConfig, run_server
+
+    config = ServerConfig(
+        host=args.host,
+        port=args.port,
+        api_keys=api_keys,
+        model=args.model,
+        dtype=args.dtype,
+        rate_limit=args.rate_limit,
+        max_file_size_mb=args.max_file_size,
+        max_duration_sec=args.max_duration,
+        max_queue_depth=args.max_queue_depth,
+        job_ttl_sec=args.job_ttl,
+    )
+    run_server(config)
+
+
 def main():
     """CLI entry point for mlx-qwen3-asr."""
+    # Intercept "serve" subcommand before main parser
+    if len(sys.argv) > 1 and sys.argv[1] == "serve":
+        _parse_serve_args(sys.argv[2:])
+        return
+
     parser = argparse.ArgumentParser(
         prog="mlx-qwen3-asr",
         description="Qwen3-ASR speech recognition on Apple Silicon via MLX",

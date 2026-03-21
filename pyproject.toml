@@ -32,6 +32,7 @@ dependencies = [
 aligner = ["nagisa", "soynlp"]
 diarize = ["pyannote.audio>=3.3.2"]
 mic = ["sounddevice>=0.4.6"]
+serve = ["fastapi>=0.100.0", "uvicorn>=0.20.0", "python-multipart>=0.0.5"]
 dev = ["pytest", "ruff", "mypy"]
 eval = ["soundfile>=0.12.1", "pyarrow>=18.0.0"]
 
