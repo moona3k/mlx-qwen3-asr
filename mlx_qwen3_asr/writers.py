@@ -36,11 +36,16 @@ def write_json(result: TranscriptionResult, output_path: str) -> None:
     data = {
         "text": result.text,
         "language": result.language,
+        "truncated": result.truncated,
     }
+    if result.finish_reason:
+        data["finish_reason"] = result.finish_reason
     if result.segments:
         data["segments"] = result.segments
     if result.speaker_segments:
         data["speaker_segments"] = result.speaker_segments
+    if result.chunks:
+        data["chunks"] = result.chunks
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

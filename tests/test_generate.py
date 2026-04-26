@@ -5,6 +5,9 @@ import numpy as np
 import pytest
 
 from mlx_qwen3_asr.generate import (
+    FINISH_REASON_EOS,
+    FINISH_REASON_LENGTH,
+    FINISH_REASON_REPETITION,
     REPETITION_THRESHOLD,
     GenerationConfig,
     _build_decode_positions,
@@ -12,6 +15,8 @@ from mlx_qwen3_asr.generate import (
     _sample,
     generate,
     generate_speculative,
+    generate_with_info,
+    resolve_max_new_tokens,
 )
 
 # ---------------------------------------------------------------------------
@@ -41,6 +46,26 @@ class TestGenerationConfig:
     def test_default_num_draft_tokens(self):
         cfg = GenerationConfig()
         assert cfg.num_draft_tokens == 4
+
+
+class TestResolveMaxNewTokens:
+    """Test duration-aware max token budget resolution."""
+
+    def test_explicit_override_is_preserved(self):
+        assert resolve_max_new_tokens(4096, audio_duration_sec=5.0) == 4096
+
+    def test_short_audio_uses_floor(self):
+        assert resolve_max_new_tokens(None, audio_duration_sec=5.0) == 128
+
+    def test_thirty_second_chunk_is_duration_scaled(self):
+        assert resolve_max_new_tokens(None, audio_duration_sec=30.0) == 392
+
+    def test_long_chunk_is_capped(self):
+        assert resolve_max_new_tokens(None, audio_duration_sec=120.0) == 512
+
+    def test_rejects_negative_override(self):
+        with pytest.raises(ValueError, match="max_new_tokens"):
+            resolve_max_new_tokens(-1, audio_duration_sec=5.0)
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +235,104 @@ class TestGenerate:
         assert model.calls[0] == ("create_cache", 8)
         assert model.calls[1][0] == "prefill"
         assert model.calls[2][0] == "step"
+
+    def test_generate_with_info_reports_eos(self):
+        class _DummyModel:
+            def create_cache(self, max_seq_len=None):  # noqa: ANN001
+                return object()
+
+            def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
+                return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
+
+            def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+                return mx.array([[[0.0, 0.0, 1.0]]], dtype=mx.float32)
+
+        result = generate_with_info(
+            model=_DummyModel(),
+            input_ids=mx.array([[1, 2, 3]]),
+            audio_features=mx.zeros((1, 2, 4)),
+            position_ids=mx.zeros((1, 3, 3), dtype=mx.int32),
+            config=GenerationConfig(max_new_tokens=3, temperature=0.0, eos_token_ids=[2]),
+        )
+
+        assert result.tokens == [1]
+        assert result.finish_reason == FINISH_REASON_EOS
+        assert result.truncated is False
+
+    def test_generate_with_info_reports_length_without_eos(self):
+        class _DummyModel:
+            def create_cache(self, max_seq_len=None):  # noqa: ANN001
+                return object()
+
+            def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
+                return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
+
+            def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+                return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
+
+        result = generate_with_info(
+            model=_DummyModel(),
+            input_ids=mx.array([[1, 2, 3]]),
+            audio_features=mx.zeros((1, 2, 4)),
+            position_ids=mx.zeros((1, 3, 3), dtype=mx.int32),
+            config=GenerationConfig(max_new_tokens=3, temperature=0.0, eos_token_ids=[999]),
+        )
+
+        assert result.tokens == [1, 1, 1]
+        assert result.finish_reason == FINISH_REASON_LENGTH
+        assert result.truncated is True
+
+    def test_generate_with_info_reports_repetition_before_length(self):
+        class _DummyModel:
+            def create_cache(self, max_seq_len=None):  # noqa: ANN001
+                return object()
+
+            def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
+                return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
+
+            def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+                return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
+
+        result = generate_with_info(
+            model=_DummyModel(),
+            input_ids=mx.array([[1, 2, 3]]),
+            audio_features=mx.zeros((1, 2, 4)),
+            position_ids=mx.zeros((1, 3, 3), dtype=mx.int32),
+            config=GenerationConfig(
+                max_new_tokens=REPETITION_THRESHOLD + 5,
+                temperature=0.0,
+                eos_token_ids=[999],
+            ),
+        )
+
+        assert result.finish_reason == FINISH_REASON_REPETITION
+        assert result.truncated is False
+
+    def test_generate_with_info_reports_length_when_cap_and_repetition_coincide(self):
+        class _DummyModel:
+            def create_cache(self, max_seq_len=None):  # noqa: ANN001
+                return object()
+
+            def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
+                return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
+
+            def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+                return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
+
+        result = generate_with_info(
+            model=_DummyModel(),
+            input_ids=mx.array([[1, 2, 3]]),
+            audio_features=mx.zeros((1, 2, 4)),
+            position_ids=mx.zeros((1, 3, 3), dtype=mx.int32),
+            config=GenerationConfig(
+                max_new_tokens=REPETITION_THRESHOLD,
+                temperature=0.0,
+                eos_token_ids=[999],
+            ),
+        )
+
+        assert result.finish_reason == FINISH_REASON_LENGTH
+        assert result.truncated is True
 
     def test_generate_handles_max_new_tokens_one(self):
         class _DummyModel:

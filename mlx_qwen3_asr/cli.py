@@ -423,8 +423,11 @@ def main():
     parser.add_argument(
         "--max-new-tokens",
         type=int,
-        default=4096,
-        help="Maximum tokens to generate per chunk (default: 4096)",
+        default=None,
+        help=(
+            "Maximum tokens to generate per chunk "
+            "(default: adaptive 128-512 tokens, ~12 tokens/sec of audio)"
+        ),
     )
     parser.add_argument(
         "--draft-model",

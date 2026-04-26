@@ -142,6 +142,8 @@ Poll job status and retrieve results. Does not count against rate limit.
   "result": {
     "text": "The full transcription text here.",
     "language": "English",
+    "finish_reason": "eos",
+    "truncated": false,
     "segments": [
       {
         "text": "The",
@@ -160,7 +162,11 @@ Poll job status and retrieve results. Does not count against rate limit.
         "start": 0.0,
         "end": 5.1,
         "chunk_index": 0,
-        "language": "English"
+        "language": "English",
+        "finish_reason": "eos",
+        "truncated": false,
+        "generated_tokens": 42,
+        "max_new_tokens": 392
       }
     ]
   }
@@ -175,11 +181,13 @@ The `result` object directly mirrors the library's `TranscriptionResult` datacla
 |-------|------|---------------|-------------|
 | `text` | string | yes | Full transcription text |
 | `language` | string | yes | Detected or forced language. Returns the library's canonical form (e.g., `"English"`, `"Japanese"`), not ISO codes. |
+| `finish_reason` | string | when ≥1 chunk decoded | Aggregate decode stop reason across chunks: `eos`, `repetition`, `length`, or `mixed`. `length` wins if any chunk hit its token cap. |
+| `truncated` | bool | when `finish_reason` present | `true` when any chunk stopped by exhausting its token budget rather than emitting EOS or repeating. |
 | `segments` | array | only with `timestamps: true` | Word-level timestamps from forced aligner. Each item: `{text, start, end}`. |
-| `chunks` | array | only for chunked audio | Chunk-level transcripts for long audio. Each item: `{text, start, end, chunk_index, language}`. |
+| `chunks` | array | only for chunked audio | Chunk-level transcripts and decode metadata for long audio. Each item: `{text, start, end, chunk_index, language, finish_reason, truncated, generated_tokens, max_new_tokens}`. |
 | `speaker_segments` | array | only with diarization | Speaker-attributed spans (future). Each item: `{speaker, start, end, text}`. |
 
-The server passes through the library output as-is — no schema translation layer.
+The server passes through the library output as-is — no schema translation layer. `truncated` is omitted only in the degenerate case where no chunks ran (no `finish_reason` to report).
 
 **Response** `200 OK` (failed):
 

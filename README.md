@@ -641,6 +641,10 @@ Optional microphone flags: `--mic-device`, `--mic-duration-sec`, `--mic-sample-r
 
 Transcribe audio to text. Accepts a file path, numpy array, `mx.array`, or `(array, sample_rate)` tuple. Returns a `TranscriptionResult`.
 
+`max_new_tokens=None` (default) uses a duration-aware per-chunk decode budget to
+avoid runaway generation on noisy inputs that do not emit EOS. Pass an integer
+to override the cap explicitly.
+
 Additional Python entry points:
 - `transcribe_batch(audios, ...)` and `transcribe_batch_async(audios, ...)`
 - `transcribe_async(audio, ...)`
@@ -678,8 +682,10 @@ Frozen dataclass:
 - `text` (str) — transcribed text
 - `language` (str) — detected or forced language (canonicalized names, e.g. `English`)
 - `segments` (list[dict] | None) — word-level timestamps when requested: `[{"text": "hello", "start": 0.5, "end": 0.8}, ...]`
-- `chunks` (list[dict] | None) — chunk-level transcript metadata when `return_chunks=True`
+- `chunks` (list[dict] | None) — chunk-level transcript and generation metadata when `return_chunks=True`
 - `speaker_segments` (list[dict] | None) — speaker-attributed spans when `diarize=True`: `[{"speaker": "SPEAKER_00", "start": 0.0, "end": 2.0, "text": "..."}, ...]`
+- `finish_reason` (str | None) — aggregate decode stop reason: `eos`, `repetition`, `length`, or `mixed`
+- `truncated` (bool) — true when any chunk exhausted its token budget before EOS/repetition
 
 ## Quality gates
 

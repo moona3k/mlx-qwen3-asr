@@ -84,6 +84,117 @@ def test_transcribe_basic(monkeypatch):
     assert result.speaker_segments is None
 
 
+def test_transcribe_default_max_new_tokens_is_duration_aware(monkeypatch):
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    captured_max_new_tokens = []
+
+    monkeypatch.setattr(tmod, "_TokenizerHolder", _DummyTokenizerHolder)
+    monkeypatch.setattr(tmod._ModelHolder, "get", lambda *a, **k: (_DummyModel(), None))
+    monkeypatch.setattr(
+        tmod,
+        "compute_features",
+        lambda audio: (mx.zeros((1, 128, 100), dtype=mx.float32), mx.array([100], dtype=mx.int32)),
+    )
+
+    def fake_generate(**kwargs):  # noqa: ANN003
+        config = kwargs["config"]
+        captured_max_new_tokens.append(config.max_new_tokens)
+        return tmod.GenerationResult(
+            tokens=[10, 11, 12],
+            finish_reason=tmod.FINISH_REASON_LENGTH,
+            generated_tokens=3,
+            max_new_tokens=config.max_new_tokens,
+        )
+
+    monkeypatch.setattr(tmod, "generate", fake_generate)
+
+    result = transcribe(np.zeros(5 * tmod.SAMPLE_RATE, dtype=np.float32), return_chunks=True)
+
+    assert captured_max_new_tokens == [128]
+    assert result.finish_reason == "length"
+    assert result.truncated is True
+    assert result.chunks is not None
+    assert result.chunks[0]["truncated"] is True
+    assert result.chunks[0]["max_new_tokens"] == 128
+
+
+def test_transcribe_preserves_explicit_max_new_tokens(monkeypatch):
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    captured_max_new_tokens = []
+
+    monkeypatch.setattr(tmod, "_TokenizerHolder", _DummyTokenizerHolder)
+    monkeypatch.setattr(tmod._ModelHolder, "get", lambda *a, **k: (_DummyModel(), None))
+    monkeypatch.setattr(
+        tmod,
+        "compute_features",
+        lambda audio: (mx.zeros((1, 128, 100), dtype=mx.float32), mx.array([100], dtype=mx.int32)),
+    )
+
+    def fake_generate(**kwargs):  # noqa: ANN003
+        config = kwargs["config"]
+        captured_max_new_tokens.append(config.max_new_tokens)
+        return tmod.GenerationResult(
+            tokens=[10, 11, 12],
+            finish_reason=tmod.FINISH_REASON_EOS,
+            generated_tokens=3,
+            max_new_tokens=config.max_new_tokens,
+        )
+
+    monkeypatch.setattr(tmod, "generate", fake_generate)
+
+    result = transcribe(
+        np.zeros(5 * tmod.SAMPLE_RATE, dtype=np.float32),
+        max_new_tokens=4096,
+        return_chunks=True,
+    )
+
+    assert captured_max_new_tokens == [4096]
+    assert result.finish_reason == "eos"
+    assert result.truncated is False
+    assert result.chunks is not None
+    assert result.chunks[0]["max_new_tokens"] == 4096
+
+
+def test_coerce_generation_result_detects_legacy_repetition():
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    config = tmod.GenerationConfig(max_new_tokens=128, eos_token_ids=[999])
+
+    result = tmod._coerce_generation_result([42] * 20, config)
+
+    assert result.finish_reason == tmod.FINISH_REASON_REPETITION
+    assert result.truncated is False
+
+
+def test_coerce_generation_result_prefers_length_when_legacy_output_hits_cap():
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    config = tmod.GenerationConfig(max_new_tokens=20, eos_token_ids=[999])
+
+    result = tmod._coerce_generation_result([42] * 20, config)
+
+    assert result.finish_reason == tmod.FINISH_REASON_LENGTH
+    assert result.truncated is True
+
+
+@pytest.mark.parametrize(
+    "reasons,expected",
+    [
+        ([], None),
+        (["eos"], "eos"),
+        (["eos", "eos", "eos"], "eos"),
+        (["repetition", "repetition"], "repetition"),
+        (["length"], "length"),
+        (["length", "length"], "length"),
+        (["eos", "length"], "length"),
+        (["length", "eos", "repetition"], "length"),
+        (["eos", "repetition"], "mixed"),
+        (["repetition", "eos", "eos"], "mixed"),
+    ],
+)
+def test_aggregate_finish_reason(reasons, expected):
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    assert tmod._aggregate_finish_reason(reasons) == expected
+
+
 def test_transcribe_with_timestamps(monkeypatch):
     tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
 

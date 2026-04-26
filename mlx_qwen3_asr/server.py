@@ -505,7 +505,10 @@ def _result_to_dict(result: object) -> dict:
     else:
         d = dict(result)  # type: ignore[arg-type]
     # Strip None values for cleaner responses
-    return {k: v for k, v in d.items() if v is not None}
+    cleaned = {k: v for k, v in d.items() if v is not None}
+    if cleaned.get("finish_reason") is None and cleaned.get("truncated") is False:
+        cleaned.pop("truncated", None)
+    return cleaned
 
 
 def _parse_bool(value: Optional[str]) -> bool:

@@ -31,6 +31,7 @@ class TestInitStreaming:
         assert state.text == ""
         assert state.language == "unknown"
         assert state.chunk_id == 0
+        assert state.max_new_tokens == 128
         assert len(state.buffer) == 0
         assert len(state.audio_accum) == 0
         assert state.stable_text == ""

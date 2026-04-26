@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
+from typing import Optional
 
 import mlx.core as mx
 
@@ -11,6 +13,13 @@ from .runtime_utils import supports_kwarg
 
 # Repetition detection constants (from official repo)
 REPETITION_THRESHOLD = 20
+AUTO_MAX_NEW_TOKENS_FLOOR = 128
+AUTO_MAX_NEW_TOKENS_CAP = 512
+AUTO_MAX_NEW_TOKENS_PER_SECOND = 12.0
+AUTO_MAX_NEW_TOKENS_MARGIN = 32
+FINISH_REASON_EOS = "eos"
+FINISH_REASON_REPETITION = "repetition"
+FINISH_REASON_LENGTH = "length"
 
 
 @dataclass
@@ -21,6 +30,48 @@ class GenerationConfig:
     eos_token_ids: list[int] = field(default_factory=lambda: [151643, 151645])
     eval_interval: int = 1
     num_draft_tokens: int = 4
+
+
+@dataclass(frozen=True)
+class GenerationResult:
+    """Generated token IDs plus decode termination metadata.
+
+    `tokens` and `generated_tokens` exclude the trailing EOS sentinel when the
+    decoder emitted one — so for an EOS-terminated decode that produced N
+    visible tokens plus an EOS, both values are N. The invariant
+    ``truncated <=> generated_tokens == max_new_tokens`` therefore holds: a
+    truncated run never had an EOS to strip.
+    """
+
+    tokens: list[int]
+    finish_reason: str
+    generated_tokens: int
+    max_new_tokens: int
+
+    @property
+    def truncated(self) -> bool:
+        """Whether decoding stopped because the token budget was exhausted."""
+        return self.finish_reason == FINISH_REASON_LENGTH
+
+
+def resolve_max_new_tokens(
+    max_new_tokens: Optional[int],
+    *,
+    audio_duration_sec: float,
+) -> int:
+    """Resolve a user override or duration-aware default token budget."""
+    if max_new_tokens is not None:
+        if max_new_tokens < 0:
+            raise ValueError(f"max_new_tokens must be >= 0, got {max_new_tokens}")
+        return int(max_new_tokens)
+
+    duration = max(0.0, float(audio_duration_sec))
+    adaptive = math.ceil(duration * AUTO_MAX_NEW_TOKENS_PER_SECOND)
+    adaptive += AUTO_MAX_NEW_TOKENS_MARGIN
+    return min(
+        AUTO_MAX_NEW_TOKENS_CAP,
+        max(AUTO_MAX_NEW_TOKENS_FLOOR, adaptive),
+    )
 
 
 def generate(
@@ -46,12 +97,34 @@ def generate(
     Returns:
         List of generated token IDs (excluding the input)
     """
+    return generate_with_info(
+        model=model,
+        input_ids=input_ids,
+        audio_features=audio_features,
+        position_ids=position_ids,
+        config=config,
+    ).tokens
+
+
+def generate_with_info(
+    model: Qwen3ASRModel,
+    input_ids: mx.array,
+    audio_features: mx.array,
+    position_ids: mx.array,
+    config: GenerationConfig = None,
+) -> GenerationResult:
+    """Generate text tokens and return decode termination metadata."""
     if config is None:
         config = GenerationConfig()
     if config.max_new_tokens < 0:
         raise ValueError(f"max_new_tokens must be >= 0, got {config.max_new_tokens}")
     if config.max_new_tokens == 0:
-        return []
+        return GenerationResult(
+            tokens=[],
+            finish_reason=FINISH_REASON_LENGTH,
+            generated_tokens=0,
+            max_new_tokens=0,
+        )
 
     max_seq_len = int(input_ids.shape[1] + config.max_new_tokens)
     cache = model.create_cache(max_seq_len=max_seq_len)
@@ -107,11 +180,7 @@ def generate(
 
         _periodic_eval(cache=cache, step=step, eval_interval=config.eval_interval)
 
-    # Remove EOS token if present
-    if generated and generated[-1] in config.eos_token_ids:
-        generated = generated[:-1]
-
-    return generated
+    return _finalize_generation_result(generated, config)
 
 
 def generate_speculative(
@@ -129,12 +198,38 @@ def generate_speculative(
     the target model. Output is guaranteed to match greedy decoding of the
     target model.
     """
+    return generate_speculative_with_info(
+        model=model,
+        draft_model=draft_model,
+        input_ids=input_ids,
+        audio_features=audio_features,
+        draft_audio_features=draft_audio_features,
+        position_ids=position_ids,
+        config=config,
+    ).tokens
+
+
+def generate_speculative_with_info(
+    model: Qwen3ASRModel,
+    draft_model: Qwen3ASRModel,
+    input_ids: mx.array,
+    audio_features: mx.array,
+    draft_audio_features: mx.array,
+    position_ids: mx.array,
+    config: GenerationConfig = None,
+) -> GenerationResult:
+    """Generate with greedy speculative decoding and termination metadata."""
     if config is None:
         config = GenerationConfig()
     if config.max_new_tokens < 0:
         raise ValueError(f"max_new_tokens must be >= 0, got {config.max_new_tokens}")
     if config.max_new_tokens == 0:
-        return []
+        return GenerationResult(
+            tokens=[],
+            finish_reason=FINISH_REASON_LENGTH,
+            generated_tokens=0,
+            max_new_tokens=0,
+        )
     if config.temperature != 0.0:
         raise ValueError("Speculative decoding currently supports greedy mode only.")
     if config.num_draft_tokens < 1:
@@ -277,10 +372,35 @@ def generate_speculative(
             eval_interval=config.eval_interval,
         )
 
+    return _finalize_generation_result(generated, config)
+
+
+def _finalize_generation_result(
+    generated: list[int],
+    config: GenerationConfig,
+) -> GenerationResult:
+    finish_reason = _infer_finish_reason(generated, config)
     if generated and generated[-1] in config.eos_token_ids:
         generated = generated[:-1]
+    return GenerationResult(
+        tokens=generated,
+        finish_reason=finish_reason,
+        generated_tokens=len(generated),
+        max_new_tokens=config.max_new_tokens,
+    )
 
-    return generated
+
+def _infer_finish_reason(
+    generated: list[int],
+    config: GenerationConfig,
+) -> str:
+    if generated and generated[-1] in config.eos_token_ids:
+        return FINISH_REASON_EOS
+    if len(generated) >= config.max_new_tokens:
+        return FINISH_REASON_LENGTH
+    if _detect_repetition(generated):
+        return FINISH_REASON_REPETITION
+    return FINISH_REASON_LENGTH
 
 
 def _sample(logits: mx.array, temperature: float) -> int:
