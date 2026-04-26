@@ -136,6 +136,9 @@ class TestStreamingStateDefaults:
     def test_default_stable_text(self):
         assert StreamingState().stable_text == ""
 
+    def test_default_max_new_tokens_matches_adaptive_floor(self):
+        assert StreamingState().max_new_tokens == 128
+
 
 class TestSplitStableUnstable:
     def test_short_text_all_unstable(self):

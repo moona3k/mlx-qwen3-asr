@@ -36,10 +36,11 @@ def write_json(result: TranscriptionResult, output_path: str) -> None:
     data = {
         "text": result.text,
         "language": result.language,
-        "truncated": result.truncated,
     }
     if result.finish_reason:
         data["finish_reason"] = result.finish_reason
+    if result.finish_reason or result.truncated:
+        data["truncated"] = result.truncated
     if result.segments:
         data["segments"] = result.segments
     if result.speaker_segments:

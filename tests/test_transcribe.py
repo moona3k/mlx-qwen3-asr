@@ -85,6 +85,7 @@ def test_transcribe_basic(monkeypatch):
 
 
 def test_transcribe_default_max_new_tokens_is_duration_aware(monkeypatch):
+    gmod = importlib.import_module("mlx_qwen3_asr.generate")
     tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
     captured_max_new_tokens = []
 
@@ -99,9 +100,9 @@ def test_transcribe_default_max_new_tokens_is_duration_aware(monkeypatch):
     def fake_generate(**kwargs):  # noqa: ANN003
         config = kwargs["config"]
         captured_max_new_tokens.append(config.max_new_tokens)
-        return tmod.GenerationResult(
+        return gmod.GenerationResult(
             tokens=[10, 11, 12],
-            finish_reason=tmod.FINISH_REASON_LENGTH,
+            finish_reason=gmod.FINISH_REASON_LENGTH,
             generated_tokens=3,
             max_new_tokens=config.max_new_tokens,
         )
@@ -119,6 +120,7 @@ def test_transcribe_default_max_new_tokens_is_duration_aware(monkeypatch):
 
 
 def test_transcribe_preserves_explicit_max_new_tokens(monkeypatch):
+    gmod = importlib.import_module("mlx_qwen3_asr.generate")
     tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
     captured_max_new_tokens = []
 
@@ -133,9 +135,9 @@ def test_transcribe_preserves_explicit_max_new_tokens(monkeypatch):
     def fake_generate(**kwargs):  # noqa: ANN003
         config = kwargs["config"]
         captured_max_new_tokens.append(config.max_new_tokens)
-        return tmod.GenerationResult(
+        return gmod.GenerationResult(
             tokens=[10, 11, 12],
-            finish_reason=tmod.FINISH_REASON_EOS,
+            finish_reason=gmod.FINISH_REASON_EOS,
             generated_tokens=3,
             max_new_tokens=config.max_new_tokens,
         )
@@ -156,22 +158,24 @@ def test_transcribe_preserves_explicit_max_new_tokens(monkeypatch):
 
 
 def test_coerce_generation_result_detects_legacy_repetition():
+    gmod = importlib.import_module("mlx_qwen3_asr.generate")
     tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
     config = tmod.GenerationConfig(max_new_tokens=128, eos_token_ids=[999])
 
-    result = tmod._coerce_generation_result([42] * 20, config)
+    result = tmod.coerce_generation_result([42] * 20, config)
 
-    assert result.finish_reason == tmod.FINISH_REASON_REPETITION
+    assert result.finish_reason == gmod.FINISH_REASON_REPETITION
     assert result.truncated is False
 
 
 def test_coerce_generation_result_prefers_length_when_legacy_output_hits_cap():
+    gmod = importlib.import_module("mlx_qwen3_asr.generate")
     tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
     config = tmod.GenerationConfig(max_new_tokens=20, eos_token_ids=[999])
 
-    result = tmod._coerce_generation_result([42] * 20, config)
+    result = tmod.coerce_generation_result([42] * 20, config)
 
-    assert result.finish_reason == tmod.FINISH_REASON_LENGTH
+    assert result.finish_reason == gmod.FINISH_REASON_LENGTH
     assert result.truncated is True
 
 

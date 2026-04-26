@@ -24,12 +24,9 @@ from .diarization import (
 )
 from .forced_aligner import ForcedAligner
 from .generate import (
-    FINISH_REASON_EOS,
     FINISH_REASON_LENGTH,
-    FINISH_REASON_REPETITION,
     GenerationConfig,
-    GenerationResult,
-    _detect_repetition,
+    coerce_generation_result,
     generate_speculative_with_info,
     generate_with_info,
     resolve_max_new_tokens,
@@ -47,7 +44,7 @@ from .tokenizer import (
 
 # Internal alias: the pipeline calls these names but uses the metadata-returning
 # variants. Kept patchable so tests can monkey-patch `transcribe.generate` to
-# return a list[int] (legacy contract) — `_coerce_generation_result` accepts both.
+# return a list[int] (legacy contract); `coerce_generation_result` accepts both.
 generate = generate_with_info
 generate_speculative = generate_speculative_with_info
 AudioInput = Union[str, Path, np.ndarray, mx.array, tuple[np.ndarray, int]]
@@ -747,7 +744,7 @@ def _transcribe_loaded_components(
                 position_ids=position_ids,
                 config=gen_config,
             )
-        generation = _coerce_generation_result(generation_output, gen_config)
+        generation = coerce_generation_result(generation_output, gen_config)
         output_tokens = generation.tokens
         all_finish_reasons.append(generation.finish_reason)
 
@@ -856,6 +853,10 @@ def _transcribe_loaded_components(
             },
         )
 
+    aggregate_finish_reason = _aggregate_finish_reason(all_finish_reasons)
+    aggregate_truncated = any(
+        reason == FINISH_REASON_LENGTH for reason in all_finish_reasons
+    )
     _emit_progress(
         on_progress,
         {
@@ -865,10 +866,8 @@ def _transcribe_loaded_components(
             "processed_audio_sec": processed_sec,
             "progress": 1.0,
             "language": final_language,
-            "finish_reason": _aggregate_finish_reason(all_finish_reasons),
-            "truncated": any(
-                reason == FINISH_REASON_LENGTH for reason in all_finish_reasons
-            ),
+            "finish_reason": aggregate_finish_reason,
+            "truncated": aggregate_truncated,
         },
     )
     return TranscriptionResult(
@@ -877,8 +876,8 @@ def _transcribe_loaded_components(
         segments=out_segments,
         chunks=all_chunk_items if return_chunks else None,
         speaker_segments=speaker_segments,
-        finish_reason=_aggregate_finish_reason(all_finish_reasons),
-        truncated=any(reason == FINISH_REASON_LENGTH for reason in all_finish_reasons),
+        finish_reason=aggregate_finish_reason,
+        truncated=aggregate_truncated,
     )
 
 
@@ -891,27 +890,6 @@ def _aggregate_finish_reason(reasons: list[str]) -> Optional[str]:
     if len(unique) == 1:
         return reasons[0]
     return "mixed"
-
-
-def _coerce_generation_result(
-    output: GenerationResult | list[int],
-    config: GenerationConfig,
-) -> GenerationResult:
-    if isinstance(output, GenerationResult):
-        return output
-    tokens = list(output)
-    if len(tokens) >= config.max_new_tokens:
-        finish_reason = FINISH_REASON_LENGTH
-    elif _detect_repetition(tokens):
-        finish_reason = FINISH_REASON_REPETITION
-    else:
-        finish_reason = FINISH_REASON_EOS
-    return GenerationResult(
-        tokens=tokens,
-        finish_reason=finish_reason,
-        generated_tokens=len(tokens),
-        max_new_tokens=config.max_new_tokens,
-    )
 
 
 def _safe_progress(processed_audio_sec: float, total_audio_sec: float) -> float:

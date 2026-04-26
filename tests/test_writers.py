@@ -78,7 +78,22 @@ class TestWriteJson:
             data = json.load(f)
         assert data["text"] == "Hello world"
         assert data["language"] == "English"
+        assert "truncated" not in data
         assert "segments" not in data
+
+    def test_json_includes_truncated_with_finish_reason(self, tmp_path):
+        result = TranscriptionResult(
+            text="Hello world",
+            language="English",
+            finish_reason="length",
+            truncated=True,
+        )
+        path = str(tmp_path / "output.json")
+        write_json(result, path)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["finish_reason"] == "length"
+        assert data["truncated"] is True
 
     def test_json_with_segments(self, result_with_segments, tmp_path):
         path = str(tmp_path / "output.json")

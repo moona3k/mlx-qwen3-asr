@@ -59,7 +59,23 @@ def resolve_max_new_tokens(
     *,
     audio_duration_sec: float,
 ) -> int:
-    """Resolve a user override or duration-aware default token budget."""
+    """Resolve the decode token budget for one audio chunk.
+
+    Args:
+        max_new_tokens: Explicit caller-provided budget. When set, this value
+            is returned unchanged after validation.
+        audio_duration_sec: Duration of the audio chunk used for the adaptive
+            default when `max_new_tokens` is unset.
+
+    Returns:
+        Integer token budget. The adaptive default is
+        `ceil(duration * AUTO_MAX_NEW_TOKENS_PER_SECOND) +
+        AUTO_MAX_NEW_TOKENS_MARGIN`, clamped to
+        `[AUTO_MAX_NEW_TOKENS_FLOOR, AUTO_MAX_NEW_TOKENS_CAP]`.
+
+    Raises:
+        ValueError: If `max_new_tokens` is negative.
+    """
     if max_new_tokens is not None:
         if max_new_tokens < 0:
             raise ValueError(f"max_new_tokens must be >= 0, got {max_new_tokens}")
@@ -71,6 +87,39 @@ def resolve_max_new_tokens(
     return min(
         AUTO_MAX_NEW_TOKENS_CAP,
         max(AUTO_MAX_NEW_TOKENS_FLOOR, adaptive),
+    )
+
+
+def coerce_generation_result(
+    output: GenerationResult | list[int],
+    config: GenerationConfig,
+) -> GenerationResult:
+    """Normalize legacy token-list output into a `GenerationResult`.
+
+    Args:
+        output: Either a metadata-rich generation result or the legacy
+            `list[int]` returned by older generation hooks.
+        config: Generation configuration used for the decode turn.
+
+    Returns:
+        `GenerationResult` with best-effort finish metadata. Legacy list
+        output is classified as `length` when it reaches the token budget,
+        otherwise `repetition` when repetition is observable, otherwise `eos`.
+    """
+    if isinstance(output, GenerationResult):
+        return output
+    tokens = list(output)
+    if len(tokens) >= config.max_new_tokens:
+        finish_reason = FINISH_REASON_LENGTH
+    elif detect_repetition(tokens):
+        finish_reason = FINISH_REASON_REPETITION
+    else:
+        finish_reason = FINISH_REASON_EOS
+    return GenerationResult(
+        tokens=tokens,
+        finish_reason=finish_reason,
+        generated_tokens=len(tokens),
+        max_new_tokens=config.max_new_tokens,
     )
 
 
@@ -113,7 +162,22 @@ def generate_with_info(
     position_ids: mx.array,
     config: GenerationConfig = None,
 ) -> GenerationResult:
-    """Generate text tokens and return decode termination metadata."""
+    """Generate text tokens with decode termination metadata.
+
+    Args:
+        model: Qwen3-ASR model.
+        input_ids: Input token IDs with audio placeholders, shape `(1, seq_len)`.
+        audio_features: Encoded audio features from the audio tower.
+        position_ids: MRoPE position IDs, shape `(1, 3, seq_len)`.
+        config: Generation configuration. Defaults to `GenerationConfig()`.
+
+    Returns:
+        `GenerationResult` containing generated token IDs, finish reason,
+        generated token count, and the effective token budget.
+
+    Raises:
+        ValueError: If `config.max_new_tokens` is negative.
+    """
     if config is None:
         config = GenerationConfig()
     if config.max_new_tokens < 0:
@@ -218,7 +282,25 @@ def generate_speculative_with_info(
     position_ids: mx.array,
     config: GenerationConfig = None,
 ) -> GenerationResult:
-    """Generate with greedy speculative decoding and termination metadata."""
+    """Generate with greedy speculative decoding and finish metadata.
+
+    Args:
+        model: Target Qwen3-ASR model.
+        draft_model: Smaller draft model used to propose tokens.
+        input_ids: Input token IDs with audio placeholders, shape `(1, seq_len)`.
+        audio_features: Encoded audio features for the target model.
+        draft_audio_features: Encoded audio features for the draft model.
+        position_ids: MRoPE position IDs, shape `(1, 3, seq_len)`.
+        config: Generation configuration. Defaults to `GenerationConfig()`.
+
+    Returns:
+        `GenerationResult` containing generated token IDs, finish reason,
+        generated token count, and the effective token budget.
+
+    Raises:
+        ValueError: If `config.max_new_tokens` is negative, temperature is not
+            greedy, or `config.num_draft_tokens` is less than one.
+    """
     if config is None:
         config = GenerationConfig()
     if config.max_new_tokens < 0:
@@ -400,7 +482,7 @@ def _infer_finish_reason(
         return FINISH_REASON_LENGTH
     if _detect_repetition(generated):
         return FINISH_REASON_REPETITION
-    return FINISH_REASON_LENGTH
+    raise AssertionError("generation stopped without EOS, repetition, or token cap")
 
 
 def _sample(logits: mx.array, temperature: float) -> int:
@@ -453,6 +535,19 @@ def _periodic_eval(
     ]
     if cache_tensors:
         mx.eval(cache_tensors)
+
+
+def detect_repetition(tokens: list[int], threshold: int = REPETITION_THRESHOLD) -> bool:
+    """Detect repetitive token patterns in generated output.
+
+    Args:
+        tokens: Generated token IDs.
+        threshold: Repetition threshold used by the two-stage detector.
+
+    Returns:
+        `True` when a repeated single token or short token pattern is detected.
+    """
+    return _detect_repetition(tokens, threshold=threshold)
 
 
 def _detect_repetition(tokens: list[int], threshold: int = REPETITION_THRESHOLD) -> bool:

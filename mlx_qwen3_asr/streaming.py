@@ -10,7 +10,11 @@ import numpy as np
 
 from .audio import compute_features
 from .config import DEFAULT_MODEL_ID
-from .generate import _detect_repetition, resolve_max_new_tokens
+from .generate import (
+    AUTO_MAX_NEW_TOKENS_FLOOR,
+    detect_repetition,
+    resolve_max_new_tokens,
+)
 from .load_models import _ModelHolder
 from .model import Qwen3ASRModel
 from .runtime_utils import supports_kwarg
@@ -70,7 +74,7 @@ class StreamingState:
     chunk_size_samples: int = 32000  # 2 seconds at 16kHz
     max_context_samples: int = 480000  # 30 seconds at 16kHz
     stable_text: str = ""
-    max_new_tokens: int = 4096
+    max_new_tokens: int = AUTO_MAX_NEW_TOKENS_FLOOR
     finalization_mode: str = "accuracy"
     enable_tail_refine: bool = True
     endpointing_mode: str = "fixed"
@@ -384,7 +388,7 @@ def _decode_tokens_incremental(
             break
 
         generated.append(token)
-        if _detect_repetition(generated):
+        if detect_repetition(generated):
             break
 
         next_ids = mx.array([[token]])

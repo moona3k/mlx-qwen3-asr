@@ -643,7 +643,8 @@ Transcribe audio to text. Accepts a file path, numpy array, `mx.array`, or `(arr
 
 `max_new_tokens=None` (default) uses a duration-aware per-chunk decode budget to
 avoid runaway generation on noisy inputs that do not emit EOS. Pass an integer
-to override the cap explicitly.
+to override the cap explicitly. If you use unusually long custom chunks and see
+`truncated=True`, pass a larger explicit value for that workload.
 
 Additional Python entry points:
 - `transcribe_batch(audios, ...)` and `transcribe_batch_async(audios, ...)`
