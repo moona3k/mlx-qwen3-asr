@@ -77,8 +77,9 @@ Install with diarization extras:
 pip install "mlx-qwen3-asr[diarize]"
 ```
 
-Note: `--diarize` uses `pyannote` models. The default model is gated on
-Hugging Face, so you usually need to accept model terms and set a token:
+Note: `--diarize` uses pyannote.audio 4.x and defaults to
+`pyannote/speaker-diarization-community-1`. Accept the model terms on
+Hugging Face and set a token:
 
 ```bash
 export PYANNOTE_AUTH_TOKEN=hf_...
@@ -432,9 +433,11 @@ mlx-qwen3-asr meeting.wav --diarize -f json
 
 Current status:
 - The public API/CLI and output schema are stable.
-- The diarization backend is `pyannote` (installed via `[diarize]` extra).
-- Some pyannote models require Hugging Face token/terms acceptance. Configure
-  `PYANNOTE_AUTH_TOKEN` (or `HF_TOKEN`) when needed.
+- The diarization backend is pyannote.audio 4.x (installed via `[diarize]` extra).
+- The default model is `pyannote/speaker-diarization-community-1`; accept its
+  Hugging Face terms and configure `PYANNOTE_AUTH_TOKEN` (or `HF_TOKEN`).
+- `PYANNOTE_MODEL_ID` can point to another pyannote pipeline or a local
+  offline clone.
 - `--diarize` auto-enables timestamps and is not supported in `--streaming`/`--mic` mode.
 - Migration note (2026-02-15): legacy diarization `window/hop` controls were
   removed (`diarization_window_sec`, `diarization_hop_sec`,
@@ -447,7 +450,8 @@ Current status:
    ```bash
    pip install "mlx-qwen3-asr[diarize]"
    ```
-2. Set a Hugging Face token if your selected diarization model is gated:
+2. Accept the default `pyannote/speaker-diarization-community-1` model terms
+   on Hugging Face and set a token:
    ```bash
    export PYANNOTE_AUTH_TOKEN=hf_...
    ```
@@ -459,7 +463,7 @@ Current status:
 Common errors and fixes:
 - `requires optional dependency 'pyannote.audio'`: install `[diarize]` extra.
 - `requires PyTorch via pyannote dependencies`: reinstall `[diarize]` extra in the active environment.
-- `Failed to initialize pyannote pipeline ...`: accept model terms on Hugging Face and set `PYANNOTE_AUTH_TOKEN` (or `HF_TOKEN`).
+- `Failed to initialize pyannote pipeline ...`: accept model terms on Hugging Face, set `PYANNOTE_AUTH_TOKEN` (or `HF_TOKEN`), and inspect the `Root cause:` details.
 - `--streaming does not support --diarize` / `--mic does not support --diarize`: use offline file transcription mode for diarization.
 
 ## Quantization

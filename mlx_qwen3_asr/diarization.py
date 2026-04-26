@@ -9,12 +9,13 @@ from __future__ import annotations
 import os
 import warnings
 from dataclasses import dataclass
+from inspect import signature
 from typing import Any, Optional
 
 import numpy as np
 
 DEFAULT_SPEAKER_LABEL = "SPEAKER_00"
-DEFAULT_PYANNOTE_MODEL_ID = "pyannote/speaker-diarization-3.1"
+DEFAULT_PYANNOTE_MODEL_ID = "pyannote/speaker-diarization-community-1"
 
 
 @dataclass(frozen=True)
@@ -70,11 +71,7 @@ def infer_speaker_turns(
     except TypeError as exc:
         # Some pyannote versions reject speaker-count kwargs.
         if not _is_retryable_kwargs_type_error(exc):
-            raise RuntimeError(
-                "pyannote diarization inference failed. "
-                "Verify the installed '[diarize]' extra and any required "
-                "Hugging Face token/terms for your diarization model."
-            ) from exc
+            raise _diarization_runtime_error(exc) from exc
         warnings.warn(
             "pyannote backend rejected speaker-count kwargs; retrying without them.",
             stacklevel=2,
@@ -82,17 +79,9 @@ def infer_speaker_turns(
         try:
             diarization = pipeline(_pyannote_input(audio_np, sr))
         except Exception as exc:
-            raise RuntimeError(
-                "pyannote diarization inference failed. "
-                "Verify the installed '[diarize]' extra and any required "
-                "Hugging Face token/terms for your diarization model."
-            ) from exc
+            raise _diarization_runtime_error(exc) from exc
     except Exception as exc:
-        raise RuntimeError(
-            "pyannote diarization inference failed. "
-            "Verify the installed '[diarize]' extra and any required "
-            "Hugging Face token/terms for your diarization model."
-        ) from exc
+        raise _diarization_runtime_error(exc) from exc
 
     turns = _annotation_to_turns(diarization, duration=float(audio_np.shape[0] / sr))
     if not turns:
@@ -264,9 +253,7 @@ def _load_pyannote_pipeline() -> object:
             "Install with: pip install \"mlx-qwen3-asr[diarize]\""
         ) from exc
 
-    kwargs: dict[str, Any] = {}
-    if token:
-        kwargs["use_auth_token"] = token
+    kwargs = _pyannote_auth_kwargs(Pipeline.from_pretrained, token)
     try:
         pipeline = Pipeline.from_pretrained(model_id, **kwargs)
     except Exception as exc:
@@ -274,10 +261,26 @@ def _load_pyannote_pipeline() -> object:
             f"Failed to initialize pyannote pipeline '{model_id}'. "
             "If this model is gated, accept its Hugging Face terms and set "
             "PYANNOTE_AUTH_TOKEN (or HF_TOKEN). You can also override "
-            "PYANNOTE_MODEL_ID."
+            "PYANNOTE_MODEL_ID. "
+            f"Root cause: {_format_exception(exc)}"
         ) from exc
     _PYANNOTE_PIPELINE_CACHE[key] = pipeline
     return pipeline
+
+
+def _pyannote_auth_kwargs(from_pretrained: Any, token: str) -> dict[str, Any]:
+    """Build auth kwargs for pyannote 4 while tolerating pyannote 3-style APIs."""
+    if not token:
+        return {}
+    try:
+        params = signature(from_pretrained).parameters
+    except (TypeError, ValueError):
+        return {"token": token}
+    if "token" in params:
+        return {"token": token}
+    if "use_auth_token" in params:
+        return {"use_auth_token": token}
+    return {}
 
 
 def _pyannote_input(audio_np: np.ndarray, sr: int) -> dict[str, Any]:
@@ -319,11 +322,43 @@ def _speaker_count_kwargs(config: DiarizationConfig) -> dict[str, int]:
     }
 
 
+def _diarization_runtime_error(exc: Exception) -> RuntimeError:
+    return RuntimeError(
+        "pyannote diarization inference failed. "
+        "Verify the installed '[diarize]' extra and any required Hugging Face "
+        "token/terms for your diarization model. "
+        f"Root cause: {_format_exception(exc)}"
+    )
+
+
+def _format_exception(exc: Exception) -> str:
+    msg = str(exc).strip()
+    if msg:
+        return f"{type(exc).__name__}: {msg}"
+    return type(exc).__name__
+
+
+def _select_pyannote_annotation(output: Any) -> Any:
+    """Return the annotation object from pyannote 4 DiarizeOutput or legacy output."""
+    # Community-1 exposes exclusive diarization specifically to simplify
+    # reconciliation with transcription timestamps, which matches this module's
+    # single-speaker attribution contract.
+    exclusive = getattr(output, "exclusive_speaker_diarization", None)
+    if exclusive is not None:
+        return exclusive
+    regular = getattr(output, "speaker_diarization", None)
+    if regular is not None:
+        return regular
+    return output
+
+
 def _annotation_to_turns(annotation: Any, *, duration: float) -> list[dict]:
     raw: list[tuple[str, float, float]] = []
 
     if annotation is None:
         return []
+
+    annotation = _select_pyannote_annotation(annotation)
 
     if hasattr(annotation, "itertracks"):
         for segment, _, label in annotation.itertracks(yield_label=True):

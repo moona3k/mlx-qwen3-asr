@@ -30,7 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 aligner = ["nagisa", "soynlp"]
-diarize = ["pyannote.audio>=3.3.2"]
+diarize = ["pyannote.audio>=4.0.4,<5"]
 mic = ["sounddevice>=0.4.6"]
 serve = ["fastapi>=0.100.0", "uvicorn>=0.20.0", "python-multipart>=0.0.5"]
 dev = ["pytest", "ruff", "mypy"]

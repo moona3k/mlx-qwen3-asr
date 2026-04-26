@@ -478,7 +478,7 @@ def test_cli_diarize_preflight_emits_token_hint(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_ensure_diarization_backend_ready", lambda: None)
 
     cli._preflight_diarization_runtime()  # noqa: SLF001
-    assert "may require Hugging Face auth" in capsys.readouterr().err
+    assert "default pyannote/speaker-diarization-community-1" in capsys.readouterr().err
 
 
 def test_cli_diarize_preflight_checks_backend_readiness(monkeypatch):

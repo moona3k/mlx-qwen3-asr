@@ -168,8 +168,9 @@ def _run_doctor() -> int:
 
     pyannote_ok = _has_module_spec("pyannote.audio")
     torch_ok = _has_module_spec("torch")
-    if pyannote_ok and torch_ok:
-        print("[OK] diarize extras: pyannote.audio + torch installed")
+    torchcodec_ok = _has_module_spec("torchcodec")
+    if pyannote_ok and torch_ok and torchcodec_ok:
+        print("[OK] diarize extras: pyannote.audio + torch + torchcodec installed")
     else:
         warnings += 1
         print("[WARN] diarize extras: missing (optional)")
@@ -185,7 +186,8 @@ def _run_doctor() -> int:
         print("[OK] diarize auth token: set")
     else:
         warnings += 1
-        print("[WARN] diarize auth token: not set (optional unless using gated pyannote models)")
+        print("[WARN] diarize auth token: not set")
+        print("       needed for default pyannote/speaker-diarization-community-1")
         print("       fix: export PYANNOTE_AUTH_TOKEN=hf_...")
 
     if failures:
@@ -226,8 +228,10 @@ def _preflight_diarization_runtime() -> None:
     if not token:
         print(
             (
-                "Info: --diarize may require Hugging Face auth for gated models. "
-                "Set PYANNOTE_AUTH_TOKEN (or HF_TOKEN) if model access fails."
+                "Info: the default pyannote/speaker-diarization-community-1 "
+                "model requires accepting Hugging Face terms and setting "
+                "PYANNOTE_AUTH_TOKEN (or HF_TOKEN), unless PYANNOTE_MODEL_ID "
+                "points to a local or ungated model."
             ),
             file=sys.stderr,
         )

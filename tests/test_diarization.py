@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from mlx_qwen3_asr.diarization import (
+    DEFAULT_PYANNOTE_MODEL_ID,
     DEFAULT_SPEAKER_LABEL,
     build_speaker_segments_from_turns,
     diarize_chunk_items,
@@ -43,6 +44,12 @@ class _RecordingPipeline:
     def __call__(self, payload, **kwargs):  # noqa: ANN001
         self.calls.append((payload, kwargs))
         return self.annotation
+
+
+class _FakeDiarizeOutput:
+    def __init__(self, *, speaker_diarization, exclusive_speaker_diarization=None):
+        self.speaker_diarization = speaker_diarization
+        self.exclusive_speaker_diarization = exclusive_speaker_diarization
 
 
 def test_validate_diarization_config_rejects_invalid_bounds():
@@ -148,6 +155,62 @@ def test_infer_speaker_turns_merges_adjacent_same_speaker(monkeypatch):
     assert turns == [{"speaker": "SPEAKER_00", "start": 0.0, "end": 0.8}]
 
 
+def test_infer_speaker_turns_unwraps_pyannote4_exclusive_diarization(monkeypatch):
+    dmod = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(
+        dmod,
+        "_pyannote_input",
+        lambda audio, sr: {"waveform": audio[None, :], "sample_rate": sr},
+    )
+
+    audio = np.zeros((16000,), dtype=np.float32)
+    cfg = validate_diarization_config(
+        num_speakers=None,
+        min_speakers=1,
+        max_speakers=2,
+    )
+    regular = _FakeAnnotation([(0.0, 1.0, "regular")])
+    exclusive = _FakeAnnotation([(0.0, 0.5, "exclusive-a"), (0.5, 1.0, "exclusive-b")])
+    pipe = _RecordingPipeline(
+        _FakeDiarizeOutput(
+            speaker_diarization=regular,
+            exclusive_speaker_diarization=exclusive,
+        )
+    )
+
+    turns = infer_speaker_turns(audio, sr=16000, config=cfg, _pipeline=pipe)
+
+    assert turns == [
+        {"speaker": "SPEAKER_00", "start": 0.0, "end": 0.5},
+        {"speaker": "SPEAKER_01", "start": 0.5, "end": 1.0},
+    ]
+
+
+def test_infer_speaker_turns_unwraps_pyannote4_regular_diarization(monkeypatch):
+    dmod = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(
+        dmod,
+        "_pyannote_input",
+        lambda audio, sr: {"waveform": audio[None, :], "sample_rate": sr},
+    )
+
+    audio = np.zeros((16000,), dtype=np.float32)
+    cfg = validate_diarization_config(
+        num_speakers=None,
+        min_speakers=1,
+        max_speakers=2,
+    )
+    pipe = _RecordingPipeline(
+        _FakeDiarizeOutput(
+            speaker_diarization=_FakeAnnotation([(0.0, 1.0, "regular")]),
+        )
+    )
+
+    turns = infer_speaker_turns(audio, sr=16000, config=cfg, _pipeline=pipe)
+
+    assert turns == [{"speaker": "SPEAKER_00", "start": 0.0, "end": 1.0}]
+
+
 def test_infer_speaker_turns_raises_helpful_error_when_dependency_missing(monkeypatch):
     dmod = importlib.import_module("mlx_qwen3_asr.diarization")
 
@@ -185,7 +248,7 @@ def test_infer_speaker_turns_wraps_pipeline_runtime_errors(monkeypatch):
         max_speakers=2,
     )
 
-    with pytest.raises(RuntimeError, match="pyannote diarization inference failed"):
+    with pytest.raises(RuntimeError, match="Root cause: RuntimeError: backend exploded"):
         infer_speaker_turns(
             np.zeros((8000,), dtype=np.float32),
             sr=8000,
@@ -257,7 +320,7 @@ def test_infer_speaker_turns_does_not_retry_on_non_kwargs_type_error(monkeypatch
     )
     pipe = _TypeErrorPipeline()
 
-    with pytest.raises(RuntimeError, match="pyannote diarization inference failed"):
+    with pytest.raises(RuntimeError, match="Root cause: TypeError: shape mismatch"):
         infer_speaker_turns(
             np.zeros((8000,), dtype=np.float32),
             sr=8000,
@@ -267,13 +330,73 @@ def test_infer_speaker_turns_does_not_retry_on_non_kwargs_type_error(monkeypatch
     assert pipe.calls == 1
 
 
+def test_load_pyannote_pipeline_uses_pyannote4_token_kwarg(monkeypatch):
+    dmod = importlib.import_module("mlx_qwen3_asr.diarization")
+    calls = {}
+
+    class _FakePipeline:
+        @classmethod
+        def from_pretrained(cls, model_id, *, token=None):  # noqa: ANN001
+            calls["model_id"] = model_id
+            calls["token"] = token
+            return object()
+
+    fake_audio_module = types.ModuleType("pyannote.audio")
+    fake_audio_module.Pipeline = _FakePipeline
+    fake_pkg = types.ModuleType("pyannote")
+    fake_pkg.audio = fake_audio_module
+
+    monkeypatch.setitem(sys.modules, "pyannote", fake_pkg)
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
+    monkeypatch.setenv("PYANNOTE_AUTH_TOKEN", "hf_test")
+    monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
+
+    dmod._load_pyannote_pipeline()  # noqa: SLF001
+
+    assert calls == {
+        "model_id": DEFAULT_PYANNOTE_MODEL_ID,
+        "token": "hf_test",
+    }
+
+
+def test_load_pyannote_pipeline_falls_back_to_pyannote3_auth_kwarg(monkeypatch):
+    dmod = importlib.import_module("mlx_qwen3_asr.diarization")
+    calls = {}
+
+    class _FakePipeline:
+        @classmethod
+        def from_pretrained(cls, model_id, *, use_auth_token=None):  # noqa: ANN001
+            calls["model_id"] = model_id
+            calls["use_auth_token"] = use_auth_token
+            return object()
+
+    fake_audio_module = types.ModuleType("pyannote.audio")
+    fake_audio_module.Pipeline = _FakePipeline
+    fake_pkg = types.ModuleType("pyannote")
+    fake_pkg.audio = fake_audio_module
+
+    monkeypatch.setitem(sys.modules, "pyannote", fake_pkg)
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
+    monkeypatch.setenv("PYANNOTE_AUTH_TOKEN", "hf_test")
+    monkeypatch.setenv("PYANNOTE_MODEL_ID", "pyannote/speaker-diarization-3.1")
+    dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
+
+    dmod._load_pyannote_pipeline()  # noqa: SLF001
+
+    assert calls == {
+        "model_id": "pyannote/speaker-diarization-3.1",
+        "use_auth_token": "hf_test",
+    }
+
+
 def test_load_pyannote_pipeline_wraps_from_pretrained_errors(monkeypatch):
     dmod = importlib.import_module("mlx_qwen3_asr.diarization")
 
     class _FakePipeline:
         @classmethod
-        def from_pretrained(cls, model_id, **kwargs):  # noqa: ANN001
-            _ = model_id, kwargs
+        def from_pretrained(cls, model_id, *, token=None):  # noqa: ANN001
+            _ = model_id, token
             raise RuntimeError("401 unauthorized")
 
     fake_audio_module = types.ModuleType("pyannote.audio")
@@ -283,10 +406,10 @@ def test_load_pyannote_pipeline_wraps_from_pretrained_errors(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "pyannote", fake_pkg)
     monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
-    monkeypatch.setenv("PYANNOTE_MODEL_ID", "pyannote/speaker-diarization-3.1")
+    monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
-    with pytest.raises(RuntimeError, match="Failed to initialize pyannote pipeline"):
+    with pytest.raises(RuntimeError, match="Root cause: RuntimeError: 401 unauthorized"):
         dmod._load_pyannote_pipeline()  # noqa: SLF001
 
 

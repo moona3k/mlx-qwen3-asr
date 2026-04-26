@@ -257,14 +257,17 @@ use `qwen-asr` only in optional parity scripts.
 
 ## Decision 21: Diarization Is Optional and pyannote-First
 
-**Choice:** Use `pyannote.audio` as the runtime diarization backend behind the
-optional extra (`mlx-qwen3-asr[diarize]`), while keeping the core ASR path
+**Choice:** Use pyannote.audio 4.x as the runtime diarization backend behind
+the optional extra (`mlx-qwen3-asr[diarize]`), defaulting to
+`pyannote/speaker-diarization-community-1`, while keeping the core ASR path
 native MLX and torch-free.
 **Alternatives:** (1) keep/expand the native heuristic diarization path, (2)
 remove diarization support entirely.
 
 **Rationale:**
 - Delivers materially better diarization quality now.
+- Tracks pyannote's current open-source pipeline/API rather than freezing a
+  stale 3.x-era dependency stack.
 - Concentrates engineering effort on the core ASR competency.
 - Keeps default install lean and unchanged for users who do not need diarization.
 - Preserves project identity where it matters most: the core ASR inference path.
