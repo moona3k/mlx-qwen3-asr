@@ -469,6 +469,32 @@ def test_load_pyannote_pipeline_wraps_from_pretrained_errors(monkeypatch):
         dmod._load_pyannote_pipeline()  # noqa: SLF001
 
 
+def test_load_pyannote_pipeline_rejects_none_return(monkeypatch):
+    dmod = importlib.import_module("mlx_qwen3_asr.diarization")
+
+    class _FakePipeline:
+        @classmethod
+        def from_pretrained(cls, model_id, *, token=None):  # noqa: ANN001
+            _ = model_id, token
+            return None
+
+    fake_audio_module = types.ModuleType("pyannote.audio")
+    fake_audio_module.Pipeline = _FakePipeline
+    fake_pkg = types.ModuleType("pyannote")
+    fake_pkg.audio = fake_audio_module
+
+    monkeypatch.setitem(sys.modules, "pyannote", fake_pkg)
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
+    monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"Root cause: Pipeline\.from_pretrained returned None",
+    ):
+        dmod._load_pyannote_pipeline()  # noqa: SLF001
+
+
 def test_diarize_word_segments_adds_speaker_labels():
     cfg = validate_diarization_config(
         num_speakers=None,

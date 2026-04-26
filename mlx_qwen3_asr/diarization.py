@@ -257,15 +257,25 @@ def _load_pyannote_pipeline() -> object:
     try:
         pipeline = Pipeline.from_pretrained(model_id, **kwargs)
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to initialize pyannote pipeline '{model_id}'. "
-            "If this model is gated, accept its Hugging Face terms and set "
-            "PYANNOTE_AUTH_TOKEN (or HF_TOKEN). You can also override "
-            "PYANNOTE_MODEL_ID. "
-            f"Root cause: {_format_exception(exc)}"
-        ) from exc
+        raise _pyannote_pipeline_init_error(model_id, _format_exception(exc)) from exc
+    if pipeline is None:
+        raise _pyannote_pipeline_init_error(
+            model_id,
+            "Pipeline.from_pretrained returned None; pyannote could not download "
+            "or load the pipeline configuration.",
+        )
     _PYANNOTE_PIPELINE_CACHE[key] = pipeline
     return pipeline
+
+
+def _pyannote_pipeline_init_error(model_id: str, root_cause: str) -> RuntimeError:
+    return RuntimeError(
+        f"Failed to initialize pyannote pipeline '{model_id}'. "
+        "If this model is gated, accept its Hugging Face terms and set "
+        "PYANNOTE_AUTH_TOKEN (or HF_TOKEN). You can also override "
+        "PYANNOTE_MODEL_ID. "
+        f"Root cause: {root_cause}"
+    )
 
 
 def _pyannote_auth_kwargs(from_pretrained: Any, token: str) -> dict[str, Any]:
