@@ -211,6 +211,32 @@ def test_infer_speaker_turns_unwraps_pyannote4_regular_diarization(monkeypatch):
     assert turns == [{"speaker": "SPEAKER_00", "start": 0.0, "end": 1.0}]
 
 
+def test_infer_speaker_turns_falls_back_when_pyannote4_exclusive_is_empty(monkeypatch):
+    dmod = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(
+        dmod,
+        "_pyannote_input",
+        lambda audio, sr: {"waveform": audio[None, :], "sample_rate": sr},
+    )
+
+    audio = np.zeros((16000,), dtype=np.float32)
+    cfg = validate_diarization_config(
+        num_speakers=None,
+        min_speakers=1,
+        max_speakers=2,
+    )
+    pipe = _RecordingPipeline(
+        _FakeDiarizeOutput(
+            speaker_diarization=_FakeAnnotation([(0.0, 1.0, "regular")]),
+            exclusive_speaker_diarization=_FakeAnnotation([]),
+        )
+    )
+
+    turns = infer_speaker_turns(audio, sr=16000, config=cfg, _pipeline=pipe)
+
+    assert turns == [{"speaker": "SPEAKER_00", "start": 0.0, "end": 1.0}]
+
+
 def test_infer_speaker_turns_raises_helpful_error_when_dependency_missing(monkeypatch):
     dmod = importlib.import_module("mlx_qwen3_asr.diarization")
 
@@ -357,6 +383,36 @@ def test_load_pyannote_pipeline_uses_pyannote4_token_kwarg(monkeypatch):
     assert calls == {
         "model_id": DEFAULT_PYANNOTE_MODEL_ID,
         "token": "hf_test",
+    }
+
+
+def test_load_pyannote_pipeline_defaults_to_token_for_kwargs_signature(monkeypatch):
+    dmod = importlib.import_module("mlx_qwen3_asr.diarization")
+    calls = {}
+
+    class _FakePipeline:
+        @classmethod
+        def from_pretrained(cls, model_id, **kwargs):  # noqa: ANN001
+            calls["model_id"] = model_id
+            calls["kwargs"] = kwargs
+            return object()
+
+    fake_audio_module = types.ModuleType("pyannote.audio")
+    fake_audio_module.Pipeline = _FakePipeline
+    fake_pkg = types.ModuleType("pyannote")
+    fake_pkg.audio = fake_audio_module
+
+    monkeypatch.setitem(sys.modules, "pyannote", fake_pkg)
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
+    monkeypatch.setenv("PYANNOTE_AUTH_TOKEN", "hf_test")
+    monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
+
+    dmod._load_pyannote_pipeline()  # noqa: SLF001
+
+    assert calls == {
+        "model_id": DEFAULT_PYANNOTE_MODEL_ID,
+        "kwargs": {"token": "hf_test"},
     }
 
 

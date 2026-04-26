@@ -276,11 +276,10 @@ def _pyannote_auth_kwargs(from_pretrained: Any, token: str) -> dict[str, Any]:
         params = signature(from_pretrained).parameters
     except (TypeError, ValueError):
         return {"token": token}
-    if "token" in params:
-        return {"token": token}
-    if "use_auth_token" in params:
+
+    if "use_auth_token" in params and "token" not in params:
         return {"use_auth_token": token}
-    return {}
+    return {"token": token}
 
 
 def _pyannote_input(audio_np: np.ndarray, sr: int) -> dict[str, Any]:
@@ -338,27 +337,50 @@ def _format_exception(exc: Exception) -> str:
     return type(exc).__name__
 
 
-def _select_pyannote_annotation(output: Any) -> Any:
-    """Return the annotation object from pyannote 4 DiarizeOutput or legacy output."""
+def _pyannote_annotation_candidates(output: Any) -> list[Any]:
+    """Return pyannote 4 annotation candidates in timestamp-attribution order."""
     # Community-1 exposes exclusive diarization specifically to simplify
     # reconciliation with transcription timestamps, which matches this module's
     # single-speaker attribution contract.
+    candidates: list[Any] = []
     exclusive = getattr(output, "exclusive_speaker_diarization", None)
     if exclusive is not None:
-        return exclusive
+        candidates.append(exclusive)
     regular = getattr(output, "speaker_diarization", None)
     if regular is not None:
-        return regular
-    return output
+        candidates.append(regular)
+    candidates.append(output)
+    return candidates
 
 
 def _annotation_to_turns(annotation: Any, *, duration: float) -> list[dict]:
-    raw: list[tuple[str, float, float]] = []
-
     if annotation is None:
         return []
 
-    annotation = _select_pyannote_annotation(annotation)
+    raw: list[tuple[str, float, float]] = []
+    for candidate in _pyannote_annotation_candidates(annotation):
+        raw = _raw_annotation_turns(candidate)
+        if raw:
+            break
+
+    if not raw:
+        return []
+
+    raw.sort(key=lambda x: (x[1], x[2]))
+    label_map: dict[str, str] = {}
+    turns: list[dict] = []
+
+    for label, start, end in raw:
+        if label not in label_map:
+            label_map[label] = f"SPEAKER_{len(label_map):02d}"
+        speaker = label_map[label]
+        turns.append({"speaker": speaker, "start": max(0.0, start), "end": min(duration, end)})
+
+    return _merge_speaker_turns(turns)
+
+
+def _raw_annotation_turns(annotation: Any) -> list[tuple[str, float, float]]:
+    raw: list[tuple[str, float, float]] = []
 
     if hasattr(annotation, "itertracks"):
         for segment, _, label in annotation.itertracks(yield_label=True):
@@ -376,20 +398,7 @@ def _annotation_to_turns(annotation: Any, *, duration: float) -> list[dict]:
             if end > start:
                 raw.append((label, start, end))
 
-    if not raw:
-        return []
-
-    raw.sort(key=lambda x: (x[1], x[2]))
-    label_map: dict[str, str] = {}
-    turns: list[dict] = []
-
-    for label, start, end in raw:
-        if label not in label_map:
-            label_map[label] = f"SPEAKER_{len(label_map):02d}"
-        speaker = label_map[label]
-        turns.append({"speaker": speaker, "start": max(0.0, start), "end": min(duration, end)})
-
-    return _merge_speaker_turns(turns)
+    return raw
 
 
 def _merge_speaker_turns(turns: list[dict], *, max_gap_sec: float = 0.2) -> list[dict]:
