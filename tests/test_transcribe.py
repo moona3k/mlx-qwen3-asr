@@ -179,6 +179,32 @@ def test_coerce_generation_result_prefers_length_when_legacy_output_hits_cap():
     assert result.truncated is True
 
 
+def test_clear_mlx_cache_uses_core_api(monkeypatch):
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    calls = []
+
+    fake_mx = SimpleNamespace(clear_cache=lambda: calls.append("core"))
+    monkeypatch.setattr(tmod, "mx", fake_mx)
+
+    tmod._clear_mlx_cache()
+
+    assert calls == ["core"]
+
+
+def test_clear_mlx_cache_falls_back_to_metal_api(monkeypatch):
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    calls = []
+
+    fake_mx = SimpleNamespace(
+        metal=SimpleNamespace(clear_cache=lambda: calls.append("metal"))
+    )
+    monkeypatch.setattr(tmod, "mx", fake_mx)
+
+    tmod._clear_mlx_cache()
+
+    assert calls == ["metal"]
+
+
 @pytest.mark.parametrize(
     "reasons,expected",
     [
