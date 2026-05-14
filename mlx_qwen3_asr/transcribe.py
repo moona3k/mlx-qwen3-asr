@@ -811,7 +811,7 @@ def _transcribe_loaded_components(
         # Release large per-chunk GPU tensors so the Metal allocator can reclaim
         # memory before the next chunk.  Without this, processing hour-long audio
         # causes unbounded memory growth (~90 GiB observed).
-        del mel, feature_lens, audio_features, input_ids, position_ids
+        del mel, feature_lens, audio_features, input_ids, positions, position_ids
         del generation_output, generation, draft_audio_features
         mx.clear_cache()
 
