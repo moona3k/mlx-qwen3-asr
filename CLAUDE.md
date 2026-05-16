@@ -215,6 +215,7 @@ PyPI account: moona3k@gmail.com. Token scope: `mlx-qwen3-asr` project. Pure Pyth
 | `docs/GOLDEN_DATASET.md` | Golden dataset policy and evaluation commands |
 | `docs/COMPARISON.md` | Comparison with alternatives (mlx-audio, whisper, etc.) |
 | `docs/RESEARCH.md` | Research findings, model analysis |
+| `docs/MODEL_WATCH.md` | Current ASR model watchlist and roadmap guardrails |
 | `docs/BENCHMARKING.md` | Runtime measurement protocol and methodology |
 | `docs/memory/operating-memory.md` | Agent memory front door (protocol + compacted guidance) |
 | `docs/memory/events/` | Append-only implementation memory events |
