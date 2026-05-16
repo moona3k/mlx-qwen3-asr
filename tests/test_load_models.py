@@ -2,20 +2,91 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import mlx.core as mx
+import mlx.nn as nn
 import mlx.utils as mlx_utils
 
-from mlx_qwen3_asr.config import ACCURACY_MODEL_ID
+from mlx_qwen3_asr.config import (
+    ACCURACY_MODEL_ID,
+    AudioEncoderConfig,
+    Qwen3ASRConfig,
+    TextDecoderConfig,
+)
 from mlx_qwen3_asr.load_models import (
     _cast_tree_dtype,
     _infer_quantization_params,
     _is_quantized_weights,
+    _load_model_with_resolved_path,
+    _materialize_tied_lm_head_weights,
     _ModelHolder,
+    _quantize_model_for_loaded_weights,
+    _quantized_module_paths,
     _read_quantization_config,
     _resolve_path,
 )
+from mlx_qwen3_asr.model import Qwen3ASRModel
+
+
+def _tiny_config(*, tie_word_embeddings: bool = True) -> Qwen3ASRConfig:
+    return Qwen3ASRConfig(
+        audio_config=AudioEncoderConfig(
+            num_mel_bins=128,
+            encoder_layers=1,
+            encoder_attention_heads=2,
+            encoder_ffn_dim=64,
+            d_model=32,
+            output_dim=256,
+            max_source_positions=100,
+            downsample_hidden_size=24,
+        ),
+        text_config=TextDecoderConfig(
+            vocab_size=128,
+            hidden_size=256,
+            intermediate_size=512,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            num_key_value_heads=2,
+            head_dim=128,
+            tie_word_embeddings=tie_word_embeddings,
+        ),
+    )
+
+
+def _tiny_config_dict(*, tie_word_embeddings: bool = True) -> dict:
+    return {
+        "thinker_config": {
+            "audio_config": {
+                "num_mel_bins": 128,
+                "encoder_layers": 1,
+                "encoder_attention_heads": 2,
+                "encoder_ffn_dim": 64,
+                "d_model": 32,
+                "output_dim": 256,
+                "max_source_positions": 100,
+                "downsample_hidden_size": 24,
+            },
+            "text_config": {
+                "vocab_size": 128,
+                "hidden_size": 256,
+                "intermediate_size": 512,
+                "num_hidden_layers": 1,
+                "num_attention_heads": 2,
+                "num_key_value_heads": 2,
+                "head_dim": 128,
+                "tie_word_embeddings": tie_word_embeddings,
+            },
+        }
+    }
+
+
+def _write_tiny_config(model_dir: Path, *, tie_word_embeddings: bool = True) -> None:
+    (model_dir / "config.json").write_text(
+        json.dumps(_tiny_config_dict(tie_word_embeddings=tie_word_embeddings)),
+        encoding="utf-8",
+    )
 
 
 class TestCastTreeDtype:
@@ -42,6 +113,112 @@ class TestCastTreeDtype:
         assert casted["int_array"].dtype == mx.int32
 
         assert casted["name"] == "keep-me"
+
+
+class TestTiedLmHeadWeights:
+    def test_materializes_missing_tied_lm_head_weight(self):
+        embedding = mx.zeros((128, 48), dtype=mx.float16)
+        weights = {"model.embed_tokens.weight": embedding}
+
+        patched = _materialize_tied_lm_head_weights(weights, _tiny_config())
+
+        assert patched["lm_head.weight"] is embedding
+        assert "lm_head.weight" not in weights
+
+    def test_materializes_quantized_tied_lm_head_aux_tensors(self):
+        embedding = mx.zeros((128, 6), dtype=mx.uint32)
+        scales = mx.ones((128, 1), dtype=mx.float16)
+        biases = mx.zeros((128, 1), dtype=mx.float16)
+        weights = {
+            "model.embed_tokens.weight": embedding,
+            "model.embed_tokens.scales": scales,
+            "model.embed_tokens.biases": biases,
+        }
+
+        patched = _materialize_tied_lm_head_weights(weights, _tiny_config())
+
+        assert patched["lm_head.weight"] is embedding
+        assert patched["lm_head.scales"] is scales
+        assert patched["lm_head.biases"] is biases
+
+    def test_preserves_explicit_lm_head_weight(self):
+        embedding = mx.zeros((128, 48), dtype=mx.float16)
+        lm_head = mx.ones((128, 48), dtype=mx.float16)
+        weights = {
+            "model.embed_tokens.weight": embedding,
+            "lm_head.weight": lm_head,
+        }
+
+        patched = _materialize_tied_lm_head_weights(weights, _tiny_config())
+
+        assert patched is weights
+        assert patched["lm_head.weight"] is lm_head
+
+    def test_does_not_materialize_when_embeddings_are_not_tied(self):
+        embedding = mx.zeros((128, 48), dtype=mx.float16)
+        weights = {"model.embed_tokens.weight": embedding}
+
+        patched = _materialize_tied_lm_head_weights(
+            weights,
+            _tiny_config(tie_word_embeddings=False),
+        )
+
+        assert patched is weights
+        assert "lm_head.weight" not in patched
+
+
+class TestLoadModelWithCommunityLayouts:
+    def test_loads_tied_checkpoint_without_explicit_lm_head(self, tmp_path: Path):
+        model_dir = tmp_path / "tied-bf16"
+        model_dir.mkdir()
+        _write_tiny_config(model_dir)
+
+        model = Qwen3ASRModel(_tiny_config())
+        weights = dict(mlx_utils.tree_flatten(model.parameters()))
+        weights.pop("lm_head.weight")
+        mx.save_safetensors(str(model_dir / "model.safetensors"), weights)
+
+        loaded, _, _ = _load_model_with_resolved_path(str(model_dir), dtype=mx.float16)
+        params = dict(mlx_utils.tree_flatten(loaded.parameters()))
+
+        assert "lm_head.weight" in params
+        assert params["lm_head.weight"].shape == params["model.embed_tokens.weight"].shape
+
+    def test_loads_partially_quantized_checkpoint(self, tmp_path: Path):
+        model_dir = tmp_path / "partial-quant"
+        model_dir.mkdir()
+        _write_tiny_config(model_dir)
+        (model_dir / "quantization_config.json").write_text(
+            '{"bits": 4, "group_size": 64}',
+            encoding="utf-8",
+        )
+
+        model = Qwen3ASRModel(_tiny_config())
+        quantized_paths = {
+            "model.embed_tokens",
+            "model.layers.0.self_attn.q_proj",
+            "lm_head",
+        }
+        nn.quantize(
+            model,
+            bits=4,
+            group_size=64,
+            class_predicate=lambda path, _module: path in quantized_paths,
+        )
+        weights = dict(mlx_utils.tree_flatten(model.parameters()))
+        for key in ("lm_head.weight", "lm_head.scales", "lm_head.biases"):
+            weights.pop(key)
+        mx.save_safetensors(str(model_dir / "model.safetensors"), weights)
+
+        loaded, _, _ = _load_model_with_resolved_path(str(model_dir), dtype=mx.float16)
+        params = dict(mlx_utils.tree_flatten(loaded.parameters()))
+
+        assert "lm_head.scales" in params
+        assert "model.layers.0.self_attn.q_proj.scales" in params
+        assert not any(
+            key.startswith("audio_tower.") and key.endswith((".scales", ".biases"))
+            for key in params
+        )
 
 
 class TestResolvePath:
@@ -229,3 +406,38 @@ class TestQuantizationHelpers:
         cfg = _read_quantization_config(model_dir)
         assert cfg is None
         assert "Failed to parse quantization metadata" in caplog.text
+
+    def test_quantized_module_paths_come_from_saved_scales(self):
+        weights = {
+            "audio_tower.conv_out.weight": mx.zeros((1, 1)),
+            "model.embed_tokens.weight": mx.zeros((1, 1)),
+            "model.embed_tokens.scales": mx.zeros((1, 1)),
+            "model.layers.0.self_attn.q_proj.scales": mx.zeros((1, 1)),
+            "lm_head.scales": mx.zeros((1, 1)),
+        }
+
+        assert _quantized_module_paths(weights) == {
+            "model.embed_tokens",
+            "model.layers.0.self_attn.q_proj",
+            "lm_head",
+        }
+
+    def test_quantize_model_only_converts_modules_with_saved_scales(self):
+        model = Qwen3ASRModel(_tiny_config())
+        weights = {
+            "model.embed_tokens.scales": mx.zeros((1, 1)),
+            "model.layers.0.self_attn.q_proj.scales": mx.zeros((1, 1)),
+            "lm_head.scales": mx.zeros((1, 1)),
+        }
+
+        _quantize_model_for_loaded_weights(model, weights, bits=4, group_size=64)
+        params = dict(mlx_utils.tree_flatten(model.parameters()))
+
+        assert "model.embed_tokens.scales" in params
+        assert "model.layers.0.self_attn.q_proj.scales" in params
+        assert "lm_head.scales" in params
+        assert not any(
+            key.startswith("audio_tower.") and key.endswith((".scales", ".biases"))
+            for key in params
+        )
+        assert "model.layers.0.self_attn.k_proj.scales" not in params

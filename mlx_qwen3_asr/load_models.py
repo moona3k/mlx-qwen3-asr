@@ -115,6 +115,7 @@ def _load_model_with_resolved_path(
     # Load weights
     weights = _load_safetensors(model_path)
     weights = remap_weights(weights)
+    weights = _materialize_tied_lm_head_weights(weights, config)
 
     # Instantiate model
     model = Qwen3ASRModel(config)
@@ -127,7 +128,7 @@ def _load_model_with_resolved_path(
             group_size = int(quant_cfg.get("group_size", 64))
         else:
             bits, group_size = _infer_quantization_params(weights, model)
-        nn.quantize(model, bits=bits, group_size=group_size)
+        _quantize_model_for_loaded_weights(model, weights, bits=bits, group_size=group_size)
 
     # Load weights into model
     model.load_weights(list(weights.items()))
@@ -157,6 +158,55 @@ def _cast_tree_dtype(tree: dict, dtype: mx.Dtype) -> dict:
         if isinstance(x, mx.array) and mx.issubdtype(x.dtype, mx.floating)
         else x,
         tree,
+    )
+
+
+def _model_uses_tied_lm_head(config: Qwen3ASRConfig) -> bool:
+    output_size = config.classify_num or config.text_config.vocab_size
+    return (
+        config.text_config.tie_word_embeddings
+        and output_size == config.text_config.vocab_size
+    )
+
+
+def _materialize_tied_lm_head_weights(
+    weights: dict[str, mx.array],
+    config: Qwen3ASRConfig,
+) -> dict[str, mx.array]:
+    """Fill missing LM-head tensors for checkpoints with tied embeddings."""
+    if not _model_uses_tied_lm_head(config):
+        return weights
+    if "lm_head.weight" in weights or "model.embed_tokens.weight" not in weights:
+        return weights
+
+    weights = dict(weights)
+    weights["lm_head.weight"] = weights["model.embed_tokens.weight"]
+    for suffix in (".scales", ".biases"):
+        src = f"model.embed_tokens{suffix}"
+        dst = f"lm_head{suffix}"
+        if src in weights and dst not in weights:
+            weights[dst] = weights[src]
+    return weights
+
+
+def _quantized_module_paths(weights: dict[str, mx.array]) -> set[str]:
+    """Return module paths that have saved MLX quantization parameters."""
+    return {key.removesuffix(".scales") for key in weights if key.endswith(".scales")}
+
+
+def _quantize_model_for_loaded_weights(
+    model: Qwen3ASRModel,
+    weights: dict[str, mx.array],
+    bits: int,
+    group_size: int,
+) -> None:
+    """Quantize only modules that have matching tensors in the checkpoint."""
+    quantized_paths = _quantized_module_paths(weights)
+    nn.quantize(
+        model,
+        bits=bits,
+        group_size=group_size,
+        class_predicate=lambda path, _module: path in quantized_paths,
     )
 
 
