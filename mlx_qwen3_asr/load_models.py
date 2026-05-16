@@ -162,6 +162,7 @@ def _cast_tree_dtype(tree: dict, dtype: mx.Dtype) -> dict:
 
 
 def _model_uses_tied_lm_head(config: Qwen3ASRConfig) -> bool:
+    """Return whether the config ties the final projection to token embeddings."""
     output_size = config.classify_num or config.text_config.vocab_size
     return (
         config.text_config.tie_word_embeddings
@@ -176,17 +177,25 @@ def _materialize_tied_lm_head_weights(
     """Fill missing LM-head tensors for checkpoints with tied embeddings."""
     if not _model_uses_tied_lm_head(config):
         return weights
-    if "lm_head.weight" in weights or "model.embed_tokens.weight" not in weights:
+    embedding_weight = weights.get("model.embed_tokens.weight")
+    if embedding_weight is None:
         return weights
 
-    weights = dict(weights)
-    weights["lm_head.weight"] = weights["model.embed_tokens.weight"]
+    lm_head_weight = weights.get("lm_head.weight")
+    can_tie_aux_tensors = lm_head_weight is None or lm_head_weight.shape == embedding_weight.shape
+    materialized = weights
+    if lm_head_weight is None:
+        materialized = dict(weights)
+        materialized["lm_head.weight"] = embedding_weight
+
     for suffix in (".scales", ".biases"):
         src = f"model.embed_tokens{suffix}"
         dst = f"lm_head{suffix}"
-        if src in weights and dst not in weights:
-            weights[dst] = weights[src]
-    return weights
+        if can_tie_aux_tensors and src in materialized and dst not in materialized:
+            if materialized is weights:
+                materialized = dict(weights)
+            materialized[dst] = materialized[src]
+    return materialized
 
 
 def _quantized_module_paths(weights: dict[str, mx.array]) -> set[str]:

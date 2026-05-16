@@ -31,6 +31,7 @@ from mlx_qwen3_asr.model import Qwen3ASRModel
 
 
 def _tiny_config(*, tie_word_embeddings: bool = True) -> Qwen3ASRConfig:
+    """Build a small valid ASR config for loader tests."""
     return Qwen3ASRConfig(
         audio_config=AudioEncoderConfig(
             num_mel_bins=128,
@@ -56,6 +57,7 @@ def _tiny_config(*, tie_word_embeddings: bool = True) -> Qwen3ASRConfig:
 
 
 def _tiny_config_dict(*, tie_word_embeddings: bool = True) -> dict:
+    """Return the nested JSON config shape used by checkpoint directories."""
     return {
         "thinker_config": {
             "audio_config": {
@@ -83,6 +85,7 @@ def _tiny_config_dict(*, tie_word_embeddings: bool = True) -> dict:
 
 
 def _write_tiny_config(model_dir: Path, *, tie_word_embeddings: bool = True) -> None:
+    """Write a tiny nested config.json into a checkpoint fixture directory."""
     (model_dir / "config.json").write_text(
         json.dumps(_tiny_config_dict(tie_word_embeddings=tie_word_embeddings)),
         encoding="utf-8",
@@ -153,6 +156,39 @@ class TestTiedLmHeadWeights:
 
         assert patched is weights
         assert patched["lm_head.weight"] is lm_head
+
+    def test_materializes_missing_aux_tensors_for_explicit_tied_lm_head(self):
+        embedding = mx.zeros((128, 6), dtype=mx.uint32)
+        lm_head = mx.ones((128, 6), dtype=mx.uint32)
+        scales = mx.ones((128, 1), dtype=mx.float16)
+        biases = mx.zeros((128, 1), dtype=mx.float16)
+        weights = {
+            "model.embed_tokens.weight": embedding,
+            "model.embed_tokens.scales": scales,
+            "model.embed_tokens.biases": biases,
+            "lm_head.weight": lm_head,
+        }
+
+        patched = _materialize_tied_lm_head_weights(weights, _tiny_config())
+
+        assert patched["lm_head.weight"] is lm_head
+        assert patched["lm_head.scales"] is scales
+        assert patched["lm_head.biases"] is biases
+
+    def test_does_not_materialize_aux_tensors_for_shape_mismatched_lm_head(self):
+        embedding = mx.zeros((128, 6), dtype=mx.uint32)
+        lm_head = mx.ones((128, 48), dtype=mx.float16)
+        scales = mx.ones((128, 1), dtype=mx.float16)
+        weights = {
+            "model.embed_tokens.weight": embedding,
+            "model.embed_tokens.scales": scales,
+            "lm_head.weight": lm_head,
+        }
+
+        patched = _materialize_tied_lm_head_weights(weights, _tiny_config())
+
+        assert patched is weights
+        assert "lm_head.scales" not in patched
 
     def test_does_not_materialize_when_embeddings_are_not_tied(self):
         embedding = mx.zeros((128, 48), dtype=mx.float16)
