@@ -108,6 +108,7 @@ class Session:
             diarization_num_speakers=options.diarization_num_speakers,
             diarization_min_speakers=options.diarization_min_speakers,
             diarization_max_speakers=options.diarization_max_speakers,
+            diarization_device=options.diarization_device,
         )
         effective_return_timestamps = bool(
             options.return_timestamps or diarization_config is not None
