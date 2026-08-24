@@ -14,6 +14,10 @@ from typing import Optional
 
 from ._version import __version__
 from .config import DEFAULT_MODEL_ID
+from .diarization import (
+    DEFAULT_DIARIZATION_DEVICE,
+    SUPPORTED_DIARIZATION_DEVICES,
+)
 
 _FFMPEG_REQUIRED_SUFFIXES = {
     ".aac",
@@ -412,6 +416,15 @@ def main():
         type=int,
         default=8,
         help="Maximum speaker count for --diarize auto mode (default: 8).",
+    )
+    parser.add_argument(
+        "--diarize-device",
+        choices=SUPPORTED_DIARIZATION_DEVICES,
+        default=DEFAULT_DIARIZATION_DEVICE,
+        help=(
+            "Device for the pyannote diarization pipeline "
+            "(default: auto -> mps/cuda when available, else cpu)."
+        ),
     )
     parser.add_argument(
         "--forced-aligner",
@@ -819,6 +832,7 @@ def main():
                     diarization_num_speakers=args.num_speakers,
                     diarization_min_speakers=args.min_speakers,
                     diarization_max_speakers=args.max_speakers,
+                    diarization_device=args.diarize_device,
                     return_chunks=True,
                     forced_aligner=aligner,
                     dtype=dtype,

@@ -15,6 +15,7 @@ from .audio import SAMPLE_RATE, compute_features, load_audio_np
 from .chunking import split_audio_into_chunks
 from .config import DEFAULT_MODEL_ID
 from .diarization import (
+    DEFAULT_DIARIZATION_DEVICE,
     DiarizationConfig,
     build_speaker_segments_from_turns,
     diarize_chunk_items,
@@ -100,6 +101,7 @@ class TranscribeOptions:
     diarization_num_speakers: Optional[int] = None
     diarization_min_speakers: int = 1
     diarization_max_speakers: int = 8
+    diarization_device: str = DEFAULT_DIARIZATION_DEVICE
     return_chunks: bool = False
     forced_aligner: Optional[Union[str, ForcedAligner]] = None
     dtype: mx.Dtype = mx.float16
@@ -140,6 +142,7 @@ def _build_transcribe_options(
     diarization_num_speakers: Optional[int] = None,
     diarization_min_speakers: int = 1,
     diarization_max_speakers: int = 8,
+    diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
     return_chunks: bool = False,
     forced_aligner: Optional[Union[str, ForcedAligner]] = None,
     dtype: mx.Dtype = mx.float16,
@@ -156,6 +159,7 @@ def _build_transcribe_options(
         diarization_num_speakers=diarization_num_speakers,
         diarization_min_speakers=diarization_min_speakers,
         diarization_max_speakers=diarization_max_speakers,
+        diarization_device=diarization_device,
         return_chunks=return_chunks,
         forced_aligner=forced_aligner,
         dtype=dtype,
@@ -179,6 +183,7 @@ def _transcribe_options_to_kwargs(
         "diarization_num_speakers": options.diarization_num_speakers,
         "diarization_min_speakers": options.diarization_min_speakers,
         "diarization_max_speakers": options.diarization_max_speakers,
+        "diarization_device": options.diarization_device,
         "return_chunks": options.return_chunks,
         "forced_aligner": options.forced_aligner,
         "max_new_tokens": options.max_new_tokens,
@@ -213,6 +218,7 @@ def _resolve_runtime_options(
         diarization_num_speakers=options.diarization_num_speakers,
         diarization_min_speakers=options.diarization_min_speakers,
         diarization_max_speakers=options.diarization_max_speakers,
+        diarization_device=options.diarization_device,
     )
     effective_return_timestamps = bool(
         options.return_timestamps or diarization_config is not None
@@ -233,6 +239,7 @@ def transcribe(
     diarization_num_speakers: Optional[int] = None,
     diarization_min_speakers: int = 1,
     diarization_max_speakers: int = 8,
+    diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
     return_chunks: bool = False,
     forced_aligner: Optional[Union[str, ForcedAligner]] = None,
     dtype: mx.Dtype = mx.float16,
@@ -266,6 +273,7 @@ def transcribe(
         diarization_num_speakers: Optional fixed speaker count override.
         diarization_min_speakers: Lower bound for auto speaker estimation.
         diarization_max_speakers: Upper bound for auto speaker estimation.
+        diarization_device: Device for the pyannote pipeline ("auto", "cpu", "mps", "cuda").
         return_chunks: Whether to return chunk-level transcript metadata.
         forced_aligner: Path/name of forced aligner model or prebuilt aligner object.
         dtype: Model dtype
@@ -286,6 +294,7 @@ def transcribe(
         diarization_num_speakers=diarization_num_speakers,
         diarization_min_speakers=diarization_min_speakers,
         diarization_max_speakers=diarization_max_speakers,
+        diarization_device=diarization_device,
         return_chunks=return_chunks,
         forced_aligner=forced_aligner,
         dtype=dtype,
@@ -346,6 +355,7 @@ async def transcribe_async(
     diarization_num_speakers: Optional[int] = None,
     diarization_min_speakers: int = 1,
     diarization_max_speakers: int = 8,
+    diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
     return_chunks: bool = False,
     forced_aligner: Optional[Union[str, ForcedAligner]] = None,
     dtype: mx.Dtype = mx.float16,
@@ -363,6 +373,7 @@ async def transcribe_async(
         diarization_num_speakers=diarization_num_speakers,
         diarization_min_speakers=diarization_min_speakers,
         diarization_max_speakers=diarization_max_speakers,
+        diarization_device=diarization_device,
         return_chunks=return_chunks,
         forced_aligner=forced_aligner,
         dtype=dtype,
@@ -392,6 +403,7 @@ def transcribe_batch(
     diarization_num_speakers: Optional[int] = None,
     diarization_min_speakers: int = 1,
     diarization_max_speakers: int = 8,
+    diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
     return_chunks: bool = False,
     forced_aligner: Optional[Union[str, ForcedAligner]] = None,
     dtype: mx.Dtype = mx.float16,
@@ -428,6 +440,7 @@ def transcribe_batch(
         diarization_num_speakers=diarization_num_speakers,
         diarization_min_speakers=diarization_min_speakers,
         diarization_max_speakers=diarization_max_speakers,
+        diarization_device=diarization_device,
         return_chunks=return_chunks,
         forced_aligner=forced_aligner,
         dtype=dtype,
@@ -505,6 +518,7 @@ async def transcribe_batch_async(
     diarization_num_speakers: Optional[int] = None,
     diarization_min_speakers: int = 1,
     diarization_max_speakers: int = 8,
+    diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
     return_chunks: bool = False,
     forced_aligner: Optional[Union[str, ForcedAligner]] = None,
     dtype: mx.Dtype = mx.float16,
@@ -521,6 +535,7 @@ async def transcribe_batch_async(
         diarization_num_speakers=diarization_num_speakers,
         diarization_min_speakers=diarization_min_speakers,
         diarization_max_speakers=diarization_max_speakers,
+        diarization_device=diarization_device,
         return_chunks=return_chunks,
         forced_aligner=forced_aligner,
         dtype=dtype,
@@ -626,6 +641,7 @@ def _resolve_diarization_config(
     diarization_num_speakers: Optional[int],
     diarization_min_speakers: int,
     diarization_max_speakers: int,
+    diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
 ) -> Optional[DiarizationConfig]:
     if not diarize:
         if diarization_num_speakers is not None:
@@ -637,6 +653,7 @@ def _resolve_diarization_config(
         num_speakers=diarization_num_speakers,
         min_speakers=diarization_min_speakers,
         max_speakers=diarization_max_speakers,
+        device=diarization_device,
     )
 
 

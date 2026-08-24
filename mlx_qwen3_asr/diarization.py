@@ -16,6 +16,8 @@ import numpy as np
 
 DEFAULT_SPEAKER_LABEL = "SPEAKER_00"
 DEFAULT_PYANNOTE_MODEL_ID = "pyannote/speaker-diarization-community-1"
+DEFAULT_DIARIZATION_DEVICE = "auto"
+SUPPORTED_DIARIZATION_DEVICES = ("auto", "cpu", "mps", "cuda")
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,7 @@ class DiarizationConfig:
     num_speakers: Optional[int] = None
     min_speakers: int = 1
     max_speakers: int = 8
+    device: str = DEFAULT_DIARIZATION_DEVICE
 
 
 def validate_diarization_config(
@@ -32,6 +35,7 @@ def validate_diarization_config(
     num_speakers: Optional[int],
     min_speakers: int,
     max_speakers: int,
+    device: str = DEFAULT_DIARIZATION_DEVICE,
 ) -> DiarizationConfig:
     """Validate diarization configuration values."""
     if num_speakers is not None and num_speakers < 1:
@@ -42,10 +46,16 @@ def validate_diarization_config(
         raise ValueError(
             "diarization_max_speakers must be >= diarization_min_speakers."
         )
+    if device not in SUPPORTED_DIARIZATION_DEVICES:
+        raise ValueError(
+            "diarization_device must be one of "
+            f"{', '.join(SUPPORTED_DIARIZATION_DEVICES)}; got {device!r}."
+        )
     return DiarizationConfig(
         num_speakers=num_speakers,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
+        device=device,
     )
 
 
@@ -62,7 +72,7 @@ def infer_speaker_turns(
     if audio.size == 0:
         return []
 
-    pipeline = _pipeline or _load_pyannote_pipeline()
+    pipeline = _pipeline or _load_pyannote_pipeline(device=config.device)
     kwargs = _speaker_count_kwargs(config)
     audio_np = np.asarray(audio, dtype=np.float32).reshape(-1)
 
@@ -229,10 +239,56 @@ def diarize_chunk_items(
     return _merge_speaker_segments(items)
 
 
-_PYANNOTE_PIPELINE_CACHE: dict[tuple[str, str], object] = {}
+_PYANNOTE_PIPELINE_CACHE: dict[tuple[str, str, str], object] = {}
 
 
-def _load_pyannote_pipeline() -> object:
+def _resolve_diarization_device(requested: str, torch_module: Any) -> str:
+    """Resolve ``auto`` to the fastest backend torch reports as available.
+
+    Args:
+        requested: One of ``SUPPORTED_DIARIZATION_DEVICES``.
+        torch_module: The imported ``torch`` module (injected for testability).
+
+    Returns:
+        A concrete device string: ``mps``, ``cuda``, or ``cpu``.
+    """
+    if requested != "auto":
+        return requested
+    backends = getattr(torch_module, "backends", None)
+    mps = getattr(backends, "mps", None)
+    if mps is not None and mps.is_available():
+        return "mps"
+    cuda = getattr(torch_module, "cuda", None)
+    if cuda is not None and cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
+def _resolve_torch_device(device: str) -> tuple[Any, str]:
+    """Import torch only when a non-CPU device may be needed.
+
+    ``cpu`` never needs torch, and a missing torch means the ``[diarize]`` extra
+    is not installed - pyannote itself will raise the actionable ImportError a
+    few lines later, so staying quiet here keeps that error path intact.
+
+    Args:
+        device: One of ``SUPPORTED_DIARIZATION_DEVICES``.
+
+    Returns:
+        ``(torch_module_or_None, resolved_device)``.
+    """
+    if device == "cpu":
+        return None, "cpu"
+    try:
+        # Intentional: diarization is optional and this torch import is gated
+        # behind the [diarize] extra, so the core ASR path stays torch-free.
+        import torch
+    except ImportError:
+        return None, "cpu"
+    return torch, _resolve_diarization_device(device, torch)
+
+
+def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
     model_id = os.environ.get("PYANNOTE_MODEL_ID", DEFAULT_PYANNOTE_MODEL_ID)
     token = (
         os.environ.get("PYANNOTE_AUTH_TOKEN")
@@ -240,7 +296,8 @@ def _load_pyannote_pipeline() -> object:
         or os.environ.get("HF_TOKEN")
         or ""
     )
-    key = (model_id, token)
+    torch, resolved_device = _resolve_torch_device(device)
+    key = (model_id, token, resolved_device)
     cached = _PYANNOTE_PIPELINE_CACHE.get(key)
     if cached is not None:
         return cached
@@ -264,6 +321,18 @@ def _load_pyannote_pipeline() -> object:
             "Pipeline.from_pretrained returned None; pyannote could not download "
             "or load the pipeline configuration.",
         )
+    if resolved_device != "cpu" and torch is not None:
+        try:
+            pipeline.to(torch.device(resolved_device))
+        except Exception as exc:  # noqa: BLE001 - any backend gap must not be fatal
+            warnings.warn(
+                f"Could not move the pyannote pipeline to {resolved_device} "
+                f"({type(exc).__name__}: {exc}); falling back to CPU.",
+                stacklevel=2,
+            )
+            resolved_device = "cpu"
+            key = (model_id, token, resolved_device)
+
     _PYANNOTE_PIPELINE_CACHE[key] = pipeline
     return pipeline
 
