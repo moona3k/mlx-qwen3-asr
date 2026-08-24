@@ -330,6 +330,18 @@ def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
                 f"({type(exc).__name__}: {exc}); falling back to CPU.",
                 stacklevel=2,
             )
+            # Pipeline.to() moves sub-models in a loop, so a mid-loop failure
+            # leaves earlier components on the accelerator. Caching that mixed
+            # state under the CPU key would hand a later CPU caller a pipeline
+            # that dies on a device mismatch at inference time.
+            try:
+                pipeline.to(torch.device("cpu"))
+            except Exception as cpu_exc:  # noqa: BLE001 - unusable either way
+                raise RuntimeError(
+                    "Diarization pipeline was left on mixed devices after a "
+                    f"failed transfer to {resolved_device} and could not be "
+                    f"recovered to CPU ({type(cpu_exc).__name__}: {cpu_exc})."
+                ) from cpu_exc
             resolved_device = "cpu"
             key = (model_id, token, resolved_device)
 

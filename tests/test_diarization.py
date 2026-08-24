@@ -593,12 +593,24 @@ class _FakeTorch:
 
 
 class _MovablePipeline:
-    def __init__(self, fail: bool = False):
+    """Fake pipeline that can fail accelerator transfers but accept CPU ones.
+
+    Mirrors pyannote's ``Pipeline.to``, which moves sub-models in a loop: a
+    mid-loop failure leaves earlier components on the accelerator, so the
+    recovery path must be able to move what is left back to CPU.
+    """
+
+    def __init__(self, fail_accelerator: bool = False, fail_cpu: bool = False):
         self.moved_to: list[str] = []
-        self._fail = fail
+        self._fail_accelerator = fail_accelerator
+        self._fail_cpu = fail_cpu
 
     def to(self, device):
-        if self._fail:
+        is_cpu = str(device).endswith("cpu")
+        if is_cpu and self._fail_cpu:
+            raise RuntimeError("cpu transfer is broken too")
+        if not is_cpu and self._fail_accelerator:
+            self.moved_to.append(f"{device}:partial")
             raise RuntimeError("backend does not support this op")
         self.moved_to.append(device)
         return self
@@ -643,6 +655,13 @@ def test_resolve_diarization_device_survives_torch_without_mps_attr():
     assert _resolve_diarization_device("auto", torch_stub) == "cpu"
 
 
+def _isolate_pyannote_env(monkeypatch):
+    """Keep cache-key assertions independent of the developer's environment."""
+    for var in ("PYANNOTE_AUTH_TOKEN", "HUGGINGFACE_TOKEN", "HF_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+
+
 def _install_fake_pyannote(monkeypatch, pipeline):
     fake_module = types.ModuleType("pyannote.audio")
     fake_module.Pipeline = types.SimpleNamespace(
@@ -678,19 +697,41 @@ def test_load_pyannote_pipeline_skips_move_for_cpu(monkeypatch):
 
 
 def test_load_pyannote_pipeline_falls_back_when_move_fails(monkeypatch):
+    _isolate_pyannote_env(monkeypatch)
     diarization = importlib.import_module("mlx_qwen3_asr.diarization")
-    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", {})
+    cache: dict = {}
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", cache)
     monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
-    pipeline = _MovablePipeline(fail=True)
+    pipeline = _MovablePipeline(fail_accelerator=True)
     _install_fake_pyannote(monkeypatch, pipeline)
 
     with pytest.warns(UserWarning, match="falling back to CPU"):
         loaded = diarization._load_pyannote_pipeline("auto")
 
     assert loaded is pipeline
+    # The partially moved pipeline must be pulled back to CPU before caching,
+    # otherwise a later CPU caller inherits a mixed-device pipeline.
+    assert pipeline.moved_to == ["device:mps:partial", "device:cpu"]
+    assert set(cache) == {(DEFAULT_PYANNOTE_MODEL_ID, "", "cpu")}
+
+
+def test_load_pyannote_pipeline_raises_when_cpu_recovery_also_fails(monkeypatch):
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    cache: dict = {}
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", cache)
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    pipeline = _MovablePipeline(fail_accelerator=True, fail_cpu=True)
+    _install_fake_pyannote(monkeypatch, pipeline)
+
+    with pytest.warns(UserWarning), pytest.raises(RuntimeError, match="mixed devices"):
+        diarization._load_pyannote_pipeline("auto")
+
+    assert cache == {}, "an unusable pipeline must never be cached"
 
 
 def test_load_pyannote_pipeline_caches_per_device(monkeypatch):
+    _isolate_pyannote_env(monkeypatch)
     diarization = importlib.import_module("mlx_qwen3_asr.diarization")
     cache: dict = {}
     monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", cache)

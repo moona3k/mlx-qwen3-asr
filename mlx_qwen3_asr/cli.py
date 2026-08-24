@@ -201,7 +201,15 @@ def _run_doctor() -> int:
     return 0
 
 
-def _preflight_diarization_runtime() -> None:
+def _preflight_diarization_runtime(
+    device: str = DEFAULT_DIARIZATION_DEVICE,
+) -> None:
+    """Fail fast when the diarization backend or model access is unusable.
+
+    Args:
+        device: Device the transcription run will use, so preflight warms the
+            same cache entry instead of a second one.
+    """
     if not _has_module_spec("pyannote.audio"):
         print(
             "Error: --diarize requires optional dependency 'pyannote.audio'.",
@@ -241,19 +249,27 @@ def _preflight_diarization_runtime() -> None:
         )
 
     try:
-        _ensure_diarization_backend_ready()
+        _ensure_diarization_backend_ready(device)
     except (ImportError, RuntimeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
 
-def _ensure_diarization_backend_ready() -> None:
-    """Validate diarization backend/model access before transcription starts."""
+def _ensure_diarization_backend_ready(
+    device: str = DEFAULT_DIARIZATION_DEVICE,
+) -> None:
+    """Validate diarization backend/model access before transcription starts.
+
+    Args:
+        device: Device the transcription run will use. Preflight must warm the
+            same device, otherwise the cached pipeline is keyed to a different
+            one and transcription pays for a second load.
+    """
     # Intentional private import: we want to fail fast before spending time
     # on ASR transcription when diarization backend access is invalid.
     from .diarization import _load_pyannote_pipeline
 
-    _load_pyannote_pipeline()
+    _load_pyannote_pipeline(device=device)
 
 
 def _emit_new_stable_text(
@@ -633,7 +649,7 @@ def main():
         )
         raise SystemExit(1)
     if args.diarize and not args.streaming and not args.mic:
-        _preflight_diarization_runtime()
+        _preflight_diarization_runtime(args.diarize_device)
 
     # Lazy imports for faster --help
     import mlx.core as mx
