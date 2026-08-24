@@ -240,6 +240,11 @@ def diarize_chunk_items(
 
 
 _PYANNOTE_PIPELINE_CACHE: dict[tuple[str, str, str], object] = {}
+# Accelerators whose transfer already failed once in this process. Without this
+# every later call re-loads the pipeline, retries the same doomed transfer, and
+# warns again, because the fallback is cached under the CPU key rather than the
+# requested one.
+_UNAVAILABLE_DIARIZATION_DEVICES: set[str] = set()
 
 
 def _resolve_diarization_device(requested: str, torch_module: Any) -> str:
@@ -285,7 +290,10 @@ def _resolve_torch_device(device: str) -> tuple[Any, str]:
         import torch
     except ImportError:
         return None, "cpu"
-    return torch, _resolve_diarization_device(device, torch)
+    resolved = _resolve_diarization_device(device, torch)
+    if resolved in _UNAVAILABLE_DIARIZATION_DEVICES:
+        return torch, "cpu"
+    return torch, resolved
 
 
 def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
@@ -342,6 +350,7 @@ def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
                     f"failed transfer to {resolved_device} and could not be "
                     f"recovered to CPU ({type(cpu_exc).__name__}: {cpu_exc})."
                 ) from cpu_exc
+            _UNAVAILABLE_DIARIZATION_DEVICES.add(resolved_device)
             resolved_device = "cpu"
             key = (model_id, token, resolved_device)
 

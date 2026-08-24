@@ -379,6 +379,8 @@ def test_load_pyannote_pipeline_uses_pyannote4_token_kwarg(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
     monkeypatch.setenv("PYANNOTE_AUTH_TOKEN", "hf_test")
     monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
     dmod._load_pyannote_pipeline()  # noqa: SLF001
@@ -409,6 +411,8 @@ def test_load_pyannote_pipeline_defaults_to_token_for_kwargs_signature(monkeypat
     monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
     monkeypatch.setenv("PYANNOTE_AUTH_TOKEN", "hf_test")
     monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
     dmod._load_pyannote_pipeline()  # noqa: SLF001
@@ -466,6 +470,8 @@ def test_load_pyannote_pipeline_wraps_from_pretrained_errors(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyannote", fake_pkg)
     monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
     monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
     with pytest.raises(RuntimeError, match="Root cause: RuntimeError: 401 unauthorized"):
@@ -489,6 +495,8 @@ def test_load_pyannote_pipeline_rejects_none_return(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyannote", fake_pkg)
     monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
     monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
     with pytest.raises(
@@ -660,6 +668,8 @@ def _isolate_pyannote_env(monkeypatch):
     for var in ("PYANNOTE_AUTH_TOKEN", "HUGGINGFACE_TOKEN", "HF_TOKEN"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
 
 
 def _install_fake_pyannote(monkeypatch, pipeline):
@@ -742,3 +752,46 @@ def test_load_pyannote_pipeline_caches_per_device(monkeypatch):
     diarization._load_pyannote_pipeline("mps")
 
     assert {key[2] for key in cache} == {"cpu", "mps"}
+
+
+def test_load_pyannote_pipeline_does_not_retry_a_device_that_already_failed(monkeypatch):
+    """A failed accelerator must be remembered for the rest of the process.
+
+    The fallback pipeline is cached under the CPU key, so without this the next
+    `auto` call misses its own key, reloads the pipeline, retries the same
+    doomed transfer, and warns again - every single call.
+    """
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", {})
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+
+    loads = {"count": 0}
+
+    def _load(model_id, **kwargs):
+        loads["count"] += 1
+        return _MovablePipeline(fail_accelerator=True)
+
+    fake_module = types.ModuleType("pyannote.audio")
+    fake_module.Pipeline = types.SimpleNamespace(from_pretrained=_load)
+    monkeypatch.setitem(sys.modules, "pyannote", types.ModuleType("pyannote"))
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_module)
+
+    with pytest.warns(UserWarning, match="falling back to CPU"):
+        first = diarization._load_pyannote_pipeline("auto")
+    second = diarization._load_pyannote_pipeline("auto")
+
+    assert first is second
+    assert loads["count"] == 1, "the failed accelerator was retried"
+    assert diarization._UNAVAILABLE_DIARIZATION_DEVICES == {"mps"}
+
+
+def test_explicit_request_for_a_known_bad_device_resolves_to_cpu(monkeypatch):
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", {"mps"})
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+
+    _, resolved = diarization._resolve_torch_device("mps")
+
+    assert resolved == "cpu"

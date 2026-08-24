@@ -951,15 +951,15 @@ def test_transcribe_async_wrapper(monkeypatch):
     assert result.text == "hello world"
 
 
-def test_option_kwargs_are_accepted_by_every_consumer():
-    """Every key `_transcribe_options_to_kwargs` emits must bind to every
-    signature it is splatted into.
+def test_option_kwargs_bind_to_every_splat_consumer():
+    """Every key `_transcribe_options_to_kwargs` emits must bind to the
+    signatures that dict is splatted into.
 
     Adding an option and updating only some consumers is a TypeError raised at
-    call time, from a code path a unit test may never exercise -- e.g. adding
-    `diarization_device` to the dict while `Session.transcribe` still lacked
-    the parameter broke every async session transcription, including with
-    `diarize=False`. Checking the signatures statically catches the whole class.
+    call time, from a path a unit test may never exercise -- adding
+    `diarization_device` to the dict while `Session.transcribe` still lacked the
+    parameter broke every async session transcription, including with
+    `diarize=False`.
     """
     import inspect
 
@@ -972,7 +972,6 @@ def test_option_kwargs_are_accepted_by_every_consumer():
     )
 
     options = _build_transcribe_options()
-
     consumers = [
         (transcribe, _transcribe_options_to_kwargs(options), ("dummy.wav",)),
         (transcribe_batch, _transcribe_options_to_kwargs(options), (["dummy.wav"],)),
@@ -988,3 +987,48 @@ def test_option_kwargs_are_accepted_by_every_consumer():
             inspect.signature(func).bind(*args, **kwargs)
         except TypeError as exc:  # pragma: no cover - failure path is the point
             pytest.fail(f"{func.__qualname__} cannot accept option kwargs: {exc}")
+
+
+def test_every_public_entry_point_exposes_all_transcribe_options():
+    """The async wrappers are producers, not consumers, of the option dict.
+
+    A wrapper missing a parameter does not raise -- it silently drops the option
+    and the caller gets the default, which is worse than the TypeError the bind
+    test above catches. So check the parameter surface of all six public entry
+    points, not just the three the dict is splatted into.
+
+    `dtype` is deliberately absent from the Session methods: the session owns
+    the model and its dtype, which is what `include_dtype=False` encodes.
+    """
+    import inspect
+
+    from mlx_qwen3_asr.session import Session
+    from mlx_qwen3_asr.transcribe import (
+        _build_transcribe_options,
+        _transcribe_options_to_kwargs,
+        transcribe,
+        transcribe_async,
+        transcribe_batch,
+        transcribe_batch_async,
+    )
+
+    options = _build_transcribe_options()
+    module_level = set(_transcribe_options_to_kwargs(options))
+    session_level = set(_transcribe_options_to_kwargs(options, include_dtype=False))
+
+    surfaces = [
+        (transcribe, module_level),
+        (transcribe_async, module_level),
+        (transcribe_batch, module_level),
+        (transcribe_batch_async, module_level),
+        (Session.transcribe, session_level),
+        (Session.transcribe_async, session_level),
+    ]
+
+    for func, expected in surfaces:
+        params = set(inspect.signature(func).parameters)
+        missing = expected - params
+        assert not missing, (
+            f"{func.__qualname__} does not expose {sorted(missing)}; "
+            "the option would be silently dropped for its callers"
+        )
