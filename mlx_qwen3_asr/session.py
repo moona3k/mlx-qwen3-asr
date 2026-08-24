@@ -10,11 +10,11 @@ import numpy as np
 
 from . import streaming as streaming_mod
 from .config import DEFAULT_MODEL_ID
+from .diarization import DEFAULT_DIARIZATION_DEVICE
 from .forced_aligner import ForcedAligner
 from .load_models import _resolve_path, load_model
 from .model import Qwen3ASRModel
 from .tokenizer import Tokenizer
-from .diarization import DEFAULT_DIARIZATION_DEVICE
 from .transcribe import (
     AudioInput,
     ProgressCallback,
