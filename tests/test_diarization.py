@@ -383,7 +383,7 @@ def test_load_pyannote_pipeline_uses_pyannote4_token_kwarg(monkeypatch):
     monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
-    dmod._load_pyannote_pipeline()  # noqa: SLF001
+    dmod._load_pyannote_pipeline(device="cpu")  # noqa: SLF001
 
     assert calls == {
         "model_id": DEFAULT_PYANNOTE_MODEL_ID,
@@ -415,7 +415,7 @@ def test_load_pyannote_pipeline_defaults_to_token_for_kwargs_signature(monkeypat
     monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
-    dmod._load_pyannote_pipeline()  # noqa: SLF001
+    dmod._load_pyannote_pipeline(device="cpu")  # noqa: SLF001
 
     assert calls == {
         "model_id": DEFAULT_PYANNOTE_MODEL_ID,
@@ -445,7 +445,7 @@ def test_load_pyannote_pipeline_falls_back_to_pyannote3_auth_kwarg(monkeypatch):
     monkeypatch.setenv("PYANNOTE_MODEL_ID", "pyannote/speaker-diarization-3.1")
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
-    dmod._load_pyannote_pipeline()  # noqa: SLF001
+    dmod._load_pyannote_pipeline(device="cpu")  # noqa: SLF001
 
     assert calls == {
         "model_id": "pyannote/speaker-diarization-3.1",
@@ -475,7 +475,7 @@ def test_load_pyannote_pipeline_wraps_from_pretrained_errors(monkeypatch):
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
     with pytest.raises(RuntimeError, match="Root cause: RuntimeError: 401 unauthorized"):
-        dmod._load_pyannote_pipeline()  # noqa: SLF001
+        dmod._load_pyannote_pipeline(device="cpu")  # noqa: SLF001
 
 
 def test_load_pyannote_pipeline_rejects_none_return(monkeypatch):
@@ -503,7 +503,7 @@ def test_load_pyannote_pipeline_rejects_none_return(monkeypatch):
         RuntimeError,
         match=r"Root cause: Pipeline\.from_pretrained returned None",
     ):
-        dmod._load_pyannote_pipeline()  # noqa: SLF001
+        dmod._load_pyannote_pipeline(device="cpu")  # noqa: SLF001
 
 
 def test_diarize_word_segments_adds_speaker_labels():
@@ -783,15 +783,47 @@ def test_load_pyannote_pipeline_does_not_retry_a_device_that_already_failed(monk
 
     assert first is second
     assert loads["count"] == 1, "the failed accelerator was retried"
-    assert diarization._UNAVAILABLE_DIARIZATION_DEVICES == {"mps"}
+    assert diarization._UNAVAILABLE_DIARIZATION_DEVICES == {
+        (DEFAULT_PYANNOTE_MODEL_ID, "", "mps")
+    }
 
 
 def test_explicit_request_for_a_known_bad_device_resolves_to_cpu(monkeypatch):
     _isolate_pyannote_env(monkeypatch)
     diarization = importlib.import_module("mlx_qwen3_asr.diarization")
-    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", {"mps"})
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", {})
+    monkeypatch.setattr(
+        diarization,
+        "_UNAVAILABLE_DIARIZATION_DEVICES",
+        {(DEFAULT_PYANNOTE_MODEL_ID, "", "mps")},
+    )
     monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    pipeline = _MovablePipeline()
+    _install_fake_pyannote(monkeypatch, pipeline)
 
-    _, resolved = diarization._resolve_torch_device("mps")
+    diarization._load_pyannote_pipeline("mps")
 
-    assert resolved == "cpu"
+    assert pipeline.moved_to == [], "a known-bad accelerator must not be retried"
+
+
+def test_failed_device_is_remembered_per_model_not_globally(monkeypatch):
+    """One model failing on MPS must not disable MPS for a different model.
+
+    MPS operator gaps are model-specific, so a process-wide flag would strand
+    every other pipeline on CPU for the rest of the run.
+    """
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", {})
+    monkeypatch.setattr(
+        diarization,
+        "_UNAVAILABLE_DIARIZATION_DEVICES",
+        {("some/other-model", "", "mps")},
+    )
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    pipeline = _MovablePipeline()
+    _install_fake_pyannote(monkeypatch, pipeline)
+
+    diarization._load_pyannote_pipeline("auto")
+
+    assert pipeline.moved_to == ["device:mps"]

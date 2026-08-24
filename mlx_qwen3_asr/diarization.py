@@ -240,11 +240,13 @@ def diarize_chunk_items(
 
 
 _PYANNOTE_PIPELINE_CACHE: dict[tuple[str, str, str], object] = {}
-# Accelerators whose transfer already failed once in this process. Without this
-# every later call re-loads the pipeline, retries the same doomed transfer, and
-# warns again, because the fallback is cached under the CPU key rather than the
-# requested one.
-_UNAVAILABLE_DIARIZATION_DEVICES: set[str] = set()
+# Pipeline identities whose accelerator transfer already failed in this process,
+# keyed exactly like the cache: (model_id, token, device). Without this the
+# fallback lives under the CPU key, so every later call re-loads the pipeline,
+# retries the same doomed transfer, and warns again. Scoped per identity rather
+# than per device because MPS operator gaps are model-specific: one model
+# failing must not disable the accelerator for a different one.
+_UNAVAILABLE_DIARIZATION_DEVICES: set[tuple[str, str, str]] = set()
 
 
 def _resolve_diarization_device(requested: str, torch_module: Any) -> str:
@@ -290,10 +292,7 @@ def _resolve_torch_device(device: str) -> tuple[Any, str]:
         import torch
     except ImportError:
         return None, "cpu"
-    resolved = _resolve_diarization_device(device, torch)
-    if resolved in _UNAVAILABLE_DIARIZATION_DEVICES:
-        return torch, "cpu"
-    return torch, resolved
+    return torch, _resolve_diarization_device(device, torch)
 
 
 def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
@@ -305,6 +304,8 @@ def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
         or ""
     )
     torch, resolved_device = _resolve_torch_device(device)
+    if (model_id, token, resolved_device) in _UNAVAILABLE_DIARIZATION_DEVICES:
+        resolved_device = "cpu"
     key = (model_id, token, resolved_device)
     cached = _PYANNOTE_PIPELINE_CACHE.get(key)
     if cached is not None:
@@ -350,7 +351,7 @@ def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
                     f"failed transfer to {resolved_device} and could not be "
                     f"recovered to CPU ({type(cpu_exc).__name__}: {cpu_exc})."
                 ) from cpu_exc
-            _UNAVAILABLE_DIARIZATION_DEVICES.add(resolved_device)
+            _UNAVAILABLE_DIARIZATION_DEVICES.add((model_id, token, resolved_device))
             resolved_device = "cpu"
             key = (model_id, token, resolved_device)
 
