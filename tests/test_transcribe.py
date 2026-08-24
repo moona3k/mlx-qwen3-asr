@@ -949,3 +949,42 @@ def test_transcribe_async_wrapper(monkeypatch):
 
     result = asyncio.run(transcribe_async(np.zeros(3200, dtype=np.float32)))
     assert result.text == "hello world"
+
+
+def test_option_kwargs_are_accepted_by_every_consumer():
+    """Every key `_transcribe_options_to_kwargs` emits must bind to every
+    signature it is splatted into.
+
+    Adding an option and updating only some consumers is a TypeError raised at
+    call time, from a code path a unit test may never exercise -- e.g. adding
+    `diarization_device` to the dict while `Session.transcribe` still lacked
+    the parameter broke every async session transcription, including with
+    `diarize=False`. Checking the signatures statically catches the whole class.
+    """
+    import inspect
+
+    from mlx_qwen3_asr.session import Session
+    from mlx_qwen3_asr.transcribe import (
+        _build_transcribe_options,
+        _transcribe_options_to_kwargs,
+        transcribe,
+        transcribe_batch,
+    )
+
+    options = _build_transcribe_options()
+
+    consumers = [
+        (transcribe, _transcribe_options_to_kwargs(options), ("dummy.wav",)),
+        (transcribe_batch, _transcribe_options_to_kwargs(options), (["dummy.wav"],)),
+        (
+            Session.transcribe,
+            _transcribe_options_to_kwargs(options, include_dtype=False),
+            (None, "dummy.wav"),
+        ),
+    ]
+
+    for func, kwargs, args in consumers:
+        try:
+            inspect.signature(func).bind(*args, **kwargs)
+        except TypeError as exc:  # pragma: no cover - failure path is the point
+            pytest.fail(f"{func.__qualname__} cannot accept option kwargs: {exc}")
