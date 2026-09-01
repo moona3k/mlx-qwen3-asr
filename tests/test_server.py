@@ -1365,3 +1365,95 @@ async def test_openai_verbose_json_no_segments():
         assert data["text"] == "Hello"
         assert "words" not in data
         assert "segments" not in data
+
+
+# ---------------------------------------------------------------------------
+# Regression: MLX streams are thread-local (issue #16)
+# ---------------------------------------------------------------------------
+
+
+class TestInferenceThreadAffinity:
+    """The model must be loaded on the same thread that runs inference.
+
+    MLX streams are thread-local. Loading the model on the event-loop thread and
+    then running inference on an arbitrary ``asyncio.to_thread`` worker makes
+    every transcription fail with
+    ``There is no Stream(gpu, N) in current thread.`` (issue #16).
+    """
+
+    @pytest.mark.asyncio
+    async def test_model_is_loaded_on_the_inference_thread(self):
+        import threading
+
+        from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+        seen: dict[str, int] = {}
+
+        class _ThreadRecordingSession:
+            def __init__(self, *args, **kwargs):
+                seen["load"] = threading.get_ident()
+
+            def transcribe(self, *args, **kwargs):
+                seen["infer"] = threading.get_ident()
+                return TranscriptionResult(text="ok", language="English")
+
+            async def transcribe_async(self, audio, *, executor=None, **kwargs):
+                # Mirrors the real Session: dispatch onto the caller's executor.
+                call = lambda: self.transcribe(audio, **kwargs)  # noqa: E731
+                if executor is None:
+                    return await asyncio.to_thread(call)
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(executor, call)
+
+        config = ServerConfig(api_keys=["testkey"])
+        app = create_app(config)
+
+        with patch("mlx_qwen3_asr.session.Session", _ThreadRecordingSession):
+            async with app.router.lifespan_context(app):
+                state = app.state.server
+                assert state.executor is not None, "lifespan must create an executor"
+                await state.session.transcribe_async(
+                    "dummy.wav", executor=state.executor
+                )
+
+        assert seen["load"] == seen["infer"], (
+            "model was loaded on a different thread than the one running "
+            "inference — this is exactly the condition that raises "
+            "'There is no Stream(gpu, N) in current thread.'"
+        )
+
+    @pytest.mark.asyncio
+    async def test_executor_is_single_threaded(self):
+        """Inference must be serialized onto one thread, not a pool."""
+        import threading
+
+        from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+        threads: set[int] = set()
+
+        class _Session:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def transcribe(self, *args, **kwargs):
+                threads.add(threading.get_ident())
+                return TranscriptionResult(text="ok", language="English")
+
+            async def transcribe_async(self, audio, *, executor=None, **kwargs):
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(
+                    executor, lambda: self.transcribe(audio)
+                )
+
+        config = ServerConfig(api_keys=["testkey"])
+        app = create_app(config)
+
+        with patch("mlx_qwen3_asr.session.Session", _Session):
+            async with app.router.lifespan_context(app):
+                state = app.state.server
+                await asyncio.gather(*[
+                    state.session.transcribe_async("d.wav", executor=state.executor)
+                    for _ in range(8)
+                ])
+
+        assert len(threads) == 1, f"expected 1 inference thread, saw {len(threads)}"

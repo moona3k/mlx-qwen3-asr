@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, Union
 
 import mlx.core as mx
@@ -152,8 +154,17 @@ class Session:
         num_draft_tokens: int = 4,
         verbose: bool = False,
         on_progress: Optional[ProgressCallback] = None,
+        executor: Optional[ThreadPoolExecutor] = None,
     ) -> TranscriptionResult:
-        """Async wrapper for ``transcribe`` using ``asyncio.to_thread``."""
+        """Async wrapper for ``transcribe`` that offloads to a worker thread.
+
+        MLX streams are thread-local, so the thread that runs inference must be
+        the same thread the model was loaded on. Callers that load the model on a
+        dedicated thread (see ``server.py``) must pass that thread's ``executor``
+        here; otherwise ``asyncio.to_thread`` picks an arbitrary worker from the
+        default pool and inference fails with
+        ``There is no Stream(gpu, N) in current thread.``
+        """
         options = _build_transcribe_options(
             context=context,
             language=language,
@@ -170,12 +181,16 @@ class Session:
             verbose=verbose,
             on_progress=on_progress,
         )
-        return await asyncio.to_thread(
+        call = functools.partial(
             self.transcribe,
             audio,
             draft_model=draft_model,
             **_transcribe_options_to_kwargs(options, include_dtype=False),
         )
+        if executor is None:
+            return await asyncio.to_thread(call)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(executor, call)
 
     def init_streaming(
         self,

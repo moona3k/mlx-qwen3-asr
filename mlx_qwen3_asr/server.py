@@ -9,6 +9,7 @@ Usage::
 """
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import tempfile
 import time
@@ -117,6 +118,9 @@ class _AppState:
     start_time: float = 0.0
     api_keys_set: set[str] = field(default_factory=set)
     session: object = None  # Session instance
+    # 推論専用のシングルスレッド。MLX のストリームはスレッドローカルなので、
+    # モデルのロードと推論は必ず同じスレッドで行う必要がある。
+    executor: object = None  # ThreadPoolExecutor(max_workers=1)
     config: Optional[ServerConfig] = None
     inference_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     sync_inflight: int = 0  # count of /v1 requests waiting for inference
@@ -207,6 +211,7 @@ def create_app(config: ServerConfig):
                 context=job.context,
                 return_timestamps=job.timestamps,
                 return_chunks=True,
+                executor=state.executor,
             )
         return _result_to_dict(result)
 
@@ -242,7 +247,16 @@ def create_app(config: ServerConfig):
             "bfloat16": mx.bfloat16,
         }
         dtype = dtype_map.get(config.dtype, mx.float16)
-        state.session = Session(config.model, dtype=dtype)
+        # MLX streams are thread-local: the model must be loaded on the very
+        # thread that will later run inference, so both happen on this
+        # single-worker executor. Loading here and inferring on a different
+        # thread fails with "There is no Stream(gpu, N) in current thread."
+        state.executor = ThreadPoolExecutor(max_workers=1,
+                                            thread_name_prefix="mlx-asr")
+        loop = asyncio.get_running_loop()
+        state.session = await loop.run_in_executor(
+            state.executor, lambda: Session(config.model, dtype=dtype)
+        )
         logger.info("Model loaded: %s", config.model)
 
         worker_task = asyncio.create_task(_job_worker())
@@ -252,6 +266,7 @@ def create_app(config: ServerConfig):
 
         worker_task.cancel()
         sweeper_task.cancel()
+        state.executor.shutdown(wait=False)
         # Await cancellation to ensure cleanup runs
         for task in (worker_task, sweeper_task):
             try:
@@ -531,6 +546,7 @@ def create_app(config: ServerConfig):
                     context=prompt or "",
                     return_timestamps=need_timestamps,
                     return_chunks=True,
+                    executor=state.executor,
                 )
         except Exception as exc:
             raise HTTPException(
