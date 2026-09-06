@@ -10,6 +10,7 @@ from mlx_qwen3_asr.writers import (
     _format_timestamp_vtt,
     get_writer,
     group_subtitle_segments,
+    restore_punctuation,
     write_json,
     write_srt,
     write_tsv,
@@ -199,6 +200,131 @@ class TestSubtitleGrouping:
         assert len(grouped) == 2
         assert grouped[0]["text"] == "Hello world."
         assert grouped[1]["text"] == "How are you?"
+
+    @staticmethod
+    def _char_segments(text: str, step: float = 0.2) -> list[dict]:
+        """Mimic the forced aligner: one unpunctuated segment per CJK character."""
+        chars = [c for c in text if c.isalnum()]
+        return [
+            {"text": c, "start": i * step, "end": (i + 1) * step}
+            for i, c in enumerate(chars)
+        ]
+
+    def test_cjk_is_not_cut_every_ten_characters(self):
+        # Issue #15: max_words counted each aligned character as a word.
+        text = "今天我们继续学习真实义品这个概念非常重要"  # 19 chars, no punctuation
+        grouped = group_subtitle_segments(self._char_segments(text), language="Chinese")
+        assert [g["text"] for g in grouped] == [text]
+
+    def test_cjk_wraps_by_display_width(self):
+        text = "字" * 45
+        grouped = group_subtitle_segments(self._char_segments(text), language="Chinese")
+        # 42 display cells / 2 per CJK character = 21 characters per cue.
+        assert [len(g["text"]) for g in grouped] == [21, 21, 3]
+        assert "".join(g["text"] for g in grouped) == text
+
+    def test_cjk_breaks_at_restored_sentence_and_clause_boundaries(self):
+        text = "大家好，今天我们继续学习真实义品。上一次我们讲到三取空这一段，这个概念非常重要。"
+        grouped = group_subtitle_segments(
+            self._char_segments(text), language="Chinese", text=text
+        )
+        assert [g["text"] for g in grouped] == [
+            "大家好，今天我们继续学习真实义品。",  # short clause merges with next
+            "上一次我们讲到三取空这一段，",  # clause boundary once half full
+            "这个概念非常重要。",
+        ]
+        assert grouped[0]["end"] == grouped[1]["start"]
+
+    def test_cjk_pause_still_splits(self):
+        segments = [
+            {"text": "你好", "start": 0.0, "end": 1.0},
+            {"text": "再见", "start": 2.5, "end": 3.0},
+        ]
+        grouped = group_subtitle_segments(segments, language="Chinese")
+        assert [g["text"] for g in grouped] == ["你好", "再见"]
+
+    def test_latin_word_cap_is_unchanged(self):
+        segments = [
+            {"text": "a", "start": i * 0.1, "end": (i + 1) * 0.1} for i in range(12)
+        ]
+        grouped = group_subtitle_segments(segments, language="English")
+        assert [g["text"] for g in grouped] == [" ".join(["a"] * 10), "a a"]
+
+    def test_latin_sentence_breaks_after_punctuation_restored(self):
+        words = "The quick brown fox jumps It ran".split()
+        segments = [
+            {"text": w, "start": i * 0.3, "end": (i + 1) * 0.3} for i, w in enumerate(words)
+        ]
+        grouped = group_subtitle_segments(
+            segments, language="English", text="The quick brown fox jumps. It ran!"
+        )
+        assert [g["text"] for g in grouped] == ["The quick brown fox jumps.", "It ran!"]
+
+    def test_speaker_change_starts_new_cue(self):
+        segments = [
+            {"text": "你好", "start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"},
+            {"text": "大家好", "start": 1.0, "end": 2.0, "speaker": "SPEAKER_01"},
+        ]
+        grouped = group_subtitle_segments(segments, language="Chinese")
+        assert [g["text"] for g in grouped] == ["你好", "大家好"]
+
+    def test_input_segments_are_not_mutated(self):
+        segments = [{"text": "你好", "start": 0.0, "end": 1.0}]
+        snapshot = json.dumps(segments)
+        group_subtitle_segments(segments, language="Chinese", text="「你好！」")
+        assert json.dumps(segments) == snapshot
+
+
+class TestRestorePunctuation:
+    def test_attaches_leading_and_trailing_punctuation(self):
+        segments = [
+            {"text": "你", "start": 0.0, "end": 0.1},
+            {"text": "好", "start": 0.1, "end": 0.2},
+            {"text": "再", "start": 0.3, "end": 0.4},
+            {"text": "见", "start": 0.4, "end": 0.5},
+        ]
+        restored = restore_punctuation(segments, "「你好。」再见！")
+        assert [s["text"] for s in restored] == ["「你", "好。」", "再", "见！"]
+        assert restored[0]["start"] == 0.0 and restored[1]["end"] == 0.2
+
+    def test_is_case_and_whitespace_insensitive(self):
+        segments = [
+            {"text": "hello", "start": 0, "end": 1},
+            {"text": "World", "start": 1, "end": 2},
+        ]
+        restored = restore_punctuation(segments, "Hello,  world.")
+        assert [s["text"] for s in restored] == ["hello,", "World."]
+
+    def test_returns_input_unchanged_on_mismatch(self):
+        segments = [{"text": "正确", "start": 0.0, "end": 1.0}]
+        assert restore_punctuation(segments, "错误。") is segments
+
+    def test_keeps_existing_punctuation_when_text_is_absent(self):
+        segments = [
+            {"text": "你好，", "start": 0.0, "end": 1.0},
+            {"text": "世界！", "start": 1.0, "end": 2.0},
+        ]
+        assert group_subtitle_segments(segments, language="Chinese") == [
+            {"text": "你好，世界！", "start": 0.0, "end": 2.0}
+        ]
+
+
+class TestSubtitleWritersRestorePunctuation:
+    @pytest.mark.parametrize(
+        ("writer", "suffix", "header"),
+        [(write_srt, "srt", "1\n"), (write_vtt, "vtt", "WEBVTT\n\n")],
+    )
+    def test_cues_carry_transcript_punctuation(self, writer, suffix, header, tmp_path):
+        text = "今天我们继续学习。这个概念非常重要！"
+        segments = TestSubtitleGrouping._char_segments(text)
+        result = TranscriptionResult(text=text, language="Chinese", segments=segments)
+        path = tmp_path / f"out.{suffix}"
+        writer(result, str(path))
+        content = path.read_text(encoding="utf-8")
+        assert content.startswith(header)
+        cues = [line for line in content.splitlines() if line and "-->" not in line]
+        cues = [c for c in cues if not c.isdigit() and c != "WEBVTT"]
+        assert cues == ["今天我们继续学习。", "这个概念非常重要！"]
 
 
 # ---------------------------------------------------------------------------
