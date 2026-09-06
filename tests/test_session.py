@@ -358,6 +358,30 @@ def test_session_transcribe_async_wrapper(monkeypatch):
     assert out.text == "ok-async"
 
 
+def test_session_transcribe_async_runs_on_the_given_executor(monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    class _DummyTokenizer:
+        def __init__(self, path):  # noqa: ANN001
+            self.path = path
+
+    monkeypatch.setattr(sessmod, "Tokenizer", _DummyTokenizer)
+    monkeypatch.setattr(sessmod, "load_model", lambda model, dtype: (object(), object()))
+    monkeypatch.setattr(sessmod, "_resolve_path", lambda model: "/tmp/resolved-model")
+    session = sessmod.Session("repo/a", dtype=mx.float16)
+    seen: list[str] = []
+
+    def _record(*a, **k):
+        seen.append(threading.current_thread().name)
+        return sessmod.TranscriptionResult(text="ok", language="English")
+
+    monkeypatch.setattr(session, "transcribe", _record)
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="owner") as pool:
+        asyncio.run(session.transcribe_async(np.zeros(10, dtype=np.float32), executor=pool))
+    assert seen and seen[0].startswith("owner")
+
+
 def _stub_session(monkeypatch, calls):
     """Session with every heavy dependency replaced, capturing the diarization config."""
 

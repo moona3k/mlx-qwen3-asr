@@ -34,7 +34,7 @@ jobs:
           key: ${{ runner.os }}-librispeech-test-clean-v1
 
       - name: Install dependencies
-        run: pip install -e ".[dev,eval]"
+        run: pip install -e ".[dev,eval,serve]"
 
       - name: Run quality gate (fast)
         run: python scripts/quality_gate.py --mode fast
