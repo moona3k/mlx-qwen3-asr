@@ -158,9 +158,9 @@ def _run_doctor() -> int:
     if ffmpeg_path:
         print(f"[OK] ffmpeg: {ffmpeg_path}")
     else:
-        failures += 1
-        print("[FAIL] ffmpeg: not found on PATH")
-        print(f"       fix: {_ffmpeg_install_hint()}")
+        warnings += 1
+        print("[WARN] ffmpeg: not found on PATH (WAV input works without it)")
+        print(f"       fix for mp3/m4a/mp4 and other formats: {_ffmpeg_install_hint()}")
 
     mlx_ok = _has_module_spec("mlx")
     if mlx_ok:
@@ -417,7 +417,10 @@ def main():
     parser.add_argument(
         "--diarize",
         action="store_true",
-        help="Attach speaker labels to transcript output (offline only).",
+        help=(
+            "Attach speaker labels to transcript output (offline only). "
+            "Speaker segments are written by the json format; use -f json."
+        ),
     )
     parser.add_argument(
         "--num-speakers",
@@ -556,14 +559,9 @@ def main():
     )
     output_group.add_argument(
         "--stdout-only",
-        action="store_true",
-        help="Print transcription to stdout without writing output files",
-    )
-    output_group.add_argument(
         "--no-output-file",
         action="store_true",
-        dest="stdout_only",
-        help="Alias for --stdout-only",
+        help="Print transcription to stdout without writing output files",
     )
     parser.add_argument(
         "--version",
