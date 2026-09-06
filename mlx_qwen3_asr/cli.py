@@ -358,17 +358,8 @@ def _parse_serve_args(argv: list[str]) -> None:
     run_server(config)
 
 
-def main():
-    """CLI entry point for mlx-qwen3-asr."""
-    # Subcommands: "serve" starts the HTTP server; "transcribe" is the explicit
-    # spelling of the default file-transcription mode.
-    argv = sys.argv[1:]
-    if argv and argv[0] == "serve":
-        _parse_serve_args(argv[1:])
-        return
-    if argv and argv[0] == "transcribe":
-        argv = argv[1:]
-
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the transcription argument parser (the ``serve`` parser is separate)."""
     parser = argparse.ArgumentParser(
         prog="mlx-qwen3-asr",
         description="Qwen3-ASR speech recognition on Apple Silicon via MLX",
@@ -569,6 +560,278 @@ def main():
         version=f"%(prog)s {__version__}",
     )
 
+    return parser
+
+
+def _output_formats(args: argparse.Namespace) -> list[str]:
+    if args.output_format == "all":
+        return ["txt", "json", "srt", "vtt", "tsv"]
+    return [args.output_format]
+
+
+def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Reject flag combinations that no mode supports. Exits with status 1."""
+    if args.mic and args.audio:
+        print("Error: --mic cannot be used with audio file arguments.", file=sys.stderr)
+        raise SystemExit(1)
+    if not args.mic and not args.audio:
+        parser.error("audio is required unless --mic, --list-languages, or --doctor is used")
+
+    wants_subtitles = any(fmt in {"srt", "vtt"} for fmt in _output_formats(args))
+    checks = [
+        (args.streaming and args.timestamps, "--streaming does not support --timestamps."),
+        (args.streaming and args.diarize, "--streaming does not support --diarize."),
+        (args.mic and args.timestamps, "--mic does not support --timestamps."),
+        (args.mic and args.diarize, "--mic does not support --diarize."),
+        (args.mic and args.streaming, "--mic implies streaming mode; do not pass --streaming."),
+        (
+            args.streaming and args.draft_model is not None,
+            "--streaming does not support --draft-model yet.",
+        ),
+        (args.mic and args.draft_model is not None, "--mic does not support --draft-model."),
+        (args.mic_sample_rate <= 0, "--mic-sample-rate must be > 0."),
+        (
+            args.mic_duration_sec is not None and args.mic_duration_sec <= 0,
+            "--mic-duration-sec must be > 0.",
+        ),
+        (
+            args.num_speakers is not None and args.num_speakers <= 0,
+            "--num-speakers must be > 0.",
+        ),
+        (args.min_speakers <= 0, "--min-speakers must be > 0."),
+        (args.max_speakers < args.min_speakers, "--max-speakers must be >= --min-speakers."),
+        (
+            wants_subtitles and (args.streaming or args.mic),
+            "subtitle formats (srt/vtt) require offline transcription.",
+        ),
+    ]
+    for failed, message in checks:
+        if failed:
+            print(f"Error: {message}", file=sys.stderr)
+            raise SystemExit(1)
+
+
+def _write_outputs(
+    result,  # noqa: ANN001
+    stem: str,
+    formats: list[str],
+    output_dir: Path,
+    verbose: bool,
+) -> bool:
+    """Write ``result`` in every requested format. Returns True if any write failed."""
+    from .writers import get_writer
+
+    failed = False
+    for fmt in formats:
+        out_path = output_dir / f"{stem}.{fmt}"
+        try:
+            get_writer(fmt)(result, str(out_path))
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            failed = True
+            continue
+        if verbose:
+            print(f"Written: {out_path}", file=sys.stderr)
+    return failed
+
+
+def _run_mic(args: argparse.Namespace, dtype):  # noqa: ANN001
+    """Capture from the microphone until Ctrl+C or ``--mic-duration-sec`` elapses."""
+    import numpy as np
+
+    from .streaming import feed_audio, finish_streaming, init_streaming
+    from .transcribe import TranscriptionResult
+
+    mic_started = time.time()
+    try:
+        import sounddevice as sd
+    except ImportError as exc:
+        print(
+            "Error: --mic requires the optional dependency 'sounddevice'.",
+            file=sys.stderr,
+        )
+        print(
+            "Install with: pip install sounddevice",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
+
+    if args.verbose:
+        print("Listening on microphone... Press Ctrl+C to stop.", file=sys.stderr)
+
+    chunk_samples = max(1, int(args.stream_chunk_sec * args.mic_sample_rate))
+    state = init_streaming(
+        model=args.model,
+        context=args.context,
+        chunk_size_sec=args.stream_chunk_sec,
+        max_context_sec=args.stream_max_context_sec,
+        sample_rate=args.mic_sample_rate,
+        dtype=dtype,
+        max_new_tokens=args.max_new_tokens,
+        endpointing_mode=args.stream_endpointing_mode,
+        finalization_mode=args.stream_finalization_mode,
+        language=args.language,
+    )
+    emitted_stable = ""
+    captured_samples = 0
+    try:
+        with sd.InputStream(
+            samplerate=args.mic_sample_rate,
+            channels=1,
+            dtype="float32",
+            blocksize=chunk_samples,
+            device=args.mic_device,
+        ) as stream:
+            while True:
+                if args.mic_duration_sec is not None:
+                    elapsed = time.time() - mic_started
+                    if elapsed >= args.mic_duration_sec:
+                        break
+                    remaining_sec = max(0.0, args.mic_duration_sec - elapsed)
+                    frames = min(
+                        chunk_samples,
+                        max(1, int(remaining_sec * args.mic_sample_rate)),
+                    )
+                else:
+                    frames = chunk_samples
+
+                data, overflowed = stream.read(frames)
+                if overflowed and args.verbose:
+                    print("Warning: microphone overflow detected.", file=sys.stderr)
+                chunk = np.asarray(data, dtype=np.float32).reshape(-1)
+                captured_samples += int(chunk.shape[0])
+                state = feed_audio(chunk, state)
+                if not args.quiet:
+                    emitted_stable = _emit_new_stable_text(state.stable_text, emitted_stable)
+    except KeyboardInterrupt:
+        if args.verbose:
+            print("\nStopping microphone capture...", file=sys.stderr)
+
+    state = finish_streaming(state)
+    result = TranscriptionResult(
+        text=state.text,
+        language=state.language,
+        segments=None,
+        chunks=None,
+    )
+    if not args.quiet:
+        if result.text.startswith(emitted_stable):
+            tail = result.text[len(emitted_stable):]
+            if tail:
+                print(tail, end="", flush=True)
+            print()
+        else:
+            print(f"\n{result.text}")
+    elapsed = time.time() - mic_started
+    if args.verbose:
+        # Live capture runs at wall-clock speed, so a real-time factor is
+        # meaningless here; report what was captured instead.
+        captured_sec = captured_samples / float(args.mic_sample_rate)
+        print(f"\nLanguage: {result.language}", file=sys.stderr)
+        print(f"Captured: {captured_sec:.2f}s of audio", file=sys.stderr)
+        print(f"Time: {elapsed:.2f}s", file=sys.stderr)
+    return result
+
+
+def _transcribe_file(
+    args: argparse.Namespace,
+    audio_path: str,
+    *,
+    dtype,  # noqa: ANN001
+    aligner,  # noqa: ANN001
+    timestamps: bool,
+):
+    """Transcribe one file in offline or streaming mode and return the result."""
+    import numpy as np
+
+    from .audio import SAMPLE_RATE, load_audio
+    from .streaming import feed_audio, finish_streaming, init_streaming
+    from .transcribe import TranscriptionResult, transcribe
+
+    start_time = time.time()
+    show_progress = not args.verbose and not args.no_progress
+    if not args.streaming:
+        return transcribe(
+            audio=audio_path,
+            model=args.model,
+            draft_model=args.draft_model,
+            context=args.context,
+            language=args.language,
+            return_timestamps=timestamps,
+            diarize=args.diarize,
+            diarization_num_speakers=args.num_speakers,
+            diarization_min_speakers=args.min_speakers,
+            diarization_max_speakers=args.max_speakers,
+            diarization_device=args.diarize_device,
+            return_chunks=True,
+            forced_aligner=aligner,
+            dtype=dtype,
+            max_new_tokens=args.max_new_tokens,
+            num_draft_tokens=args.num_draft_tokens,
+            verbose=args.verbose,
+            on_progress=_ChunkProgressPrinter(enabled=show_progress, start_time=start_time),
+        )
+
+    audio_np = np.asarray(load_audio(audio_path), dtype=np.float32)
+    chunk_samples = max(1, int(args.stream_chunk_sec * SAMPLE_RATE))
+    state = init_streaming(
+        model=args.model,
+        context=args.context,
+        chunk_size_sec=args.stream_chunk_sec,
+        max_context_sec=args.stream_max_context_sec,
+        sample_rate=SAMPLE_RATE,
+        dtype=dtype,
+        max_new_tokens=args.max_new_tokens,
+        endpointing_mode=args.stream_endpointing_mode,
+        finalization_mode=args.stream_finalization_mode,
+        language=args.language,
+    )
+    total_chunks = max(1, int(np.ceil(len(audio_np) / chunk_samples)))
+    for i in range(0, len(audio_np), chunk_samples):
+        state = feed_audio(audio_np[i : i + chunk_samples], state)
+        if show_progress:
+            chunk_idx = (i // chunk_samples) + 1
+            progress_ratio = min(1.0, chunk_idx / total_chunks)
+            elapsed = max(0.0, time.time() - start_time)
+            eta = (elapsed / progress_ratio - elapsed) if progress_ratio > 0 else None
+            print(
+                f"Progress: chunk {chunk_idx}/{total_chunks} "
+                f"({progress_ratio * 100.0:.1f}%) ETA {_format_duration(eta)}",
+                file=sys.stderr,
+            )
+    state = finish_streaming(state)
+    if show_progress:
+        audio_dur = _format_duration(len(audio_np) / SAMPLE_RATE)
+        elapsed_dur = _format_duration(time.time() - start_time)
+        print(f"Progress: 100.0% ({audio_dur} audio) in {elapsed_dur}", file=sys.stderr)
+    return TranscriptionResult(
+        text=state.text,
+        language=state.language,
+        segments=None,
+        chunks=[
+            {
+                "text": state.text,
+                "start": 0.0,
+                "end": float(len(audio_np) / SAMPLE_RATE),
+                "chunk_index": 0,
+                "language": state.language,
+            }
+        ],
+    )
+
+
+def main():
+    """CLI entry point for mlx-qwen3-asr."""
+    # Subcommands: "serve" starts the HTTP server; "transcribe" is the explicit
+    # spelling of the default file-transcription mode.
+    argv = sys.argv[1:]
+    if argv and argv[0] == "serve":
+        _parse_serve_args(argv[1:])
+        return
+    if argv and argv[0] == "transcribe":
+        argv = argv[1:]
+
+    parser = _build_parser()
     args = parser.parse_args(argv)
 
     if args.doctor:
@@ -576,383 +839,93 @@ def main():
         if code != 0:
             raise SystemExit(code)
         return
-
     if args.list_languages:
         _print_languages()
         return
 
-    if args.mic and args.audio:
-        print("Error: --mic cannot be used with audio file arguments.", file=sys.stderr)
-        raise SystemExit(1)
-    if not args.mic and not args.audio:
-        parser.error("audio is required unless --mic, --list-languages, or --doctor is used")
-
+    _validate_args(parser, args)
     if args.audio and not args.mic:
         _preflight_ffmpeg_for_inputs(args.audio)
-
-    if args.streaming and args.timestamps:
-        print(
-            "Error: --streaming does not support --timestamps.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    if args.streaming and args.diarize:
-        print(
-            "Error: --streaming does not support --diarize.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    if args.mic and args.timestamps:
-        print(
-            "Error: --mic does not support --timestamps.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    if args.mic and args.diarize:
-        print(
-            "Error: --mic does not support --diarize.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    if args.mic and args.streaming:
-        print(
-            "Error: --mic implies streaming mode; do not pass --streaming.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    if args.streaming and args.draft_model is not None:
-        print(
-            "Error: --streaming does not support --draft-model yet.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    if args.mic and args.draft_model is not None:
-        print(
-            "Error: --mic does not support --draft-model.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    if args.mic_sample_rate <= 0:
-        print("Error: --mic-sample-rate must be > 0.", file=sys.stderr)
-        raise SystemExit(1)
-    if args.mic_duration_sec is not None and args.mic_duration_sec <= 0:
-        print("Error: --mic-duration-sec must be > 0.", file=sys.stderr)
-        raise SystemExit(1)
-    if args.num_speakers is not None and args.num_speakers <= 0:
-        print("Error: --num-speakers must be > 0.", file=sys.stderr)
-        raise SystemExit(1)
-    if args.min_speakers <= 0:
-        print("Error: --min-speakers must be > 0.", file=sys.stderr)
-        raise SystemExit(1)
-    if args.max_speakers < args.min_speakers:
-        print(
-            "Error: --max-speakers must be >= --min-speakers.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
     if args.diarize and not args.streaming and not args.mic:
         _preflight_diarization_runtime(args.diarize_device)
 
-    # Lazy imports for faster --help
+    # Lazy imports keep --help fast.
     import mlx.core as mx
-    import numpy as np
 
-    from .audio import SAMPLE_RATE, load_audio
     from .forced_aligner import ForcedAligner
-    from .streaming import feed_audio, finish_streaming, init_streaming
-    from .transcribe import TranscriptionResult, transcribe
-    from .writers import get_writer
 
-    # Parse dtype
-    dtype_map = {
-        "float16": mx.float16,
-        "float32": mx.float32,
-        "bfloat16": mx.bfloat16,
-    }
-    dtype = dtype_map[args.dtype]
-
-    # Determine output formats
-    if args.output_format == "all":
-        formats = ["txt", "json", "srt", "vtt", "tsv"]
-    else:
-        formats = [args.output_format]
-    subtitle_formats = {"srt", "vtt"}
-    wants_subtitles = any(fmt in subtitle_formats for fmt in formats)
-    if wants_subtitles and (args.streaming or args.mic):
-        print(
-            "Error: subtitle formats (srt/vtt) require offline transcription.",
-            file=sys.stderr,
+    dtype = {"float16": mx.float16, "float32": mx.float32, "bfloat16": mx.bfloat16}[args.dtype]
+    formats = _output_formats(args)
+    wants_subtitles = any(fmt in {"srt", "vtt"} for fmt in formats)
+    timestamps = bool(args.timestamps or wants_subtitles or args.diarize)
+    reasons = [
+        reason
+        for enabled, reason in (
+            (wants_subtitles, "subtitle output was requested"),
+            (args.diarize, "diarization was requested"),
         )
-        raise SystemExit(1)
-    effective_timestamps = bool(args.timestamps or wants_subtitles or args.diarize)
-    auto_timestamp_reasons: list[str] = []
-    if wants_subtitles and not args.timestamps:
-        auto_timestamp_reasons.append("subtitle output was requested")
-    if args.diarize and not args.timestamps:
-        auto_timestamp_reasons.append("diarization was requested")
-    if auto_timestamp_reasons:
-        reasons = " and ".join(auto_timestamp_reasons)
-        print(
-            f"Info: auto-enabling timestamps because {reasons}.",
-            file=sys.stderr,
-        )
+        if enabled and not args.timestamps
+    ]
+    if reasons:
+        print(f"Info: auto-enabling timestamps because {' and '.join(reasons)}.", file=sys.stderr)
     if not Path(args.model).exists():
         print(
-            (
-                f"Model: {args.model}. "
-                "First run may download model files from Hugging Face "
-                "(~1.2 GB for 0.6B, larger for 1.7B)."
-            ),
+            f"Model: {args.model}. First run may download model files from Hugging Face "
+            "(~1.2 GB for 0.6B, larger for 1.7B).",
             file=sys.stderr,
         )
 
-    # Process each audio file
     output_dir = Path(args.output_dir)
     write_output_files = not args.stdout_only
     if write_output_files:
         output_dir.mkdir(parents=True, exist_ok=True)
-    had_error = False
     aligner = (
-        ForcedAligner(
-            model_path=args.forced_aligner,
-            dtype=dtype,
-            backend="mlx",
-        )
-        if effective_timestamps and not args.streaming and not args.mic
+        ForcedAligner(model_path=args.forced_aligner, dtype=dtype, backend="mlx")
+        if timestamps and not args.streaming and not args.mic
         else None
     )
+    had_error = False
 
     if args.mic:
-        mic_started = time.time()
-        try:
-            import sounddevice as sd
-        except ImportError as exc:
-            print(
-                "Error: --mic requires the optional dependency 'sounddevice'.",
-                file=sys.stderr,
-            )
-            print(
-                "Install with: pip install sounddevice",
-                file=sys.stderr,
-            )
-            raise SystemExit(1) from exc
-
-        if args.verbose:
-            print("Listening on microphone... Press Ctrl+C to stop.", file=sys.stderr)
-
-        chunk_samples = max(1, int(args.stream_chunk_sec * args.mic_sample_rate))
-        state = init_streaming(
-            model=args.model,
-            context=args.context,
-            chunk_size_sec=args.stream_chunk_sec,
-            max_context_sec=args.stream_max_context_sec,
-            sample_rate=args.mic_sample_rate,
-            dtype=dtype,
-            max_new_tokens=args.max_new_tokens,
-            endpointing_mode=args.stream_endpointing_mode,
-            finalization_mode=args.stream_finalization_mode,
-            language=args.language,
-        )
-        emitted_stable = ""
-        captured_samples = 0
-        try:
-            with sd.InputStream(
-                samplerate=args.mic_sample_rate,
-                channels=1,
-                dtype="float32",
-                blocksize=chunk_samples,
-                device=args.mic_device,
-            ) as stream:
-                while True:
-                    if args.mic_duration_sec is not None:
-                        elapsed = time.time() - mic_started
-                        if elapsed >= args.mic_duration_sec:
-                            break
-                        remaining_sec = max(0.0, args.mic_duration_sec - elapsed)
-                        frames = min(
-                            chunk_samples,
-                            max(1, int(remaining_sec * args.mic_sample_rate)),
-                        )
-                    else:
-                        frames = chunk_samples
-
-                    data, overflowed = stream.read(frames)
-                    if overflowed and args.verbose:
-                        print("Warning: microphone overflow detected.", file=sys.stderr)
-                    chunk = np.asarray(data, dtype=np.float32).reshape(-1)
-                    captured_samples += int(chunk.shape[0])
-                    state = feed_audio(chunk, state)
-                    if not args.quiet:
-                        emitted_stable = _emit_new_stable_text(state.stable_text, emitted_stable)
-        except KeyboardInterrupt:
-            if args.verbose:
-                print("\nStopping microphone capture...", file=sys.stderr)
-
-        state = finish_streaming(state)
-        result = TranscriptionResult(
-            text=state.text,
-            language=state.language,
-            segments=None,
-            chunks=None,
-        )
-        if not args.quiet:
-            if result.text.startswith(emitted_stable):
-                tail = result.text[len(emitted_stable):]
-                if tail:
-                    print(tail, end="", flush=True)
-                print()
-            else:
-                print(f"\n{result.text}")
-        elapsed = time.time() - mic_started
-        if args.verbose:
-            # Live capture runs at wall-clock speed, so a real-time factor is
-            # meaningless here; report what was captured instead.
-            captured_sec = captured_samples / float(args.mic_sample_rate)
-            print(f"\nLanguage: {result.language}", file=sys.stderr)
-            print(f"Captured: {captured_sec:.2f}s of audio", file=sys.stderr)
-            print(f"Time: {elapsed:.2f}s", file=sys.stderr)
-
+        result = _run_mic(args, dtype)
         if write_output_files:
             stem = datetime.now().strftime("microphone-%Y%m%d-%H%M%S")
-            for fmt in formats:
-                out_path = output_dir / f"{stem}.{fmt}"
-                writer = get_writer(fmt)
-                try:
-                    writer(result, str(out_path))
-                except Exception as e:
-                    print(f"Error: {e}", file=sys.stderr)
-                    had_error = True
-                    continue
-                if args.verbose:
-                    print(f"Written: {out_path}", file=sys.stderr)
+            had_error = _write_outputs(result, stem, formats, output_dir, args.verbose)
+        if had_error:
+            raise SystemExit(1)
+        return
+
     for audio_path in args.audio:
         if not Path(audio_path).exists():
             print(f"Error: File not found: {audio_path}", file=sys.stderr)
             had_error = True
             continue
-
         if args.verbose:
             print(f"\nTranscribing: {audio_path}")
-
         start_time = time.time()
-        progress = _ChunkProgressPrinter(
-            enabled=(not args.verbose and not args.no_progress),
-            start_time=start_time,
-        )
-
         try:
-            if not args.streaming:
-                result = transcribe(
-                    audio=audio_path,
-                    model=args.model,
-                    draft_model=args.draft_model,
-                    context=args.context,
-                    language=args.language,
-                    return_timestamps=effective_timestamps,
-                    diarize=args.diarize,
-                    diarization_num_speakers=args.num_speakers,
-                    diarization_min_speakers=args.min_speakers,
-                    diarization_max_speakers=args.max_speakers,
-                    diarization_device=args.diarize_device,
-                    return_chunks=True,
-                    forced_aligner=aligner,
-                    dtype=dtype,
-                    max_new_tokens=args.max_new_tokens,
-                    num_draft_tokens=args.num_draft_tokens,
-                    verbose=args.verbose,
-                    on_progress=progress,
-                )
-            else:
-                audio_np = np.asarray(load_audio(audio_path), dtype=np.float32)
-                chunk_samples = max(1, int(args.stream_chunk_sec * SAMPLE_RATE))
-                state = init_streaming(
-                    model=args.model,
-                    context=args.context,
-                    chunk_size_sec=args.stream_chunk_sec,
-                    max_context_sec=args.stream_max_context_sec,
-                    sample_rate=SAMPLE_RATE,
-                    dtype=dtype,
-                    max_new_tokens=args.max_new_tokens,
-                    endpointing_mode=args.stream_endpointing_mode,
-                    finalization_mode=args.stream_finalization_mode,
-                    language=args.language,
-                )
-                total_chunks = max(1, int(np.ceil(len(audio_np) / chunk_samples)))
-                for i in range(0, len(audio_np), chunk_samples):
-                    state = feed_audio(audio_np[i : i + chunk_samples], state)
-                    if not args.verbose and not args.no_progress:
-                        chunk_idx = (i // chunk_samples) + 1
-                        progress_ratio = min(1.0, chunk_idx / total_chunks)
-                        elapsed = max(0.0, time.time() - start_time)
-                        eta = (elapsed / progress_ratio - elapsed) if progress_ratio > 0 else None
-                        print(
-                            (
-                                f"Progress: chunk {chunk_idx}/{total_chunks} "
-                                f"({progress_ratio * 100.0:.1f}%) ETA {_format_duration(eta)}"
-                            ),
-                            file=sys.stderr,
-                        )
-                state = finish_streaming(state)
-                result = TranscriptionResult(
-                    text=state.text,
-                    language=state.language,
-                    segments=None,
-                    chunks=[
-                        {
-                            "text": state.text,
-                            "start": 0.0,
-                            "end": float(len(audio_np) / SAMPLE_RATE),
-                            "chunk_index": 0,
-                            "language": state.language,
-                        }
-                    ],
-                )
-                if not args.verbose and not args.no_progress:
-                    audio_dur = _format_duration(len(audio_np) / SAMPLE_RATE)
-                    elapsed_dur = _format_duration(time.time() - start_time)
-                    print(
-                        (
-                            f"Progress: 100.0% ({audio_dur} audio) "
-                            f"in {elapsed_dur}"
-                        ),
-                        file=sys.stderr,
-                    )
+            result = _transcribe_file(
+                args, audio_path, dtype=dtype, aligner=aligner, timestamps=timestamps
+            )
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
             had_error = True
             continue
-
         elapsed = time.time() - start_time
 
-        # Print result to stdout
         if not args.quiet:
             print(result.text)
-
         if args.verbose:
-            duration = None
-            chunks = getattr(result, "chunks", None) or []
-            if chunks:
-                duration = float(chunks[-1].get("end", 0.0))
-            rtf = (elapsed / duration) if duration and duration > 0 else None
+            chunks = result.chunks or []
+            duration = float(chunks[-1].get("end", 0.0)) if chunks else 0.0
             print(f"\nLanguage: {result.language}")
             print(f"Time: {elapsed:.2f}s")
-            if rtf is not None:
-                print(f"RTF: {rtf:.4f}x")
-
-        # Write output files
-        if write_output_files:
-            stem = Path(audio_path).stem
-            for fmt in formats:
-                out_path = output_dir / f"{stem}.{fmt}"
-                writer = get_writer(fmt)
-                try:
-                    writer(result, str(out_path))
-                except Exception as e:
-                    print(f"Error: {e}", file=sys.stderr)
-                    had_error = True
-                    continue
-                if args.verbose:
-                    print(f"Written: {out_path}")
+            if duration > 0:
+                print(f"RTF: {elapsed / duration:.4f}x")
+        if write_output_files and _write_outputs(
+            result, Path(audio_path).stem, formats, output_dir, args.verbose
+        ):
+            had_error = True
 
     if had_error:
         raise SystemExit(1)
