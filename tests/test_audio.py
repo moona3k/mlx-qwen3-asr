@@ -346,10 +346,16 @@ class TestLogMelSpectrogram:
         with pytest.raises(ValueError, match="empty audio"):
             log_mel_spectrogram(audio)
 
-    def test_raises_for_too_short_audio(self):
-        audio = mx.array(np.array([0.0], dtype=np.float32))
+    @pytest.mark.parametrize("samples", [1, 159, 160, 200])
+    def test_raises_for_too_short_audio(self, samples):
+        audio = mx.zeros((samples,), dtype=mx.float32)
         with pytest.raises(ValueError, match="too short"):
             log_mel_spectrogram(audio)
+
+    def test_shortest_valid_audio_yields_one_frame(self):
+        result = log_mel_spectrogram(mx.zeros((N_FFT // 2 + 1,), dtype=mx.float32))
+        mx.eval(result)
+        assert result.shape == (128, 1)
 
     def test_output_dtype(self):
         audio = mx.array(np.random.randn(1600).astype(np.float32))

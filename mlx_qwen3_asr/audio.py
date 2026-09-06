@@ -470,6 +470,13 @@ def stft(
 
     hop = nperseg - noverlap
     pad_len = nperseg // 2
+    if x.shape[0] <= pad_len:
+        # Reflect padding needs more samples than the pad width, and newer MLX
+        # raises an opaque as_strided error instead of producing zero frames.
+        raise ValueError(
+            "Audio too short for STFT: "
+            f"{int(x.shape[0])} samples, need more than {pad_len}."
+        )
 
     # Reflect padding (mx.pad does not support mode="reflect", so do it manually)
     x = _reflect_pad(x, pad_len)
@@ -505,7 +512,7 @@ def log_mel_spectrogram(
         a fixed length; the caller handles padding if needed.
 
     Raises:
-        ValueError: If audio is empty.
+        ValueError: If audio is empty or too short to produce one mel frame.
     """
     if audio.size == 0:
         raise ValueError("Cannot compute mel spectrogram of empty audio.")
