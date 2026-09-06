@@ -56,6 +56,11 @@ class SinusoidalPositionEmbedding(nn.Module):
         # If embedding_dim is odd, trim the last column
         if embedding_dim % 2 == 1:
             pe = pe[:, :embedding_dim]
+        # Materialize now. ``_pe`` is not a parameter, so ``mx.eval(model.parameters())``
+        # never reaches it, and an unevaluated graph is bound to the stream of the
+        # thread that built it: MLX >= 0.31 refuses to evaluate it from another
+        # thread ("There is no Stream(gpu, 1) in current thread").
+        mx.eval(pe)
         self._pe = pe
         self.freeze()
 

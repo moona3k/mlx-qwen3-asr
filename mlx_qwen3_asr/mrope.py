@@ -62,6 +62,9 @@ class InterleavedMRoPE:
         inv_freq = 1.0 / (
             base ** (mx.arange(0, head_dim, 2, dtype=mx.float32) / head_dim)
         )
+        # Materialize now: this buffer is not a module parameter, and MLX >= 0.31
+        # cannot evaluate a graph built on another thread (see encoder.py).
+        mx.eval(inv_freq)
         self._inv_freq = inv_freq  # shape: (half_dim,)
 
         # Official overwrite masks:

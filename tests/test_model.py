@@ -645,6 +645,48 @@ class TestWindowedEncoderExecution:
 
 
 # ---------------------------------------------------------------------------
+# Thread portability (issue #16)
+# ---------------------------------------------------------------------------
+
+
+class TestThreadPortability:
+    """A model built on one thread must run on another.
+
+    MLX >= 0.31 binds unevaluated arrays to the thread that created them. Any
+    init-time buffer that is not a parameter (sinusoidal PE, MRoPE inverse
+    frequencies) must therefore be materialized in ``__init__``; otherwise the
+    first forward pass from a different thread fails with
+    ``There is no Stream(gpu, 1) in current thread``. Older MLX passes this
+    test regardless, so CI on current MLX is the real guard.
+    """
+
+    def test_forward_on_other_thread_after_init_on_main(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        cfg = _tiny_asr_config()
+        cfg.text_config.head_dim = 128
+        model = Qwen3ASRModel(cfg)
+        mx.eval(model.parameters())  # mirrors load_model(); leaves buffers lazy
+
+        def run() -> tuple[tuple[int, ...], tuple[int, ...]]:
+            # Inputs are built on the inference thread, as a real caller would.
+            mel = mx.zeros((1, cfg.audio_config.num_mel_bins, 100), dtype=mx.float32)
+            feature_lens = mx.array([100], dtype=mx.int32)
+            input_ids = mx.array([[1, 2, 3]], dtype=mx.int32)
+            position_ids = mx.zeros((1, 3, 3), dtype=mx.int32)
+            audio_features, _ = model.audio_tower(mel, feature_lens)
+            logits = model(input_ids, position_ids=position_ids)
+            mx.eval(audio_features, logits)
+            return tuple(audio_features.shape), tuple(logits.shape)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            audio_shape, logits_shape = pool.submit(run).result()
+
+        assert audio_shape[0] == 1 and audio_shape[2] == cfg.audio_config.output_dim
+        assert logits_shape == (1, 3, cfg.text_config.vocab_size)
+
+
+# ---------------------------------------------------------------------------
 # Qwen3ASRModel instantiation
 # ---------------------------------------------------------------------------
 
