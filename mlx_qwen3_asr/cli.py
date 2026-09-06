@@ -360,10 +360,14 @@ def _parse_serve_args(argv: list[str]) -> None:
 
 def main():
     """CLI entry point for mlx-qwen3-asr."""
-    # Intercept "serve" subcommand before main parser
-    if len(sys.argv) > 1 and sys.argv[1] == "serve":
-        _parse_serve_args(sys.argv[2:])
+    # Subcommands: "serve" starts the HTTP server; "transcribe" is the explicit
+    # spelling of the default file-transcription mode.
+    argv = sys.argv[1:]
+    if argv and argv[0] == "serve":
+        _parse_serve_args(argv[1:])
         return
+    if argv and argv[0] == "transcribe":
+        argv = argv[1:]
 
     parser = argparse.ArgumentParser(
         prog="mlx-qwen3-asr",
@@ -567,7 +571,7 @@ def main():
         version=f"%(prog)s {__version__}",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.doctor:
         code = _run_doctor()
