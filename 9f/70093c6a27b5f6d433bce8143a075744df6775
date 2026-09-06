@@ -1,0 +1,25 @@
+.github/workflows/ci.yml
+  s_87541436bf054f::t_bd96249366b49a 37
+.github/workflows/nightly-regression.yml
+  s_87541436bf054f::t_1ae8509b22e7e6 37
+pyproject.toml
+  s_87541436bf054f::t_095c34b96e1cf9 36
+tests/test_session.py
+  s_87541436bf054f::t_a126e2ddc46180 361-384
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9f70093c6a27b5f6d433bce8143a075744df6775",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
