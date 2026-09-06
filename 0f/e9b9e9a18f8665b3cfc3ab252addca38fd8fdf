@@ -1,0 +1,23 @@
+tests/test_generate.py
+  s_87541436bf054f::t_6d63bb6c30074e 436-456,464-489
+  s_87541436bf054f::t_926f3289fdafb6 558-560
+  s_87541436bf054f::t_3d93fb01783c29 490
+mlx_qwen3_asr/generate.py
+  s_87541436bf054f::t_6d63bb6c30074e 421-425,427-437
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0fe9b9e9a18f8665b3cfc3ab252addca38fd8fdf",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
