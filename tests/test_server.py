@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -356,10 +357,8 @@ async def _create_test_app_with_worker(
         yield app
     finally:
         worker_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await worker_task
-        except asyncio.CancelledError:
-            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1537,10 +1536,12 @@ class TestInferenceThreadAffinity:
         config = ServerConfig(api_keys=["testkey"])
         app = create_app(config)
 
-        with patch("mlx_qwen3_asr.session.Session", _BrokenSession):
-            with pytest.raises(RuntimeError, match="no such model"):
-                async with app.router.lifespan_context(app):
-                    pass
+        with (
+            patch("mlx_qwen3_asr.session.Session", _BrokenSession),
+            pytest.raises(RuntimeError, match="no such model"),
+        ):
+            async with app.router.lifespan_context(app):
+                pass
 
         executor = app.state.server.executor
         assert executor is not None

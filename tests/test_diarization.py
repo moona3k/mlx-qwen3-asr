@@ -809,9 +809,8 @@ def test_load_pyannote_pipeline_does_not_retry_a_device_that_already_failed(monk
 
     assert first is second
     assert loads["count"] == 1, "the failed accelerator was retried"
-    assert diarization._UNAVAILABLE_DIARIZATION_DEVICES == {
-        (DEFAULT_PYANNOTE_MODEL_ID, "", "mps")
-    }
+    unavailable = diarization._UNAVAILABLE_DIARIZATION_DEVICES
+    assert unavailable == {(DEFAULT_PYANNOTE_MODEL_ID, "", "mps")}
 
 
 def test_explicit_request_for_a_known_bad_device_resolves_to_cpu(monkeypatch):

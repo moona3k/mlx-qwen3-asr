@@ -140,7 +140,7 @@ def main() -> int:
     }
 
     random_cases = _make_random_cases(args.seed, seconds)
-    for sec, audio_np in zip(seconds, random_cases):
+    for sec, audio_np in zip(seconds, random_cases, strict=True):
         item = _compare_one(audio_np)
         item["case"] = f"random_{sec}s"
         payload["cases"].append(item)

@@ -165,8 +165,8 @@ def _load_audio_file(path: str, sr: int) -> np.ndarray:
         result = subprocess.run(cmd, capture_output=True, check=True)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to load audio: {e.stderr.decode()}") from e
-    except FileNotFoundError:
-        raise RuntimeError(_ffmpeg_missing_message())
+    except FileNotFoundError as e:
+        raise RuntimeError(_ffmpeg_missing_message()) from e
 
     return np.frombuffer(result.stdout, np.int16).astype(np.float32) / 32768.0
 
@@ -326,8 +326,8 @@ def _resample_via_ffmpeg(
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to resample audio: {e.stderr.decode()}") from e
-    except FileNotFoundError:
-        raise RuntimeError(_ffmpeg_missing_message())
+    except FileNotFoundError as e:
+        raise RuntimeError(_ffmpeg_missing_message()) from e
 
     return np.frombuffer(result.stdout, np.int16).astype(np.float32) / 32768.0
 

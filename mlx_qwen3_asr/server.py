@@ -9,6 +9,7 @@ Usage::
 """
 
 import asyncio
+import contextlib
 import logging
 import shutil
 import subprocess
@@ -258,7 +259,9 @@ def create_app(config: ServerConfig):
             detail=f"File too large. Max: {config.max_file_size_mb} MB",
         )
         suffix = Path(upload.filename or "upload.wav").suffix or ".wav"
-        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False, prefix="mlx_asr_")
+        tmp = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed in both branches below
+            suffix=suffix, delete=False, prefix="mlx_asr_"
+        )
         try:
             written = 0
             while chunk := await upload.read(1 << 20):
@@ -323,10 +326,8 @@ def create_app(config: ServerConfig):
             for task in tasks:
                 task.cancel()
             for task in tasks:
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
             # Cancelling a task does not stop work already running on the
             # thread; wait for it off the event loop, then release the thread.
             # This also runs when Session() itself fails before ``yield``.
@@ -441,7 +442,7 @@ def create_app(config: ServerConfig):
         # Atomic enqueue with backpressure
         try:
             state.job_queue.put_nowait(job_id)
-        except asyncio.QueueFull:
+        except asyncio.QueueFull as exc:
             # Clean up the job and temp file we just created
             state.jobs.pop(job_id, None)
             _cleanup_temp(job)
@@ -449,7 +450,7 @@ def create_app(config: ServerConfig):
                 status_code=503,
                 detail="Server at capacity",
                 headers={"Retry-After": "10"},
-            )
+            ) from exc
 
         return {
             "job_id": job_id,
@@ -573,9 +574,7 @@ def create_app(config: ServerConfig):
                     executor=state.executor,
                 )
         except Exception as exc:
-            raise HTTPException(
-                status_code=500, detail=_sanitize_error(exc)
-            )
+            raise HTTPException(status_code=500, detail=_sanitize_error(exc)) from exc
         finally:
             state.sync_inflight -= 1
             Path(temp_path).unlink(missing_ok=True)

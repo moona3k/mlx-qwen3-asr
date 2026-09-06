@@ -527,7 +527,7 @@ def _apply_windowed_encoder_layers(
 
     for layer in layers:
         parts: list[mx.array] = []
-        for s, e in zip(cu_seqlens[:-1], cu_seqlens[1:]):
+        for s, e in zip(cu_seqlens[:-1], cu_seqlens[1:], strict=True):
             parts.append(layer(x[:, s:e, :], mask=None))
         x = mx.concatenate(parts, axis=1)
     return x

@@ -109,9 +109,8 @@ class TestCastTreeDtype:
         leaves = mlx_utils.tree_flatten(casted)
 
         for _, value in leaves:
-            if isinstance(value, mx.array):
-                if mx.issubdtype(value.dtype, mx.floating):
-                    assert value.dtype == mx.float16
+            if isinstance(value, mx.array) and mx.issubdtype(value.dtype, mx.floating):
+                assert value.dtype == mx.float16
 
         assert casted["int_array"].dtype == mx.int32
 

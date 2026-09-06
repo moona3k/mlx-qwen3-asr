@@ -148,8 +148,8 @@ def _load_model_with_resolved_path(
     mx.eval(model.parameters())
     model.eval()
     # Attach model origin metadata for downstream tokenizer/session inference.
-    setattr(model, "_source_model_id", path_or_hf_repo)
-    setattr(model, "_resolved_model_path", str(model_path))
+    model._source_model_id = path_or_hf_repo
+    model._resolved_model_path = str(model_path)
 
     if quantized:
         logger.info(f"Loaded quantized model from {model_path}")

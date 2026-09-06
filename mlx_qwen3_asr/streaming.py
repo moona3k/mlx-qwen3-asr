@@ -611,9 +611,12 @@ def _append_chunk_text(current: str, addition: str, language: str) -> str:
     # text (same prefix and at least as long), prefer replacement over append.
     prefix_check = 3 if joiner == " " else 6
     pref_n = min(prefix_check, len(curr_units), len(add_units))
-    if pref_n > 0 and curr_units[:pref_n] == add_units[:pref_n]:
-        if len(add_units) >= len(curr_units):
-            return add
+    if (
+        pref_n > 0
+        and curr_units[:pref_n] == add_units[:pref_n]
+        and len(add_units) >= len(curr_units)
+    ):
+        return add
 
     max_overlap = min(len(curr_units), len(add_units))
     overlap = 0
