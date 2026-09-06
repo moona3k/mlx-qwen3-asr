@@ -414,7 +414,10 @@ class AudioEncoder(nn.Module):
         for ct in chunk_token_lens:
             pe_parts.append(pe[:ct])
         pe_full = mx.concatenate(pe_parts, axis=0)  # (total_tokens, d_model)
-        x = x + pe_full
+        # The PE table is float32 and outside parameters(), so load_model's dtype
+        # cast never touches it. Adding it unconverted would promote every later
+        # encoder (and decoder) activation to float32, tripling latency.
+        x = x + pe_full.astype(x.dtype)
 
         # --- Windowed attention ---
         total_tokens = x.shape[0]

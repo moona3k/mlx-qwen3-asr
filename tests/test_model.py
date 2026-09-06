@@ -645,6 +645,27 @@ class TestWindowedEncoderExecution:
 
 
 # ---------------------------------------------------------------------------
+# Encoder dtype preservation
+# ---------------------------------------------------------------------------
+
+
+class TestEncoderDtype:
+    def test_float16_input_stays_float16_through_encoder(self):
+        """The float32 PE table must not promote encoder activations."""
+        enc = AudioEncoder(_tiny_audio_config())
+        params = enc.parameters()
+        enc.update(
+            __import__("mlx.utils").utils.tree_map(
+                lambda a: a.astype(mx.float16) if a.dtype == mx.float32 else a, params
+            )
+        )
+        mel = mx.zeros((1, 128, 100), dtype=mx.float16)
+        out, _ = enc(mel, mx.array([100], dtype=mx.int32))
+        mx.eval(out)
+        assert out.dtype == mx.float16
+
+
+# ---------------------------------------------------------------------------
 # Thread portability (issue #16)
 # ---------------------------------------------------------------------------
 
