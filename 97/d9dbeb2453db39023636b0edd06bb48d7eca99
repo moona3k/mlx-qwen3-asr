@@ -1,0 +1,29 @@
+mlx_qwen3_asr/load_models.py
+  s_87541436bf054f::t_b374199c89a085 141-147
+mlx_qwen3_asr/decoder.py
+  s_87541436bf054f::t_b374199c89a085 11,431,435-438,464,468-470
+mlx_qwen3_asr/transcribe.py
+  s_87541436bf054f::t_b374199c89a085 203-204,206-210
+tests/test_decoder.py
+  s_87541436bf054f::t_76ce218fc31a0b 84-98
+tests/test_load_models.py
+  s_87541436bf054f::t_76ce218fc31a0b 223-236
+tests/test_transcribe.py
+  s_87541436bf054f::t_76ce218fc31a0b 495-525
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "97d9dbeb2453db39023636b0edd06bb48d7eca99",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
