@@ -344,3 +344,15 @@ Optional envs:
 - Prevents silent quality regressions while optimizing.
 - Keeps claims honest: parity first, speed second.
 - Creates a clear handoff path for later Swift porting.
+
+## CI workflows
+
+`.github/workflows/` is the source of truth:
+
+- `ci.yml`: ruff on every push/PR; fast gate on `macos-14` with `[dev,serve]`;
+  PyPI install smoke on pushes to `main`; optional live diarization job.
+- `nightly-regression.yml`: fast gate + LibriSpeech eval + latency benchmark.
+- `long-media-regression.yml`: weekly long-audio run on a synthetic fixture.
+- `reference-parity.yml`, `quantization-matrix.yml`, `publish-quantized.yml`:
+  manual lanes.
+- `package-analytics.yml`: weekly PyPI download stats.

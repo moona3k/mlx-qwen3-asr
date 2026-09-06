@@ -55,14 +55,22 @@ Promote to distilled learnings when:
 4. Keep `CLAUDE.md` canonical and keep `AGENTS.md` as a thin compatibility
    delegator.
    - refs: `MEM-2026-02-16-004`
+5. Test doubles carry the real signatures of what they replace; production
+   code never introspects for test compatibility.
+   - refs: `MEM-2026-09-06-005`
 
 ## Distilled Learnings
 
-1. When changing process policy, update both `CLAUDE.md` and operating memory
+1. Run the suite against the newest MLX release before merging anything that
+   touches threading, dtype or the audio front end; the repo venv pins an
+   older MLX that hides thread-affinity and `as_strided` behaviour changes.
+   - refs: `MEM-2026-09-06-001`, `MEM-2026-09-06-003`
+
+2. When changing process policy, update both `CLAUDE.md` and operating memory
    in the same commit to avoid drift.
    - refs: `MEM-2026-02-16-001`, `MEM-2026-02-16-002`,
      `MEM-2026-02-16-003`
-2. For multi-agent compatibility, prefer one canonical guide plus one thin
+3. For multi-agent compatibility, prefer one canonical guide plus one thin
    delegator file.
    - refs: `MEM-2026-02-16-004`
 

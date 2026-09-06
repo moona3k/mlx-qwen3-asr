@@ -11,9 +11,6 @@ on the network (or internet) and returning text. Today `mlx-qwen3-asr` is a
 library + CLI; there is no way to serve transcription over HTTP without writing
 custom glue code.
 
-Note: CLAUDE.md currently says "Not a server/API — library + CLI only." This
-must be updated to reflect the new scope before merging.
-
 ## Decision
 
 Ship a built-in HTTP transcription server inside the `mlx_qwen3_asr` package as

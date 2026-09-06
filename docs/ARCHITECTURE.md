@@ -208,11 +208,15 @@ Output format: `language {detected_language}<asr_text>{transcription text}`
 ## Key Constants
 
 ```python
-SAMPLE_RATE = 16000
+SAMPLE_RATE = 16000          # audio.py
 N_FFT = 400
 HOP_LENGTH = 160
 NUM_MEL_BINS = 128
-MAX_ASR_INPUT_SECONDS = 1200.0
-MIN_ASR_INPUT_SECONDS = 0.5
-REPETITION_THRESHOLD = 20
+MAX_CHUNK_SECONDS = 30.0     # chunking.py: long audio is split at low-energy points
+MIN_CHUNK_SECONDS = 0.5
+REPETITION_THRESHOLD = 20    # generate.py
+AUTO_MAX_NEW_TOKENS_PER_SECOND = 12.0  # generate.py: per-chunk decode budget
 ```
+
+There is no fixed input-length ceiling in the library; the server enforces
+`--max-duration` (default 8 hours).
