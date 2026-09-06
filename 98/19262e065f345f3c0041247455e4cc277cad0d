@@ -1,0 +1,49 @@
+scripts/eval_diarization.py
+  s_87541436bf054f::t_6fe37bbac64e3b 293
+scripts/eval/metrics.py
+  s_87541436bf054f::t_6fe37bbac64e3b 44,56
+mlx_qwen3_asr/encoder.py
+  s_87541436bf054f::t_6fe37bbac64e3b 530
+pyproject.toml
+  s_87541436bf054f::t_ead486f2d5a929 59
+  s_87541436bf054f::t_6fe37bbac64e3b 60-64
+mlx_qwen3_asr/streaming.py
+  s_87541436bf054f::t_6fe37bbac64e3b 614-619
+docs/memory/events/2026-09.md
+  s_87541436bf054f::t_a22b47590f9480 98-100
+scripts/eval_mel_parity.py
+  s_87541436bf054f::t_6fe37bbac64e3b 143
+mlx_qwen3_asr/config.py
+  s_87541436bf054f::t_4d7ee8031038b0 208,210-211
+tests/test_server.py
+  s_87541436bf054f::t_6fe37bbac64e3b 6,360,1539-1544
+mlx_qwen3_asr/load_models.py
+  s_87541436bf054f::t_4d7ee8031038b0 151-152
+tests/test_diarization.py
+  s_87541436bf054f::t_e1cc2fb7fae300 812-813
+scripts/eval_aligner_parity.py
+  s_87541436bf054f::t_6fe37bbac64e3b 292-294
+  s_87541436bf054f::t_16cd41efd60553 295-301
+mlx_qwen3_asr/server.py
+  s_87541436bf054f::t_6fe37bbac64e3b 12,262-264,329,445,453,577
+mlx_qwen3_asr/audio.py
+  s_87541436bf054f::t_6fe37bbac64e3b 168-169,329-330
+tests/test_load_models.py
+  s_87541436bf054f::t_6fe37bbac64e3b 112-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9819262e065f345f3c0041247455e4cc277cad0d",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": null
+    }
+  }
+}
