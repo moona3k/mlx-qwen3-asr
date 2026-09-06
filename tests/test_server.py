@@ -463,6 +463,94 @@ async def test_transcribe_rejects_oversized_file():
 
 
 @pytest.mark.asyncio
+async def test_transcribe_rejects_oversized_content_length_before_reading():
+    """A declared Content-Length over the limit is rejected without buffering."""
+    app = _create_test_app(max_file_size_mb=1)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/transcribe",
+            headers={
+                "Authorization": "Bearer testkey",
+                "Content-Length": str(3 * 1024 * 1024),
+                "Content-Type": "multipart/form-data; boundary=x",
+            },
+            content=b"",
+        )
+        assert resp.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_transcribe_rejects_audio_longer_than_max_duration(monkeypatch):
+    import mlx_qwen3_asr.server as srv
+
+    monkeypatch.setattr(srv, "_audio_duration_sec", lambda path: 100.0)
+    config = ServerConfig(api_keys=["testkey"], max_duration_sec=60)
+    app = create_app(config)
+    app.state.server.session = _mock_session()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/transcribe",
+            headers={"Authorization": "Bearer testkey"},
+            files={"audio": ("long.wav", b"fake", "audio/wav")},
+        )
+        assert resp.status_code == 422
+        assert "too long" in resp.json()["detail"]
+        assert app.state.server.jobs == {}
+
+
+@pytest.mark.asyncio
+async def test_transcribe_missing_file_returns_400():
+    app = _create_test_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/transcribe",
+            headers={"Authorization": "Bearer testkey"},
+            data={"language": "English"},
+        )
+        assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_job_worker_survives_unexpected_errors(monkeypatch):
+    """An exception outside the transcription call must not kill the worker."""
+    import mlx_qwen3_asr.server as srv
+
+    calls = {"n": 0}
+
+    def _flaky_cleanup(job):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise PermissionError("cannot unlink")
+        job.temp_path = None
+
+    monkeypatch.setattr(srv, "_cleanup_temp", _flaky_cleanup)
+    config = ServerConfig(api_keys=["testkey"])
+    app = create_app(config)
+    with patch("mlx_qwen3_asr.session.Session", lambda *a, **k: _mock_session()):
+        async with app.router.lifespan_context(app):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                ids = []
+                for _ in range(2):
+                    resp = await client.post(
+                        "/transcribe",
+                        headers={"Authorization": "Bearer testkey"},
+                        files={"audio": ("a.wav", b"fake", "audio/wav")},
+                    )
+                    ids.append(resp.json()["job_id"])
+                for _ in range(50):
+                    await asyncio.sleep(0.02)
+                    statuses = {app.state.server.jobs[j].status for j in ids}
+                    if statuses == {JobStatus.COMPLETED}:
+                        break
+                assert statuses == {JobStatus.COMPLETED}, statuses
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
 async def test_jobs_requires_auth():
     """Jobs endpoint rejects unauthenticated requests."""
     app = _create_test_app()
@@ -848,6 +936,22 @@ def test_cli_legacy_audio_arg_still_works():
     )
     assert result.returncode == 1
     assert "File not found: nonexistent.wav" in result.stderr
+
+
+def test_cli_transcribe_subcommand_is_accepted():
+    """``mlx-qwen3-asr transcribe audio.wav`` is the explicit form of the default mode."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "mlx_qwen3_asr.cli", "transcribe", "nonexistent.wav"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "File not found: nonexistent.wav" in result.stderr
+    assert "File not found: transcribe" not in result.stderr
 
 
 def test_run_server_requires_api_key():
