@@ -1,0 +1,40 @@
+mlx_qwen3_asr/session.py
+  s_87541436bf054f::t_119d202e112564 14,48
+  s_87541436bf054f::t_58f6ab52d5448c 66
+mlx_qwen3_asr/streaming.py
+  s_87541436bf054f::t_127be437ed6101 384
+docs/QUALITY_GATE.md
+  s_87541436bf054f::t_119d202e112564 22-24
+mlx_qwen3_asr/mrope.py
+  s_87541436bf054f::t_127be437ed6101 77-78
+tests/test_generate.py
+  s_87541436bf054f::t_127be437ed6101 208,247,270,293,319,345,424,429,448,450,452,454-456
+scripts/quality_gate.py
+  s_87541436bf054f::t_127be437ed6101 27,31-38
+mlx_qwen3_asr/load_models.py
+  s_87541436bf054f::t_127be437ed6101 308,319
+mlx_qwen3_asr/generate.py
+  s_87541436bf054f::t_127be437ed6101 10,131,163,230-231,236,253,279,360,381,392,394,415,495-497
+mlx_qwen3_asr/transcribe.py
+  s_87541436bf054f::t_127be437ed6101 753
+mlx_qwen3_asr/writers.py
+  s_87541436bf054f::t_127be437ed6101 8,23
+mlx_qwen3_asr/audio.py
+  s_87541436bf054f::t_127be437ed6101 133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9d475c79a8929586180c1d6d248c12471448572a",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
