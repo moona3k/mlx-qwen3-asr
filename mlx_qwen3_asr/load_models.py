@@ -138,6 +138,13 @@ def _load_model_with_resolved_path(
         params = _cast_tree_dtype(model.parameters(), dtype)
         model.load_weights(list(mlx_utils.tree_flatten(params)))
 
+    # load_weights and the cast above assign lm_head and embed_tokens separately,
+    # which silently unties them and keeps two copies of the (vocab, hidden)
+    # matrix resident (~311 MB for the 0.6B model in float16). Re-tie when the
+    # checkpoint declares tied embeddings and the head was not quantized apart.
+    if _model_uses_tied_lm_head(config) and "lm_head.scales" not in weights:
+        model.lm_head.weight = model.model.embed_tokens.weight
+
     mx.eval(model.parameters())
     model.eval()
     # Attach model origin metadata for downstream tokenizer/session inference.

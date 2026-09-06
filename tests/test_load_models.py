@@ -220,6 +220,20 @@ class TestLoadModelWithCommunityLayouts:
         assert "lm_head.weight" in params
         assert params["lm_head.weight"].shape == params["model.embed_tokens.weight"].shape
 
+    def test_tied_lm_head_shares_the_embedding_array_after_cast(self, tmp_path: Path):
+        """load_weights + dtype cast untie the head; loader must re-tie it."""
+        model_dir = tmp_path / "tied-fp32"
+        model_dir.mkdir()
+        _write_tiny_config(model_dir)
+        model = Qwen3ASRModel(_tiny_config())
+        weights = dict(mlx_utils.tree_flatten(model.parameters()))
+        mx.save_safetensors(str(model_dir / "model.safetensors"), weights)
+
+        loaded, _, _ = _load_model_with_resolved_path(str(model_dir), dtype=mx.float16)
+
+        assert loaded.lm_head.weight is loaded.model.embed_tokens.weight
+        assert loaded.lm_head.weight.dtype == mx.float16
+
     def test_loads_partially_quantized_checkpoint(self, tmp_path: Path):
         model_dir = tmp_path / "partial-quant"
         model_dir.mkdir()

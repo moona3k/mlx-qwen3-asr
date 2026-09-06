@@ -200,8 +200,14 @@ def _resolve_model_components(
         model_obj, _ = _ModelHolder.get(model, dtype=dtype)
         model_path = _ModelHolder.get_resolved_path(model, dtype=dtype)
     else:
+        # load_model() records where a model came from; use it so a pre-loaded
+        # 1.7B model does not silently pick up the default 0.6B tokenizer files.
         model_obj = model
-        model_path = DEFAULT_MODEL_ID
+        model_path = str(
+            getattr(model, "_resolved_model_path", None)
+            or getattr(model, "_source_model_id", None)
+            or DEFAULT_MODEL_ID
+        )
     return model_obj, model_path
 
 

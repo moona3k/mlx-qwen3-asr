@@ -81,3 +81,18 @@ def test_single_token_with_prefix_uses_no_mask(monkeypatch):
 
     assert "mask" in captured
     assert captured["mask"] is None
+
+
+def test_causal_mask_caches_are_bounded():
+    """Distinct prefill lengths must not accumulate (L, L) masks forever."""
+    decmod._CAUSAL_MASK_CACHE.clear()
+    decmod._CAUSAL_MASK_WITH_PREFIX_CACHE.clear()
+    limit = decmod._MASK_CACHE_ENTRIES
+    for seq_len in range(1, limit + 10):
+        decmod._create_causal_mask(seq_len, mx.float32)
+        decmod._create_causal_mask_with_prefix(seq_len, prefix_len=4, dtype=mx.float32)
+    assert len(decmod._CAUSAL_MASK_CACHE) == limit
+    assert len(decmod._CAUSAL_MASK_WITH_PREFIX_CACHE) == limit
+    # Most recent entries are the ones retained, and are reused on the next call.
+    mask = decmod._create_causal_mask(limit + 9, mx.float32)
+    assert decmod._create_causal_mask(limit + 9, mx.float32) is mask

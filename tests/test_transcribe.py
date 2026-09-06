@@ -492,6 +492,37 @@ def test_transcribe_uses_resolved_model_path_for_tokenizer(monkeypatch):
     assert token_paths == ["/tmp/qwen3-resolved-model"]
 
 
+def test_transcribe_uses_preloaded_model_origin_for_tokenizer(monkeypatch):
+    """A pre-loaded model must not fall back to the default 0.6B tokenizer files."""
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    token_paths = []
+
+    class _RecordingTokenizerHolder:
+        @staticmethod
+        def get(model_path: str):
+            token_paths.append(model_path)
+            return _DummyTokenizer(model_path)
+
+    monkeypatch.setattr(tmod, "_TokenizerHolder", _RecordingTokenizerHolder)
+    monkeypatch.setattr(
+        tmod,
+        "compute_features",
+        lambda audio: (mx.zeros((1, 128, 100), dtype=mx.float32), mx.array([100], dtype=mx.int32)),
+    )
+    monkeypatch.setattr(tmod, "generate", lambda **kwargs: [10, 11, 12])
+
+    model = _DummyModel()
+    model._source_model_id = "Qwen/Qwen3-ASR-1.7B"
+    model._resolved_model_path = "/models/qwen3-asr-1.7b"
+    _ = transcribe(np.zeros(3200, dtype=np.float32), model=model)
+    assert token_paths == ["/models/qwen3-asr-1.7b"]
+
+    del model._resolved_model_path
+    token_paths.clear()
+    _ = transcribe(np.zeros(3200, dtype=np.float32), model=model)
+    assert token_paths == ["Qwen/Qwen3-ASR-1.7B"]
+
+
 def test_transcribe_canonicalizes_forced_language(monkeypatch):
     tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
     tokenizer = _RecordingLanguageTokenizer("repo/a")
