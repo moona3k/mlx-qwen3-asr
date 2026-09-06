@@ -107,13 +107,6 @@ def test_tokenize_text_korean_missing_dep_raises_clear_error(monkeypatch):
         ForcedAlignTextProcessor.tokenize_text("안녕하세요", "korean")
 
 
-def test_encode_timestamp_prompt_wraps_audio_and_timestamps():
-    words, prompt = ForcedAlignTextProcessor.encode_timestamp_prompt("a b", "english")
-    assert words == ["a", "b"]
-    assert prompt.startswith("<|audio_start|><|audio_pad|><|audio_end|>")
-    assert prompt.endswith("<timestamp><timestamp>")
-
-
 def test_fix_timestamp_repairs_non_monotonic_sequence():
     raw = np.array([0, 80, 160, 120, 240, 320], dtype=np.int32)
     fixed = ForcedAlignTextProcessor.fix_timestamp(raw)

@@ -784,7 +784,6 @@ mlx_qwen3_asr/           # 7,602 lines of source
 ├── chunking.py           # Long audio splitting (104 lines)
 ├── attention.py          # Attention utilities (67 lines)
 ├── convert.py            # Weight remapping (67 lines)
-├── eval_metrics.py       # WER/CER/BERTScore helpers (65 lines)
 └── cache_utils.py        # KV cache utilities (57 lines)
 
 tests/                    # 7,391 lines, 462 tests

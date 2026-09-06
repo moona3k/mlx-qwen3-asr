@@ -186,7 +186,6 @@ class _NativeQwenBPETokenizer:
         self._decoder: dict[int, str] = {v: k for k, v in self._encoder.items()}
         self._byte_encoder = _bytes_to_unicode()
         self._byte_decoder = {v: k for k, v in self._byte_encoder.items()}
-        self._errors = "replace"
         self._pat = re.compile(PRETOKENIZE_REGEX)
 
         merges = (model_dir / "merges.txt").read_text("utf-8").splitlines()

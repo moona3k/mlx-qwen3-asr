@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from .tokenizer import is_no_space_language
 from .transcribe import TranscriptionResult
@@ -20,7 +20,7 @@ def write_txt(result: TranscriptionResult, output_path: str) -> None:
 
 def write_json(result: TranscriptionResult, output_path: str) -> None:
     """Write JSON formatted transcription with metadata."""
-    data = {
+    data: dict[str, Any] = {
         "text": result.text,
         "language": result.language,
     }

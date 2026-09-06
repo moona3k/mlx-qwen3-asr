@@ -19,15 +19,9 @@ Checks:
 - Full pytest suite.
 - Typed-core `mypy` gate on selected modules:
 
-```bash
-python -m mypy --follow-imports=skip --ignore-missing-imports \
-  mlx_qwen3_asr/config.py \
-  mlx_qwen3_asr/chunking.py \
-  mlx_qwen3_asr/attention.py \
-  mlx_qwen3_asr/encoder.py \
-  mlx_qwen3_asr/decoder.py \
-  mlx_qwen3_asr/model.py
-```
+  The module list is `MYPY_TYPED_TARGETS` in `scripts/quality_gate.py`
+  (model core, generation, audio, tokenizer, loading, writers, transcribe,
+  session). Add a module there once it passes cleanly.
 
 ### Release Gate (required before tags/releases)
 

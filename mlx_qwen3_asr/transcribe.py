@@ -750,6 +750,7 @@ def _transcribe_loaded_components(
                 config=gen_config,
             )
         else:
+            assert draft_audio_features is not None
             generation_output = generate_speculative(
                 model=model_obj,
                 draft_model=draft_model_obj,

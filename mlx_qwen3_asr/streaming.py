@@ -17,7 +17,6 @@ from .generate import (
 )
 from .load_models import _ModelHolder
 from .model import Qwen3ASRModel
-from .runtime_utils import supports_kwarg
 from .tokenizer import (
     Tokenizer,
     _TokenizerHolder,
@@ -367,12 +366,6 @@ def _decode_tokens_incremental(
     logits = initial_logits
     generated: list[int] = []
     position = int(start_pos)
-    unchecked_step_kw = (
-        {"validate_input_ids": False}
-        if supports_kwarg(getattr(model, "step", None), "validate_input_ids")
-        else {}
-    )
-
     for _ in range(max_new_tokens):
         token = int(mx.argmax(logits.reshape(-1)).item())
         if token in eos_token_ids:
@@ -388,7 +381,7 @@ def _decode_tokens_incremental(
             input_ids=next_ids,
             position_ids=next_pos,
             cache=cache,
-            **unchecked_step_kw,
+            validate_input_ids=False,
         )
         position += 1
 

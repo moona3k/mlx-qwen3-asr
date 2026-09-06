@@ -205,7 +205,7 @@ class TestGenerate:
                 # greedy -> token 1
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
-            def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+            def step(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001,E501
                 self.calls.append(
                     (
                         "step",
@@ -244,7 +244,7 @@ class TestGenerate:
             def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
-            def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+            def step(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001,E501
                 return mx.array([[[0.0, 0.0, 1.0]]], dtype=mx.float32)
 
         result = generate_with_info(
@@ -267,7 +267,7 @@ class TestGenerate:
             def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
-            def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+            def step(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001,E501
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
         result = generate_with_info(
@@ -290,7 +290,7 @@ class TestGenerate:
             def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
-            def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+            def step(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001,E501
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
         result = generate_with_info(
@@ -316,7 +316,7 @@ class TestGenerate:
             def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
-            def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+            def step(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001,E501
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
         result = generate_with_info(
@@ -342,7 +342,7 @@ class TestGenerate:
             def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
-            def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+            def step(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001,E501
                 raise AssertionError("step() should not be called for max_new_tokens=1")
 
         model = _DummyModel()
@@ -421,12 +421,12 @@ class _SpecDummyModel:
         cache.offset += int(input_ids.shape[1])
         return self._logits([self.first_token])
 
-    def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+    def step(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001
         tok = int(np.array(input_ids)[0, 0])
         cache.offset += 1
         return self._logits([self.transitions[tok]])
 
-    def step_many(self, input_ids, position_ids, cache):  # noqa: ANN001
+    def step_many(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001,E501
         toks = np.array(input_ids)[0].tolist()
         cache.offset += int(len(toks))
         next_tokens = [self.transitions[int(t)] for t in toks]
@@ -445,13 +445,15 @@ class _CacheAlignedSpecModel(_SpecDummyModel):
         if pos != cache.offset:
             raise AssertionError(f"token at position {pos} fed to cache of length {cache.offset}")
 
-    def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+    def step(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001
         self._check(position_ids, cache)
-        return super().step(input_ids, position_ids, cache)
+        return super().step(input_ids, position_ids, cache, validate_input_ids=validate_input_ids)
 
-    def step_many(self, input_ids, position_ids, cache):  # noqa: ANN001
+    def step_many(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001,E501
         self._check(position_ids, cache)
-        return super().step_many(input_ids, position_ids, cache)
+        return super().step_many(
+            input_ids, position_ids, cache, validate_input_ids=validate_input_ids
+        )
 
 
 class TestGenerateSpeculative:

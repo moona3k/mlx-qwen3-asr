@@ -11,7 +11,7 @@ import mlx.core as mx
 import numpy as np
 
 from . import streaming as streaming_mod
-from .config import DEFAULT_MODEL_ID
+from .config import DEFAULT_MODEL_ID, Qwen3ASRConfig
 from .diarization import DEFAULT_DIARIZATION_DEVICE
 from .forced_aligner import ForcedAligner
 from .load_models import _resolve_path, load_model
@@ -45,6 +45,7 @@ class Session:
         tokenizer_model: Optional[str] = None,
     ) -> None:
         self.dtype = dtype
+        self.config: Optional[Qwen3ASRConfig]
 
         if isinstance(model, str):
             self.model_id = model
@@ -62,7 +63,7 @@ class Session:
                 )
             self.model_id = str(source_model_id or tok_path)
             self.model = model
-            self.config = None
+            self.config = getattr(model, "config", None)
             tok_path = str(tok_path)
 
         self.tokenizer = Tokenizer(tok_path)

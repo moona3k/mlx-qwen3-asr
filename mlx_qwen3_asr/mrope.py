@@ -74,8 +74,8 @@ class InterleavedMRoPE:
         for dim, offset in enumerate((1, 2), start=1):
             length = self.mrope_section[dim] * 3
             stop = min(length, self.half_dim)
-            indices = np.arange(offset, stop, 3, dtype=np.int32)
-            mask = np.zeros(self.half_dim, dtype=bool)
+            indices: np.ndarray = np.arange(offset, stop, 3, dtype=np.int32)
+            mask: np.ndarray = np.zeros(self.half_dim, dtype=bool)
             mask[indices] = True
             # Shape (1, 1, half_dim) for broadcast over (B, L, half_dim)
             self._overwrite_masks.append(mx.array(mask[None, None, :]))

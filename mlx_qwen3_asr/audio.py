@@ -130,7 +130,7 @@ def _sanitize_audio_array(source: np.ndarray) -> np.ndarray:
 def _normalize_integer_pcm(audio_np: np.ndarray) -> np.ndarray:
     """Convert integer PCM arrays to float32 in approximately [-1, 1]."""
     info = np.iinfo(audio_np.dtype)
-    x = audio_np.astype(np.float32)
+    x: np.ndarray = audio_np.astype(np.float32)
     if info.min >= 0:
         midpoint = (info.max + 1) / 2.0
         return (x - midpoint) / midpoint

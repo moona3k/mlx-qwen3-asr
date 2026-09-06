@@ -305,7 +305,7 @@ def _infer_quantization_params(
 
 def _load_safetensors(model_path: Path) -> dict[str, mx.array]:
     """Load all safetensors files from a directory."""
-    weights = {}
+    weights: dict[str, mx.array] = {}
     safetensor_files = sorted(model_path.glob("*.safetensors"))
 
     if not safetensor_files:
@@ -316,6 +316,7 @@ def _load_safetensors(model_path: Path) -> dict[str, mx.array]:
 
     for sf_path in safetensor_files:
         w = mx.load(str(sf_path))
+        assert isinstance(w, dict), f"{sf_path} did not load as a tensor dict"
         weights.update(w)
 
     logger.info(f"Loaded {len(weights)} weight tensors from {len(safetensor_files)} files")
