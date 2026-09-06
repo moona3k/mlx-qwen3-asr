@@ -19,15 +19,9 @@ Checks:
 - Full pytest suite.
 - Typed-core `mypy` gate on selected modules:
 
-```bash
-python -m mypy --follow-imports=skip --ignore-missing-imports \
-  mlx_qwen3_asr/config.py \
-  mlx_qwen3_asr/chunking.py \
-  mlx_qwen3_asr/attention.py \
-  mlx_qwen3_asr/encoder.py \
-  mlx_qwen3_asr/decoder.py \
-  mlx_qwen3_asr/model.py
-```
+  The module list is `MYPY_TYPED_TARGETS` in `scripts/quality_gate.py`
+  (model core, generation, audio, tokenizer, loading, writers, transcribe,
+  session). Add a module there once it passes cleanly.
 
 ### Release Gate (required before tags/releases)
 
@@ -350,3 +344,15 @@ Optional envs:
 - Prevents silent quality regressions while optimizing.
 - Keeps claims honest: parity first, speed second.
 - Creates a clear handoff path for later Swift porting.
+
+## CI workflows
+
+`.github/workflows/` is the source of truth:
+
+- `ci.yml`: ruff on every push/PR; fast gate on `macos-14` with `[dev,serve]`;
+  PyPI install smoke on pushes to `main`; optional live diarization job.
+- `nightly-regression.yml`: fast gate + LibriSpeech eval + latency benchmark.
+- `long-media-regression.yml`: weekly long-audio run on a synthetic fixture.
+- `reference-parity.yml`, `quantization-matrix.yml`, `publish-quantized.yml`:
+  manual lanes.
+- `package-analytics.yml`: weekly PyPI download stats.

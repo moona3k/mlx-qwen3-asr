@@ -318,3 +318,77 @@ at all — library + CLI only.
 - Server response mirrors `TranscriptionResult` directly — no translation layer.
 
 **Full spec:** `docs/server/` (ADR, API spec, deployment guide).
+
+## Decision 25: Materialize Init-Time MLX Buffers; Serve Inference on One Thread
+
+**Choice:** Every array built in an `__init__` and stored outside
+`parameters()` is evaluated immediately (`SinusoidalPositionEmbedding._pe`,
+`InterleavedMRoPE._inv_freq`). The HTTP server additionally constructs and runs
+the model on one dedicated `ThreadPoolExecutor` worker.
+**Alternative:** Server-only fix (load and infer on the same thread) with the
+library left as is.
+
+**Rationale:**
+- MLX >= 0.31 binds an unevaluated graph to the thread that built it and
+  refuses to evaluate it elsewhere (`There is no Stream(gpu, 1) in current
+  thread`, issue #16). `mx.eval(model.parameters())` never reaches underscore
+  attributes, so the model looked fully loaded but was not thread-portable.
+- Fixing it at construction time makes every entry point safe, including
+  `transcribe_async` and user threading. The server's single owner thread is
+  kept as defence in depth and to keep inference serialized.
+- `tests/test_model.py::TestThreadPortability` fails on MLX 0.32 without the
+  fix; the repo venv's older MLX hides it, so CI on current MLX is the guard.
+
+## Decision 26: Subtitle Cues by Display Width and Restored Punctuation
+
+**Choice:** `group_subtitle_segments` measures cue width in display cells
+(CJK counts double), applies the word cap only to space-delimited languages,
+and re-attaches the transcript's punctuation to aligner segments so sentence
+and clause boundaries can be used. Restoration happens only inside subtitle
+grouping; the `segments` payload is unchanged.
+**Alternative:** Content-sniffing the script per segment instead of using the
+language label.
+
+**Rationale:**
+- The forced aligner emits one segment per CJK character and drops all
+  punctuation, so a 10-word cap cut Chinese cues every 10 characters (issue
+  #15) and no sentence rule ever fired.
+- The transcript is fully punctuated; matching it character by character
+  (case- and whitespace-insensitive, bail out on mismatch) is deterministic and
+  cheap.
+- The language label is already resolved and canonicalized upstream; one
+  shared `tokenizer.join_text_parts` decides the delimiter everywhere so the
+  three drifting alias sets that caused this and the Korean spacing bug are
+  gone.
+
+## Decision 27: Diarization Device Defaults to `auto` with Inference-Time CPU Fallback
+
+**Choice:** `--diarize-device {auto,cpu,mps,cuda}` (PR #17, @ggshr9), default
+`auto` (MPS, then CUDA, then CPU). If the pipeline *call* fails on an
+accelerator, warn, remember the failed device for that pipeline identity, and
+retry once on CPU.
+**Alternative:** Default to `cpu` and make acceleration opt-in.
+
+**Rationale:**
+- Measured 26x faster diarization on MPS with byte-identical output; a CPU
+  default would make nearly every Mac user pay the slow path.
+- `Pipeline.to(device)` only moves tensors; MPS operator gaps raise when the
+  pipeline runs. Guarding only the move (as the PR first did) could lose the
+  transcription after ASR had finished. The retry makes `auto` safe.
+- Torch stays behind the `[diarize]` extra; `cpu` never imports it.
+
+## Decision 28: `TranscribeOptions` Is the Single Internal Contract
+
+**Choice:** `transcribe`, `transcribe_batch` and `Session.transcribe` keep
+explicitly typed signatures and build one `TranscribeOptions`; internals
+receive that object; `transcribe_async`, `transcribe_batch_async` and
+`Session.transcribe_async` forward `**kwargs`.
+**Alternative:** Keep six explicit 15-keyword signatures plus dict/dataclass
+conversion helpers.
+
+**Rationale:**
+- The six copies and two helpers that cancelled each other were ~200 lines of
+  forwarding and a standing divergence risk (PR #17 hit it twice).
+- A test enumerating `TranscribeOptions` fields against the three explicit
+  signatures replaces hand-written call-site audits.
+- Public keyword arguments are unchanged for every entry point.

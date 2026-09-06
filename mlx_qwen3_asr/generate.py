@@ -7,9 +7,10 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import mlx.core as mx
+import numpy as np
 
+from .attention import scalar_int
 from .model import Qwen3ASRModel
-from .runtime_utils import supports_kwarg
 
 # Repetition detection constants (from official repo)
 REPETITION_THRESHOLD = 20
@@ -128,7 +129,7 @@ def generate(
     input_ids: mx.array,
     audio_features: mx.array,
     position_ids: mx.array,
-    config: GenerationConfig = None,
+    config: Optional[GenerationConfig] = None,
 ) -> list[int]:
     """Generate text tokens autoregressively.
 
@@ -160,7 +161,7 @@ def generate_with_info(
     input_ids: mx.array,
     audio_features: mx.array,
     position_ids: mx.array,
-    config: GenerationConfig = None,
+    config: Optional[GenerationConfig] = None,
 ) -> GenerationResult:
     """Generate text tokens with decode termination metadata.
 
@@ -192,12 +193,6 @@ def generate_with_info(
 
     max_seq_len = int(input_ids.shape[1] + config.max_new_tokens)
     cache = model.create_cache(max_seq_len=max_seq_len)
-    unchecked_step_kw = (
-        {"validate_input_ids": False}
-        if supports_kwarg(getattr(model, "step", None), "validate_input_ids")
-        else {}
-    )
-
     # Phase 1: Prefill prompt and populate cache.
     logits = model.prefill(
         input_ids=input_ids,
@@ -233,11 +228,13 @@ def generate_with_info(
         # Reuse precomputed decode positions to avoid per-step allocation.
         next_position_ids = next_pos_3d[:, :, step - 1 : step]
 
+        # Prompt tokens were range-checked in prefill; sampled tokens are in
+        # range by construction, so skip the per-step host sync.
         logits = model.step(
             input_ids=next_ids,
             position_ids=next_position_ids,
             cache=cache,
-            **unchecked_step_kw,
+            validate_input_ids=False,
         )
         token = _sample(logits, config.temperature)
         generated.append(token)
@@ -254,7 +251,7 @@ def generate_speculative(
     audio_features: mx.array,
     draft_audio_features: mx.array,
     position_ids: mx.array,
-    config: GenerationConfig = None,
+    config: Optional[GenerationConfig] = None,
 ) -> list[int]:
     """Generate text with greedy speculative decoding.
 
@@ -280,7 +277,7 @@ def generate_speculative_with_info(
     audio_features: mx.array,
     draft_audio_features: mx.array,
     position_ids: mx.array,
-    config: GenerationConfig = None,
+    config: Optional[GenerationConfig] = None,
 ) -> GenerationResult:
     """Generate with greedy speculative decoding and finish metadata.
 
@@ -322,22 +319,6 @@ def generate_speculative_with_info(
     max_seq_len = int(input_ids.shape[1] + config.max_new_tokens)
     target_cache = model.create_cache(max_seq_len=max_seq_len)
     draft_cache = draft_model.create_cache(max_seq_len=max_seq_len)
-    unchecked_target_step_kw = (
-        {"validate_input_ids": False}
-        if supports_kwarg(getattr(model, "step", None), "validate_input_ids")
-        else {}
-    )
-    unchecked_draft_step_kw = (
-        {"validate_input_ids": False}
-        if supports_kwarg(getattr(draft_model, "step", None), "validate_input_ids")
-        else {}
-    )
-    unchecked_step_many_kw = (
-        {"validate_input_ids": False}
-        if supports_kwarg(getattr(model, "step_many", None), "validate_input_ids")
-        else {}
-    )
-
     target_logits = model.prefill(
         input_ids=input_ids,
         audio_features=audio_features,
@@ -377,7 +358,7 @@ def generate_speculative_with_info(
                 input_ids=next_ids,
                 position_ids=next_position_ids,
                 cache=target_cache,
-                **unchecked_target_step_kw,
+                validate_input_ids=False,
             )
             token = _sample(logits, config.temperature)
             generated.append(token)
@@ -398,7 +379,7 @@ def generate_speculative_with_info(
                 input_ids=d_ids,
                 position_ids=d_pos,
                 cache=draft_cache,
-                **unchecked_draft_step_kw,
+                validate_input_ids=False,
             )
             draft_input = _sample(d_logits, config.temperature)
             draft_tokens.append(draft_input)
@@ -409,18 +390,31 @@ def generate_speculative_with_info(
             input_ids=verify_ids,
             position_ids=verify_pos,
             cache=target_cache,
-            **unchecked_step_many_kw,
+            validate_input_ids=False,
         )
-        verify_pred_ids = mx.argmax(verify_logits, axis=-1)
-        verify_pred = [int(x) for x in verify_pred_ids[0].tolist()]
+        verify_pred = [int(x) for x in np.array(mx.argmax(verify_logits, axis=-1))[0]]
 
         accepted = 0
         while accepted < num_draft and verify_pred[accepted] == draft_tokens[accepted]:
             accepted += 1
 
-        # Rewind unaccepted speculative steps so both caches match accepted path.
+        # Rewind unaccepted speculative steps so both caches hold exactly the
+        # committed tokens. The target saw all num_draft + 1 verify tokens; the
+        # draft saw only its own inputs (token plus the first num_draft - 1
+        # proposals), so it sits one token behind the target for the same
+        # accepted count and must be trimmed by one less.
         target_cache.trim(num_draft - accepted)
-        draft_cache.trim(num_draft - accepted)
+        if accepted < num_draft:
+            draft_cache.trim(num_draft - accepted - 1)
+        else:
+            # Every proposal was accepted: the draft never consumed its last
+            # one. Feed it so the next round starts from an aligned cache.
+            draft_model.step(
+                input_ids=mx.array([[draft_tokens[-1]]]),
+                position_ids=next_pos_3d[:, :, step - 1 + num_draft : step + num_draft],
+                cache=draft_cache,
+                validate_input_ids=False,
+            )
 
         stop = False
         for i in range(accepted):
@@ -499,10 +493,9 @@ def _sample(logits: mx.array, temperature: float) -> int:
 
     if temperature <= 0.0:
         # Greedy
-        return mx.argmax(logits).item()
-    else:
-        # Temperature sampling — pass logits directly (categorical expects log-probs)
-        return mx.random.categorical(logits / temperature).item()
+        return scalar_int(mx.argmax(logits))
+    # Temperature sampling — pass logits directly (categorical expects log-probs)
+    return scalar_int(mx.random.categorical(logits / temperature))
 
 
 def _build_decode_positions(

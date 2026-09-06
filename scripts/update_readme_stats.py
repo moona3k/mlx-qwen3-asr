@@ -43,14 +43,11 @@ def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     readme = repo / "README.md"
 
-    src_files = sorted((repo / "mlx_qwen3_asr").glob("*.py"))
     test_files = sorted((repo / "tests").glob("*.py"))
 
-    source_lines = _count_lines(src_files)
     test_lines = _count_lines(test_files)
     test_count = _collect_test_count(repo)
 
-    source_lines_s = f"{source_lines:,}"
     test_lines_s = f"{test_lines:,}"
     test_count_s = f"{test_count:,}"
 
@@ -70,11 +67,6 @@ def main() -> int:
         text,
     )
     text = _apply(
-        r"mlx_qwen3_asr/\s+# [\d,]+ lines of source",
-        f"mlx_qwen3_asr/           # {source_lines_s} lines of source",
-        text,
-    )
-    text = _apply(
         r"tests/\s+# [\d,]+ lines, \d+ tests",
         f"tests/                    # {test_lines_s} lines, {test_count_s} tests",
         text,
@@ -86,10 +78,7 @@ def main() -> int:
     )
 
     readme.write_text(text, encoding="utf-8")
-    print(
-        f"Updated README stats: tests={test_count_s}, "
-        f"source_lines={source_lines_s}, test_lines={test_lines_s}"
-    )
+    print(f"Updated README stats: tests={test_count_s}, test_lines={test_lines_s}")
     return 0
 
 

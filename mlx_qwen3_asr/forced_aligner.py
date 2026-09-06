@@ -179,13 +179,6 @@ class ForcedAlignTextProcessor:
             return cls._tokenize_korean(text)
         return cls.tokenize_space_lang(text)
 
-    @classmethod
-    def encode_timestamp_prompt(cls, text: str, language: str) -> tuple[list[str], str]:
-        words = cls.tokenize_text(text, language)
-        input_text = "<timestamp><timestamp>".join(words) + "<timestamp><timestamp>"
-        input_text = "<|audio_start|><|audio_pad|><|audio_end|>" + input_text
-        return words, input_text
-
     @staticmethod
     def _lis_non_decreasing_indices(arr: list[float]) -> list[int]:
         """Return indices of one longest non-decreasing subsequence.

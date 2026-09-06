@@ -19,7 +19,7 @@ This project rewrites every layer for MLX so the same model runs natively on M1/
 - **Full encoder-decoder pipeline** — audio encoder (Conv2d stem + windowed transformer) and text decoder (Qwen3-style with interleaved MRoPE), reimplemented from scratch for MLX
 - **Whisper-compatible mel frontend** — native log-mel spectrogram computation with cached filterbank and Hann window
 - **Both model sizes** — 0.6B (fast, default) and 1.7B (higher accuracy)
-- **Long audio support** — energy-based chunking up to 20 minutes per chunk, no 30-second feature truncation
+- **Long audio support** — hours-long input split at low-energy points into 30-second chunks; no 30-second feature truncation, memory released between chunks
 - **Word-level timestamps** — native MLX forced aligner (default, 2.6x faster than PyTorch alternative) with O(n log n) LIS-based timestamp correction
 - **Speaker diarization (optional)** — offline speaker-labeled outputs via `pyannote` integration (`--diarize`)
 - **4-bit and 8-bit quantization** — up to 4.7x speedup with measured quality reporting on 100 speaker-balanced samples
@@ -29,7 +29,7 @@ This project rewrites every layer for MLX so the same model runs natively on M1/
 - **Speculative decoding** — experimental opt-in path (0.6B drafts for 1.7B target), parity-verified
 - **Streaming** — KV-cache streaming with linear complexity, context trimming, and tail refinement
 - **Native WAV fast-path** — custom binary WAV parser bypasses ffmpeg for PCM/float WAV files
-- **462 tests** — every optimization is benchmark-gated with committed JSON artifacts
+- **664 tests** — every optimization is benchmark-gated with committed JSON artifacts
 - **Minimal dependencies** — mlx, numpy, regex, huggingface-hub
 
 ## Requirements
@@ -441,6 +441,11 @@ Current status:
 - `PYANNOTE_MODEL_ID` can point to another pyannote pipeline or a local
   offline clone.
 - `--diarize` auto-enables timestamps and is not supported in `--streaming`/`--mic` mode.
+- `--diarize-device {auto,cpu,mps,cuda}` (Python: `diarization_device`) selects
+  where the pyannote pipeline runs. The default `auto` prefers MPS, then CUDA,
+  then CPU; on an M-series Mac this cuts the diarization stage from minutes to
+  seconds with identical output. If the accelerator cannot run the pipeline,
+  the run warns and falls back to CPU.
 - Migration note (2026-02-15): legacy diarization `window/hop` controls were
   removed (`diarization_window_sec`, `diarization_hop_sec`,
   `--diarization-window-sec`, `--diarization-hop-sec`). Speaker-count controls
@@ -643,7 +648,7 @@ Optional microphone flags: `--mic-device`, `--mic-duration-sec`, `--mic-sample-r
 
 ## API reference
 
-### `transcribe(audio, *, model, draft_model, context, language, return_timestamps, diarize, diarization_num_speakers, diarization_min_speakers, diarization_max_speakers, return_chunks, forced_aligner, dtype, max_new_tokens, num_draft_tokens, verbose, on_progress)`
+### `transcribe(audio, *, model, draft_model, context, language, return_timestamps, diarize, diarization_num_speakers, diarization_min_speakers, diarization_max_speakers, diarization_device, return_chunks, forced_aligner, dtype, max_new_tokens, num_draft_tokens, verbose, on_progress)`
 
 Transcribe audio to text. Accepts a file path, numpy array, `mx.array`, or `(array, sample_rate)` tuple. Returns a `TranscriptionResult`.
 
@@ -699,7 +704,7 @@ Frozen dataclass:
 This project enforces parity with the official PyTorch implementation. No optimization lands without passing quality gates and committing benchmark artifacts.
 
 ```bash
-# Unit tests (462 tests)
+# Unit tests (664 tests)
 pytest -q
 
 # Fast quality gate
@@ -758,31 +763,29 @@ Key architectural details:
 ## Project structure
 
 ```
-mlx_qwen3_asr/           # 7,602 lines of source
-├── transcribe.py         # High-level pipeline + batch/async + diarization (739 lines)
-├── cli.py                # CLI entry point and UX guardrails (664 lines)
-├── streaming.py          # KV-cache streaming + context trimming (624 lines)
-├── tokenizer.py          # Native BPE tokenizer + output parsing (607 lines)
-├── diarization.py        # Optional pyannote integration + attribution helpers
-├── audio.py              # Mel spectrogram + audio I/O (526 lines)
-├── encoder.py            # Audio encoder (512 lines)
-├── decoder.py            # Text decoder + KV cache (464 lines)
-├── forced_aligner.py     # Forced alignment + LIS correction (439 lines)
-├── model.py              # Top-level model + audio-text fusion (372 lines)
-├── generate.py           # Autoregressive + speculative decode (350 lines)
-├── load_models.py        # Model loading + caching (256 lines)
-├── config.py             # Dataclass configs (228 lines)
-├── server.py             # HTTP server + OpenAI compat (697 lines)
-├── session.py            # Session API (224 lines)
-├── writers.py            # Output format writers (221 lines)
-├── mrope.py              # Interleaved MRoPE (167 lines)
-├── chunking.py           # Long audio splitting (104 lines)
-├── attention.py          # Attention utilities (67 lines)
-├── convert.py            # Weight remapping (67 lines)
-├── eval_metrics.py       # WER/CER/BERTScore helpers (65 lines)
-└── cache_utils.py        # KV cache utilities (57 lines)
+mlx_qwen3_asr/
+├── transcribe.py         # Public pipeline: transcribe, batch, async, diarization glue
+├── session.py            # Session API: explicit model/tokenizer ownership
+├── streaming.py          # KV-cache streaming with context trimming
+├── cli.py                # CLI (transcribe, serve, --mic, --doctor)
+├── server.py             # HTTP server + OpenAI-compatible endpoint
+├── audio.py              # Audio I/O, WAV fast path, mel spectrogram
+├── chunking.py           # Energy-based long-audio splitting
+├── encoder.py            # Audio encoder (Conv2d stem + windowed transformer)
+├── decoder.py            # Text decoder (GQA, SwiGLU, KV cache)
+├── mrope.py              # Interleaved MRoPE
+├── attention.py          # Shared SDPA helper
+├── model.py              # Qwen3ASRModel: audio-text fusion, prefill/step
+├── generate.py           # Greedy + speculative decoding
+├── forced_aligner.py     # Native MLX forced aligner + LIS correction
+├── diarization.py        # Optional pyannote integration
+├── tokenizer.py          # Native BPE tokenizer, language aliases, output parsing
+├── load_models.py        # HF download, weight loading, model cache
+├── convert.py            # Weight key remapping + Conv2d transpose
+├── writers.py            # txt/json/srt/vtt/tsv writers, subtitle cue grouping
+└── config.py             # Dataclass configs
 
-tests/                    # 7,391 lines, 462 tests
+tests/                    # 11,144 lines, 664 tests
 scripts/                  # Benchmarks, evaluation, conversion, publishing
 docs/                     # Architecture, decisions, benchmarks, roadmap
 docs/benchmarks/          # 160+ committed artifacts for reproducibility
@@ -794,7 +797,7 @@ docs/benchmarks/          # 160+ committed artifacts for reproducibility
 git clone https://github.com/moona3k/mlx-qwen3-asr.git
 cd mlx-qwen3-asr
 pip install -e ".[dev]"
-pytest -q                 # 462 tests
+pytest -q                 # 664 tests
 ```
 
 ## Acknowledgments
@@ -802,6 +805,7 @@ pytest -q                 # 462 tests
 - [Qwen team](https://github.com/QwenLM) at Alibaba for the Qwen3-ASR model
 - [Apple MLX team](https://github.com/ml-explore/mlx) for the MLX framework
 - [mlx-whisper](https://github.com/ml-explore/mlx-examples) for architecture patterns and inspiration
+- Contributors: [@ggshr9](https://github.com/ggshr9) (GPU diarization, `--diarize-device`), [@Tadanobu0](https://github.com/Tadanobu0) (server inference-thread fix), [@cms42](https://github.com/cms42) (GPU memory release between chunks)
 
 ## License
 

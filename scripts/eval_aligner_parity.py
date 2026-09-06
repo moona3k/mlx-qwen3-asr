@@ -289,15 +289,16 @@ def main() -> int:
         )
         return 2
 
-    if args.fail_timing_mae_ms_above is not None:
-        if all_mae is None or all_mae > args.fail_timing_mae_ms_above:
-            shown = "None" if all_mae is None else f"{all_mae:.6f}"
-            print(
-                "Aligner parity timing gate failed: "
-                f"mae_ms={shown} > threshold={args.fail_timing_mae_ms_above:.6f}",
-                file=sys.stderr,
-            )
-            return 3
+    if args.fail_timing_mae_ms_above is not None and (
+        all_mae is None or all_mae > args.fail_timing_mae_ms_above
+    ):
+        shown = "None" if all_mae is None else f"{all_mae:.6f}"
+        print(
+            "Aligner parity timing gate failed: "
+            f"mae_ms={shown} > threshold={args.fail_timing_mae_ms_above:.6f}",
+            file=sys.stderr,
+        )
+        return 3
 
     return 0
 

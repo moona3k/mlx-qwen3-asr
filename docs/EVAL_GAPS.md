@@ -61,7 +61,7 @@ make broad "production-grade across languages/conditions" quality claims.
   - Strict release gate now includes a bounded streaming-quality check on
     fixture audio for `fixed` and `energy` endpointing modes.
 - Release quality gate (all green):
-  - ruff check, typed-core mypy, full pytest (441 tests), reference parity,
+  - ruff check, typed-core mypy, full pytest, reference parity,
     LibriSpeech eval, manifest quality eval, benchmark ASR.
   - RTF=0.1526, latency_mean=0.3865s.
 

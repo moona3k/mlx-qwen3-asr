@@ -492,6 +492,37 @@ def test_transcribe_uses_resolved_model_path_for_tokenizer(monkeypatch):
     assert token_paths == ["/tmp/qwen3-resolved-model"]
 
 
+def test_transcribe_uses_preloaded_model_origin_for_tokenizer(monkeypatch):
+    """A pre-loaded model must not fall back to the default 0.6B tokenizer files."""
+    tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
+    token_paths = []
+
+    class _RecordingTokenizerHolder:
+        @staticmethod
+        def get(model_path: str):
+            token_paths.append(model_path)
+            return _DummyTokenizer(model_path)
+
+    monkeypatch.setattr(tmod, "_TokenizerHolder", _RecordingTokenizerHolder)
+    monkeypatch.setattr(
+        tmod,
+        "compute_features",
+        lambda audio: (mx.zeros((1, 128, 100), dtype=mx.float32), mx.array([100], dtype=mx.int32)),
+    )
+    monkeypatch.setattr(tmod, "generate", lambda **kwargs: [10, 11, 12])
+
+    model = _DummyModel()
+    model._source_model_id = "Qwen/Qwen3-ASR-1.7B"
+    model._resolved_model_path = "/models/qwen3-asr-1.7b"
+    _ = transcribe(np.zeros(3200, dtype=np.float32), model=model)
+    assert token_paths == ["/models/qwen3-asr-1.7b"]
+
+    del model._resolved_model_path
+    token_paths.clear()
+    _ = transcribe(np.zeros(3200, dtype=np.float32), model=model)
+    assert token_paths == ["Qwen/Qwen3-ASR-1.7B"]
+
+
 def test_transcribe_canonicalizes_forced_language(monkeypatch):
     tmod = importlib.import_module("mlx_qwen3_asr.transcribe")
     tokenizer = _RecordingLanguageTokenizer("repo/a")
@@ -949,3 +980,42 @@ def test_transcribe_async_wrapper(monkeypatch):
 
     result = asyncio.run(transcribe_async(np.zeros(3200, dtype=np.float32)))
     assert result.text == "hello world"
+
+
+def test_every_public_entry_point_exposes_all_transcribe_options():
+    """Every `TranscribeOptions` field must be a parameter of each explicit entry
+    point, and the async wrappers must forward arbitrary keyword arguments.
+
+    A wrapper missing a parameter does not raise; it silently drops the option
+    and the caller gets the default. `dtype` is deliberately absent from the
+    Session methods: the session owns the model and its dtype.
+    """
+    import dataclasses
+    import inspect
+
+    from mlx_qwen3_asr.session import Session
+    from mlx_qwen3_asr.transcribe import (
+        TranscribeOptions,
+        transcribe,
+        transcribe_async,
+        transcribe_batch,
+        transcribe_batch_async,
+    )
+
+    fields = {f.name for f in dataclasses.fields(TranscribeOptions)}
+    for func, expected in [
+        (transcribe, fields),
+        (transcribe_batch, fields),
+        (Session.transcribe, fields - {"dtype"}),
+    ]:
+        params = inspect.signature(func).parameters
+        missing = expected - set(params)
+        assert not missing, f"{func.__qualname__} does not expose {sorted(missing)}"
+        inspect.signature(func).bind(
+            *(("dummy.wav",) if func is not Session.transcribe else (None, "dummy.wav")),
+            **{name: getattr(TranscribeOptions(), name) for name in expected},
+        )
+
+    for func in (transcribe_async, transcribe_batch_async, Session.transcribe_async):
+        kinds = {p.kind for p in inspect.signature(func).parameters.values()}
+        assert inspect.Parameter.VAR_KEYWORD in kinds, f"{func.__qualname__} must forward **kwargs"

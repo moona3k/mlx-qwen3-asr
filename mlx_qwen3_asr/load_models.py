@@ -138,11 +138,18 @@ def _load_model_with_resolved_path(
         params = _cast_tree_dtype(model.parameters(), dtype)
         model.load_weights(list(mlx_utils.tree_flatten(params)))
 
+    # load_weights and the cast above assign lm_head and embed_tokens separately,
+    # which silently unties them and keeps two copies of the (vocab, hidden)
+    # matrix resident (~311 MB for the 0.6B model in float16). Re-tie when the
+    # checkpoint declares tied embeddings and the head was not quantized apart.
+    if _model_uses_tied_lm_head(config) and "lm_head.scales" not in weights:
+        model.lm_head.weight = model.model.embed_tokens.weight
+
     mx.eval(model.parameters())
     model.eval()
     # Attach model origin metadata for downstream tokenizer/session inference.
-    setattr(model, "_source_model_id", path_or_hf_repo)
-    setattr(model, "_resolved_model_path", str(model_path))
+    model._source_model_id = path_or_hf_repo
+    model._resolved_model_path = str(model_path)
 
     if quantized:
         logger.info(f"Loaded quantized model from {model_path}")
@@ -298,7 +305,7 @@ def _infer_quantization_params(
 
 def _load_safetensors(model_path: Path) -> dict[str, mx.array]:
     """Load all safetensors files from a directory."""
-    weights = {}
+    weights: dict[str, mx.array] = {}
     safetensor_files = sorted(model_path.glob("*.safetensors"))
 
     if not safetensor_files:
@@ -309,6 +316,7 @@ def _load_safetensors(model_path: Path) -> dict[str, mx.array]:
 
     for sf_path in safetensor_files:
         w = mx.load(str(sf_path))
+        assert isinstance(w, dict), f"{sf_path} did not load as a tensor dict"
         weights.update(w)
 
     logger.info(f"Loaded {len(weights)} weight tensors from {len(safetensor_files)} files")

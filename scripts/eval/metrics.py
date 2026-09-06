@@ -41,7 +41,7 @@ def compute_wer(reference_texts: Sequence[str], hypothesis_texts: Sequence[str])
     """Compute corpus-level word error rate."""
     total_words = 0
     total_errors = 0
-    for reference, hypothesis in zip(reference_texts, hypothesis_texts):
+    for reference, hypothesis in zip(reference_texts, hypothesis_texts, strict=True):
         ref_tokens = normalize_text(reference).split()
         hyp_tokens = normalize_text(hypothesis).split()
         total_words += len(ref_tokens)
@@ -53,7 +53,7 @@ def compute_cer(reference_texts: Sequence[str], hypothesis_texts: Sequence[str])
     """Compute corpus-level character error rate."""
     total_chars = 0
     total_errors = 0
-    for reference, hypothesis in zip(reference_texts, hypothesis_texts):
+    for reference, hypothesis in zip(reference_texts, hypothesis_texts, strict=True):
         ref_chars = list(normalize_text(reference).replace(" ", ""))
         hyp_chars = list(normalize_text(hypothesis).replace(" ", ""))
         total_chars += len(ref_chars)

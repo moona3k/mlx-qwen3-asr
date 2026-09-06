@@ -290,7 +290,7 @@ def compute_sample_diarization_metrics(
         ref_active_count += rmask.astype(np.int32)
     for hmask in hyp_masks:
         hyp_active_count += hmask.astype(np.int32)
-    for speaker, rmask in zip(ref_speakers, ref_masks):
+    for speaker, rmask in zip(ref_speakers, ref_masks, strict=True):
         hmask = mapped_hyp_masks.get(speaker)
         if hmask is None:
             continue

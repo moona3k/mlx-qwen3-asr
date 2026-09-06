@@ -33,7 +33,7 @@ aligner = ["nagisa", "soynlp"]
 diarize = ["pyannote.audio>=4.0.4,<5"]
 mic = ["sounddevice>=0.4.6"]
 serve = ["fastapi>=0.100.0", "uvicorn>=0.20.0", "python-multipart>=0.0.5"]
-dev = ["pytest", "ruff", "mypy"]
+dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "mypy"]
 eval = ["soundfile>=0.12.1", "pyarrow>=18.0.0"]
 
 [project.scripts]
@@ -56,7 +56,12 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = ["E", "F", "I", "W", "B", "SIM"]
+# SIM108: nested ternaries read worse than if/else; SIM905: str.split literals are fine.
+ignore = ["SIM108", "SIM905"]
+
+[tool.ruff.lint.per-file-ignores]
+"mlx_qwen3_asr/server.py" = ["B008"]  # FastAPI File()/Form() defaults are the framework idiom
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -29,7 +29,15 @@ def test_session_loads_model_and_tokenizer_from_resolved_path(monkeypatch):
     assert created["tokenizer_path"] == "/tmp/resolved-model"
 
 
-def test_session_transcribe_passes_explicit_components(monkeypatch):
+def _stub_session(monkeypatch, calls, *, dtype=mx.float32, draft="DRAFT"):
+    """Session with every heavy dependency replaced.
+
+    ``calls`` receives the kwargs passed to ``_transcribe_loaded_components``
+    plus every ``TranscribeOptions`` field flattened in, so tests can assert on
+    either the seam or the option values.
+    """
+    import dataclasses
+
     class _DummyTokenizer:
         def __init__(self, path):  # noqa: ANN001
             self.path = path
@@ -37,22 +45,33 @@ def test_session_transcribe_passes_explicit_components(monkeypatch):
     class _DummyModel:
         pass
 
-    calls = {}
-
     monkeypatch.setattr(sessmod, "Tokenizer", _DummyTokenizer)
     monkeypatch.setattr(sessmod, "load_model", lambda model, dtype: (_DummyModel(), object()))
     monkeypatch.setattr(sessmod, "_resolve_path", lambda model: "/tmp/resolved-model")
     monkeypatch.setattr(sessmod, "_to_audio_np", lambda audio: np.zeros(160, dtype=np.float32))
-    monkeypatch.setattr(sessmod, "_resolve_aligner", lambda rt, fa: "ALIGNER")
-    monkeypatch.setattr(sessmod, "_resolve_draft_model", lambda **kwargs: None)
+    monkeypatch.setattr(sessmod, "_resolve_draft_model", lambda **kwargs: draft)
 
-    def fake_transcribe_loaded_components(**kwargs):  # noqa: ANN003
+    real_resolve = sessmod._resolve_runtime_options
+
+    def spy_resolve(options):  # noqa: ANN001
+        _, diarization_config = real_resolve(options)
+        return "ALIGNER", diarization_config
+
+    monkeypatch.setattr(sessmod, "_resolve_runtime_options", spy_resolve)
+
+    def fake_loaded(**kwargs):  # noqa: ANN003
         calls.update(kwargs)
+        options = kwargs["options"]
+        calls.update({f.name: getattr(options, f.name) for f in dataclasses.fields(options)})
         return TranscriptionResult(text="ok", language="English")
 
-    monkeypatch.setattr(sessmod, "_transcribe_loaded_components", fake_transcribe_loaded_components)
+    monkeypatch.setattr(sessmod, "_transcribe_loaded_components", fake_loaded)
+    return sessmod.Session("repo/a", dtype=dtype)
 
-    session = sessmod.Session("repo/a", dtype=mx.float32)
+
+def test_session_transcribe_passes_explicit_components(monkeypatch):
+    calls: dict = {}
+    session = _stub_session(monkeypatch, calls, draft=None)
     out = session.transcribe(
         np.zeros(160, dtype=np.float32),
         language="English",
@@ -69,74 +88,25 @@ def test_session_transcribe_passes_explicit_components(monkeypatch):
     assert calls["max_new_tokens"] == 77
     assert calls["num_draft_tokens"] == 4
     assert calls["verbose"] is True
+    assert calls["draft_model_obj"] is None
 
 
 def test_session_transcribe_forwards_diarization_config(monkeypatch):
-    class _DummyTokenizer:
-        def __init__(self, path):  # noqa: ANN001
-            self.path = path
-
-    class _DummyModel:
-        pass
-
-    calls = {}
-
-    monkeypatch.setattr(sessmod, "Tokenizer", _DummyTokenizer)
-    monkeypatch.setattr(sessmod, "load_model", lambda model, dtype: (_DummyModel(), object()))
-    monkeypatch.setattr(sessmod, "_resolve_path", lambda model: "/tmp/resolved-model")
-    monkeypatch.setattr(sessmod, "_to_audio_np", lambda audio: np.zeros(160, dtype=np.float32))
-    monkeypatch.setattr(sessmod, "_resolve_aligner", lambda rt, fa: "ALIGNER")
-    monkeypatch.setattr(sessmod, "_resolve_draft_model", lambda **kwargs: None)
-
-    def _fake_diarization_config(**kwargs):  # noqa: ANN003
-        return {"enabled": kwargs["diarize"]}
-
-    def fake_transcribe_loaded_components(**kwargs):  # noqa: ANN003
-        calls.update(kwargs)
-        return TranscriptionResult(text="ok", language="English")
-
-    monkeypatch.setattr(sessmod, "_resolve_diarization_config", _fake_diarization_config)
-    monkeypatch.setattr(sessmod, "_transcribe_loaded_components", fake_transcribe_loaded_components)
-
-    session = sessmod.Session("repo/a", dtype=mx.float32)
+    calls: dict = {}
+    session = _stub_session(monkeypatch, calls)
     out = session.transcribe(
-        np.zeros(160, dtype=np.float32),
-        diarize=True,
-        diarization_num_speakers=2,
+        np.zeros(160, dtype=np.float32), diarize=True, diarization_num_speakers=2
     )
 
     assert out.text == "ok"
-    assert calls["diarization_config"] == {"enabled": True}
+    assert calls["diarization_config"].num_speakers == 2
 
 
 def test_session_transcribe_supports_draft_model(monkeypatch):
-    class _DummyTokenizer:
-        def __init__(self, path):  # noqa: ANN001
-            self.path = path
-
-    class _DummyModel:
-        pass
-
-    calls = {}
-
-    monkeypatch.setattr(sessmod, "Tokenizer", _DummyTokenizer)
-    monkeypatch.setattr(sessmod, "load_model", lambda model, dtype: (_DummyModel(), object()))
-    monkeypatch.setattr(sessmod, "_resolve_path", lambda model: "/tmp/resolved-model")
-    monkeypatch.setattr(sessmod, "_to_audio_np", lambda audio: np.zeros(160, dtype=np.float32))
-    monkeypatch.setattr(sessmod, "_resolve_aligner", lambda rt, fa: None)
-    monkeypatch.setattr(sessmod, "_resolve_draft_model", lambda **kwargs: "DRAFT")
-
-    def fake_transcribe_loaded_components(**kwargs):  # noqa: ANN003
-        calls.update(kwargs)
-        return TranscriptionResult(text="ok", language="English")
-
-    monkeypatch.setattr(sessmod, "_transcribe_loaded_components", fake_transcribe_loaded_components)
-
-    session = sessmod.Session("repo/a", dtype=mx.float16)
+    calls: dict = {}
+    session = _stub_session(monkeypatch, calls, dtype=mx.float16)
     out = session.transcribe(
-        np.zeros(160, dtype=np.float32),
-        draft_model="repo/draft",
-        num_draft_tokens=7,
+        np.zeros(160, dtype=np.float32), draft_model="repo/draft", num_draft_tokens=7
     )
 
     assert out.text == "ok"
@@ -145,33 +115,9 @@ def test_session_transcribe_supports_draft_model(monkeypatch):
 
 
 def test_session_transcribe_forwards_context(monkeypatch):
-    class _DummyTokenizer:
-        def __init__(self, path):  # noqa: ANN001
-            self.path = path
-
-    class _DummyModel:
-        pass
-
-    calls = {}
-
-    monkeypatch.setattr(sessmod, "Tokenizer", _DummyTokenizer)
-    monkeypatch.setattr(sessmod, "load_model", lambda model, dtype: (_DummyModel(), object()))
-    monkeypatch.setattr(sessmod, "_resolve_path", lambda model: "/tmp/resolved-model")
-    monkeypatch.setattr(sessmod, "_to_audio_np", lambda audio: np.zeros(160, dtype=np.float32))
-    monkeypatch.setattr(sessmod, "_resolve_aligner", lambda rt, fa: None)
-    monkeypatch.setattr(sessmod, "_resolve_draft_model", lambda **kwargs: None)
-
-    def fake_transcribe_loaded_components(**kwargs):  # noqa: ANN003
-        calls.update(kwargs)
-        return TranscriptionResult(text="ok", language="English")
-
-    monkeypatch.setattr(sessmod, "_transcribe_loaded_components", fake_transcribe_loaded_components)
-
-    session = sessmod.Session("repo/a", dtype=mx.float16)
-    out = session.transcribe(
-        np.zeros(160, dtype=np.float32),
-        context="交易 停滞",
-    )
+    calls: dict = {}
+    session = _stub_session(monkeypatch, calls, dtype=mx.float16)
+    out = session.transcribe(np.zeros(160, dtype=np.float32), context="交易 停滞")
 
     assert out.text == "ok"
     assert calls["context"] == "交易 停滞"
@@ -356,3 +302,61 @@ def test_session_transcribe_async_wrapper(monkeypatch):
 
     out = asyncio.run(session.transcribe_async(np.zeros(10, dtype=np.float32)))
     assert out.text == "ok-async"
+
+
+def test_session_transcribe_async_runs_on_the_given_executor(monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    class _DummyTokenizer:
+        def __init__(self, path):  # noqa: ANN001
+            self.path = path
+
+    monkeypatch.setattr(sessmod, "Tokenizer", _DummyTokenizer)
+    monkeypatch.setattr(sessmod, "load_model", lambda model, dtype: (object(), object()))
+    monkeypatch.setattr(sessmod, "_resolve_path", lambda model: "/tmp/resolved-model")
+    session = sessmod.Session("repo/a", dtype=mx.float16)
+    seen: list[str] = []
+
+    def _record(*a, **k):
+        seen.append(threading.current_thread().name)
+        return sessmod.TranscriptionResult(text="ok", language="English")
+
+    monkeypatch.setattr(session, "transcribe", _record)
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="owner") as pool:
+        asyncio.run(session.transcribe_async(np.zeros(10, dtype=np.float32), executor=pool))
+    assert seen and seen[0].startswith("owner")
+
+
+def test_session_transcribe_forwards_the_requested_diarization_device(monkeypatch):
+    """Accepting the option is not the same as honouring it.
+
+    `Session.transcribe` built the options with the device but then called
+    `_resolve_diarization_config` without it, so an explicit device was silently
+    replaced by `auto` - the caller got the accelerator they asked not to use.
+    """
+    calls: dict = {}
+    session = _stub_session(monkeypatch, calls)
+
+    session.transcribe(
+        np.zeros(160, dtype=np.float32),
+        diarize=True,
+        diarization_device="cpu",
+    )
+
+    assert calls["diarization_device"] == "cpu"
+
+
+def test_session_transcribe_async_forwards_the_requested_diarization_device(monkeypatch):
+    calls: dict = {}
+    session = _stub_session(monkeypatch, calls)
+
+    asyncio.run(
+        session.transcribe_async(
+            np.zeros(160, dtype=np.float32),
+            diarize=True,
+            diarization_device="cpu",
+        )
+    )
+
+    assert calls["diarization_device"] == "cpu"

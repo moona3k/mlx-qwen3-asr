@@ -9,7 +9,7 @@ import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
-from .attention import _scaled_dot_product_attention
+from .attention import _scaled_dot_product_attention, scalar_int
 from .config import AudioEncoderConfig
 
 # Use segmented per-window execution only once we have enough windows that
@@ -56,6 +56,11 @@ class SinusoidalPositionEmbedding(nn.Module):
         # If embedding_dim is odd, trim the last column
         if embedding_dim % 2 == 1:
             pe = pe[:, :embedding_dim]
+        # Materialize now. ``_pe`` is not a parameter, so ``mx.eval(model.parameters())``
+        # never reaches it, and an unevaluated graph is bound to the stream of the
+        # thread that built it: MLX >= 0.31 refuses to evaluate it from another
+        # thread ("There is no Stream(gpu, 1) in current thread").
+        mx.eval(pe)
         self._pe = pe
         self.freeze()
 
@@ -309,7 +314,7 @@ class AudioEncoder(nn.Module):
         all_output_lens = []
 
         for b in range(B):
-            feat_len = int(feature_lens[b].item())
+            feat_len = scalar_int(feature_lens[b])
             mel = input_features[b, :, :feat_len]  # (128, actual_frames)
             features = self._encode_single(mel, chunk_size, n_window_infer)
             all_features.append(features)
@@ -409,7 +414,10 @@ class AudioEncoder(nn.Module):
         for ct in chunk_token_lens:
             pe_parts.append(pe[:ct])
         pe_full = mx.concatenate(pe_parts, axis=0)  # (total_tokens, d_model)
-        x = x + pe_full
+        # The PE table is float32 and outside parameters(), so load_model's dtype
+        # cast never touches it. Adding it unconverted would promote every later
+        # encoder (and decoder) activation to float32, tripling latency.
+        x = x + pe_full.astype(x.dtype)
 
         # --- Windowed attention ---
         total_tokens = x.shape[0]
@@ -519,7 +527,7 @@ def _apply_windowed_encoder_layers(
 
     for layer in layers:
         parts: list[mx.array] = []
-        for s, e in zip(cu_seqlens[:-1], cu_seqlens[1:]):
+        for s, e in zip(cu_seqlens[:-1], cu_seqlens[1:], strict=True):
             parts.append(layer(x[:, s:e, :], mask=None))
         x = mx.concatenate(parts, axis=1)
     return x

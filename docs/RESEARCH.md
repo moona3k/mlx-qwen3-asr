@@ -3,7 +3,7 @@
 Verified notes for this repo, based on official artifacts as of **2026-02-14**.
 
 Latest academic best-practice cross-check:
-- `docs/ACADEMIC_BEST_PRACTICES_2026-02-15.md`
+- `docs/archive/ACADEMIC_BEST_PRACTICES_2026-02-15.md` (archived)
 
 ## Primary Sources
 
@@ -304,7 +304,7 @@ Observed:
   max-abs output diff on the order of `1e-6`.
 
 See also:
-- `docs/ALGORITHMIC_MAXXING_2026-02-14.md` for paper-backed next-step algorithm candidates.
+- `docs/archive/ALGORITHMIC_MAXXING_2026-02-14.md` (archived) for paper-backed next-step algorithm candidates.
 
 ## Algorithmic Literature Refresh (2026-02-14)
 

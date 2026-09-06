@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, Union
 
 import mlx.core as mx
 import numpy as np
 
 from . import streaming as streaming_mod
-from .config import DEFAULT_MODEL_ID
+from .config import DEFAULT_MODEL_ID, Qwen3ASRConfig
+from .diarization import DEFAULT_DIARIZATION_DEVICE
 from .forced_aligner import ForcedAligner
 from .load_models import _resolve_path, load_model
 from .model import Qwen3ASRModel
@@ -17,14 +20,12 @@ from .tokenizer import Tokenizer
 from .transcribe import (
     AudioInput,
     ProgressCallback,
+    TranscribeOptions,
     TranscriptionResult,
-    _build_transcribe_options,
-    _resolve_aligner,
-    _resolve_diarization_config,
     _resolve_draft_model,
+    _resolve_runtime_options,
     _to_audio_np,
     _transcribe_loaded_components,
-    _transcribe_options_to_kwargs,
 )
 
 
@@ -42,6 +43,7 @@ class Session:
         tokenizer_model: Optional[str] = None,
     ) -> None:
         self.dtype = dtype
+        self.config: Optional[Qwen3ASRConfig]
 
         if isinstance(model, str):
             self.model_id = model
@@ -59,7 +61,7 @@ class Session:
                 )
             self.model_id = str(source_model_id or tok_path)
             self.model = model
-            self.config = None
+            self.config = getattr(model, "config", None)
             tok_path = str(tok_path)
 
         self.tokenizer = Tokenizer(tok_path)
@@ -76,6 +78,7 @@ class Session:
         diarization_num_speakers: Optional[int] = None,
         diarization_min_speakers: int = 1,
         diarization_max_speakers: int = 8,
+        diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
         return_chunks: bool = False,
         forced_aligner: Optional[Union[str, ForcedAligner]] = None,
         max_new_tokens: Optional[int] = None,
@@ -84,14 +87,15 @@ class Session:
         on_progress: Optional[ProgressCallback] = None,
     ) -> TranscriptionResult:
         """Transcribe audio using this session's loaded model/tokenizer."""
-        options = _build_transcribe_options(
-            context=context,
+        options = TranscribeOptions(
+            context=context or "",
             language=language,
             return_timestamps=return_timestamps,
             diarize=diarize,
             diarization_num_speakers=diarization_num_speakers,
             diarization_min_speakers=diarization_min_speakers,
             diarization_max_speakers=diarization_max_speakers,
+            diarization_device=diarization_device,
             return_chunks=return_chunks,
             forced_aligner=forced_aligner,
             dtype=self.dtype,
@@ -100,82 +104,49 @@ class Session:
             verbose=verbose,
             on_progress=on_progress,
         )
-        diarization_config = _resolve_diarization_config(
-            diarize=options.diarize,
-            diarization_num_speakers=options.diarization_num_speakers,
-            diarization_min_speakers=options.diarization_min_speakers,
-            diarization_max_speakers=options.diarization_max_speakers,
-        )
-        effective_return_timestamps = bool(
-            options.return_timestamps or diarization_config is not None
-        )
-        aligner = _resolve_aligner(effective_return_timestamps, options.forced_aligner)
+        aligner, diarization_config = _resolve_runtime_options(options)
         draft_model_obj = _resolve_draft_model(
             draft_model=draft_model,
             dtype=self.dtype,
             target_model=self.model,
         )
-        audio_np = _to_audio_np(audio)
         return _transcribe_loaded_components(
-            audio_np=audio_np,
+            audio_np=_to_audio_np(audio),
             model_obj=self.model,
             tokenizer=self.tokenizer,
-            dtype=self.dtype,
             draft_model_obj=draft_model_obj,
-            context=options.context,
-            language=options.language,
+            options=options,
             aligner=aligner,
-            return_timestamps=options.return_timestamps,
             diarization_config=diarization_config,
-            return_chunks=options.return_chunks,
-            max_new_tokens=options.max_new_tokens,
-            num_draft_tokens=options.num_draft_tokens,
-            verbose=options.verbose,
-            on_progress=options.on_progress,
         )
 
     async def transcribe_async(
         self,
         audio: AudioInput,
         *,
-        draft_model: Optional[Union[str, Qwen3ASRModel]] = None,
-        context: str = "",
-        language: Optional[str] = None,
-        return_timestamps: bool = False,
-        diarize: bool = False,
-        diarization_num_speakers: Optional[int] = None,
-        diarization_min_speakers: int = 1,
-        diarization_max_speakers: int = 8,
-        return_chunks: bool = False,
-        forced_aligner: Optional[Union[str, ForcedAligner]] = None,
-        max_new_tokens: Optional[int] = None,
-        num_draft_tokens: int = 4,
-        verbose: bool = False,
-        on_progress: Optional[ProgressCallback] = None,
+        executor: Optional[ThreadPoolExecutor] = None,
+        **kwargs: Any,
     ) -> TranscriptionResult:
-        """Async wrapper for ``transcribe`` using ``asyncio.to_thread``."""
-        options = _build_transcribe_options(
-            context=context,
-            language=language,
-            return_timestamps=return_timestamps,
-            diarize=diarize,
-            diarization_num_speakers=diarization_num_speakers,
-            diarization_min_speakers=diarization_min_speakers,
-            diarization_max_speakers=diarization_max_speakers,
-            return_chunks=return_chunks,
-            forced_aligner=forced_aligner,
-            dtype=self.dtype,
-            max_new_tokens=max_new_tokens,
-            num_draft_tokens=num_draft_tokens,
-            verbose=verbose,
-            on_progress=on_progress,
-        )
-        return await asyncio.to_thread(
-            self.transcribe,
-            audio,
-            draft_model=draft_model,
-            **_transcribe_options_to_kwargs(options, include_dtype=False),
-        )
+        """Run :meth:`transcribe` on a worker thread without blocking the event loop.
+
+        Args:
+            audio: Audio source (file path, numpy array, mx.array, or
+                ``(array, sample_rate)`` tuple).
+            executor: Optional single-thread executor that owns the model.
+                Long-lived services should construct the ``Session`` on that
+                executor and pass it here so loading and inference share one
+                thread (see ``server.py``). When omitted, the call runs on the
+                default ``asyncio.to_thread`` pool.
+            **kwargs: Forwarded to :meth:`transcribe`.
+
+        Returns:
+            TranscriptionResult for the audio.
+        """
+        call = functools.partial(self.transcribe, audio, **kwargs)
+        if executor is None:
+            return await asyncio.to_thread(call)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(executor, call)
 
     def init_streaming(
         self,

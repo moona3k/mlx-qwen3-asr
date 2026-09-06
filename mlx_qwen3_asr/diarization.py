@@ -14,8 +14,12 @@ from typing import Any, Optional
 
 import numpy as np
 
+from .tokenizer import join_text_parts
+
 DEFAULT_SPEAKER_LABEL = "SPEAKER_00"
 DEFAULT_PYANNOTE_MODEL_ID = "pyannote/speaker-diarization-community-1"
+DEFAULT_DIARIZATION_DEVICE = "auto"
+SUPPORTED_DIARIZATION_DEVICES = ("auto", "cpu", "mps", "cuda")
 
 
 @dataclass(frozen=True)
@@ -25,6 +29,7 @@ class DiarizationConfig:
     num_speakers: Optional[int] = None
     min_speakers: int = 1
     max_speakers: int = 8
+    device: str = DEFAULT_DIARIZATION_DEVICE
 
 
 def validate_diarization_config(
@@ -32,6 +37,7 @@ def validate_diarization_config(
     num_speakers: Optional[int],
     min_speakers: int,
     max_speakers: int,
+    device: str = DEFAULT_DIARIZATION_DEVICE,
 ) -> DiarizationConfig:
     """Validate diarization configuration values."""
     if num_speakers is not None and num_speakers < 1:
@@ -42,10 +48,16 @@ def validate_diarization_config(
         raise ValueError(
             "diarization_max_speakers must be >= diarization_min_speakers."
         )
+    if device not in SUPPORTED_DIARIZATION_DEVICES:
+        raise ValueError(
+            "diarization_device must be one of "
+            f"{', '.join(SUPPORTED_DIARIZATION_DEVICES)}; got {device!r}."
+        )
     return DiarizationConfig(
         num_speakers=num_speakers,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
+        device=device,
     )
 
 
@@ -62,26 +74,33 @@ def infer_speaker_turns(
     if audio.size == 0:
         return []
 
-    pipeline = _pipeline or _load_pyannote_pipeline()
+    pipeline = _pipeline or _load_pyannote_pipeline(device=config.device)
     kwargs = _speaker_count_kwargs(config)
     audio_np = np.asarray(audio, dtype=np.float32).reshape(-1)
 
     try:
-        diarization = pipeline(_pyannote_input(audio_np, sr), **kwargs)
-    except TypeError as exc:
-        # Some pyannote versions reject speaker-count kwargs.
-        if not _is_retryable_kwargs_type_error(exc):
+        diarization = _run_pyannote(pipeline, audio_np, sr, kwargs)
+    except Exception as exc:
+        device_name = _pipeline_device_name(pipeline)
+        if _pipeline is not None or device_name.startswith("cpu"):
             raise _diarization_runtime_error(exc) from exc
+        # Accelerator operator gaps surface when the pipeline runs, not when it
+        # is moved with ``.to()``. Fall back to CPU rather than losing the
+        # transcription after the ASR work is already done.
         warnings.warn(
-            "pyannote backend rejected speaker-count kwargs; retrying without them.",
+            f"Diarization failed on {device_name} ({type(exc).__name__}: {exc}); "
+            "retrying on CPU.",
             stacklevel=2,
         )
+        _UNAVAILABLE_DIARIZATION_DEVICES.add(
+            (*_pyannote_identity(), device_name.split(":", 1)[0])
+        )
         try:
-            diarization = pipeline(_pyannote_input(audio_np, sr))
-        except Exception as exc:
-            raise _diarization_runtime_error(exc) from exc
-    except Exception as exc:
-        raise _diarization_runtime_error(exc) from exc
+            diarization = _run_pyannote(
+                _load_pyannote_pipeline(device="cpu"), audio_np, sr, kwargs
+            )
+        except Exception as cpu_exc:
+            raise _diarization_runtime_error(cpu_exc) from cpu_exc
 
     turns = _annotation_to_turns(diarization, duration=float(audio_np.shape[0] / sr))
     if not turns:
@@ -98,14 +117,9 @@ def infer_speaker_turns(
 def diarize_word_segments(
     segments: list[dict],
     *,
-    config: DiarizationConfig,
     speaker_turns: Optional[list[dict]] = None,
-) -> tuple[list[dict], list[dict]]:
-    """Assign speaker labels to word-level segments."""
-    _ = config
-    if not segments:
-        return [], []
-
+) -> list[dict]:
+    """Return copies of word-level segments with a ``speaker`` label attached."""
     turns = speaker_turns or []
     labeled: list[dict] = []
     for seg in segments:
@@ -114,7 +128,7 @@ def diarize_word_segments(
         end = float(item.get("end", start))
         item["speaker"] = _speaker_for_interval(start, end, turns)
         labeled.append(item)
-    return labeled, _merge_speaker_segments(labeled)
+    return labeled
 
 
 def build_speaker_segments_from_turns(
@@ -122,11 +136,13 @@ def build_speaker_segments_from_turns(
     speaker_turns: list[dict],
     word_segments: Optional[list[dict]] = None,
     max_gap_sec: float = 0.2,
+    language: str = "",
 ) -> list[dict]:
     """Build transcript speaker segments from diarization turns.
 
     Unlike ``_merge_speaker_segments``, this keeps empty-text turns so output
     time coverage tracks diarization output even when ASR words are sparse.
+    ``language`` selects the word delimiter (none for Chinese/Japanese).
     """
     if not speaker_turns:
         return []
@@ -174,7 +190,7 @@ def build_speaker_segments_from_turns(
                 "speaker": speaker,
                 "start": start,
                 "end": end,
-                "text": " ".join(text_parts).strip(),
+                "text": join_text_parts(text_parts, language),
             }
         )
 
@@ -187,14 +203,7 @@ def build_speaker_segments_from_turns(
         gap = float(item["start"]) - float(prev["end"])
         if prev["speaker"] == item["speaker"] and gap <= max_gap_sec:
             prev["end"] = max(float(prev["end"]), float(item["end"]))
-            prev_text = str(prev.get("text", "")).strip()
-            next_text = str(item.get("text", "")).strip()
-            if prev_text and next_text:
-                prev["text"] = f"{prev_text} {next_text}".strip()
-            elif next_text:
-                prev["text"] = next_text
-            else:
-                prev["text"] = prev_text
+            prev["text"] = join_text_parts([prev.get("text", ""), item.get("text", "")], language)
         else:
             merged.append(dict(item))
     return merged
@@ -203,11 +212,10 @@ def build_speaker_segments_from_turns(
 def diarize_chunk_items(
     chunks: list[dict],
     *,
-    config: DiarizationConfig,
     speaker_turns: Optional[list[dict]] = None,
+    language: str = "",
 ) -> list[dict]:
     """Fallback speaker segments derived from chunk-level transcript items."""
-    _ = config
     if not chunks:
         return []
     turns = speaker_turns or []
@@ -226,13 +234,86 @@ def diarize_chunk_items(
                 "text": text,
             }
         )
-    return _merge_speaker_segments(items)
+    return _merge_speaker_segments(items, language=language)
 
 
-_PYANNOTE_PIPELINE_CACHE: dict[tuple[str, str], object] = {}
+_PYANNOTE_PIPELINE_CACHE: dict[tuple[str, str, str], object] = {}
+# Pipeline identities whose accelerator transfer already failed in this process,
+# keyed exactly like the cache: (model_id, token, device). Without this the
+# fallback lives under the CPU key, so every later call re-loads the pipeline,
+# retries the same doomed transfer, and warns again. Scoped per identity rather
+# than per device because MPS operator gaps are model-specific: one model
+# failing must not disable the accelerator for a different one.
+_UNAVAILABLE_DIARIZATION_DEVICES: set[tuple[str, str, str]] = set()
 
 
-def _load_pyannote_pipeline() -> object:
+def _resolve_diarization_device(requested: str, torch_module: Any) -> str:
+    """Resolve ``auto`` to the fastest backend torch reports as available.
+
+    Args:
+        requested: One of ``SUPPORTED_DIARIZATION_DEVICES``.
+        torch_module: The imported ``torch`` module (injected for testability).
+
+    Returns:
+        A concrete device string: ``mps``, ``cuda``, or ``cpu``.
+    """
+    if requested != "auto":
+        return requested
+    backends = getattr(torch_module, "backends", None)
+    mps = getattr(backends, "mps", None)
+    if mps is not None and mps.is_available():
+        return "mps"
+    cuda = getattr(torch_module, "cuda", None)
+    if cuda is not None and cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
+def _resolve_torch_device(device: str) -> tuple[Any, str]:
+    """Import torch only when a non-CPU device may be needed.
+
+    ``cpu`` never needs torch, and a missing torch means the ``[diarize]`` extra
+    is not installed - pyannote itself will raise the actionable ImportError a
+    few lines later, so staying quiet here keeps that error path intact.
+
+    Args:
+        device: One of ``SUPPORTED_DIARIZATION_DEVICES``.
+
+    Returns:
+        ``(torch_module_or_None, resolved_device)``.
+    """
+    if device == "cpu":
+        return None, "cpu"
+    try:
+        # Intentional: diarization is optional and this torch import is gated
+        # behind the [diarize] extra, so the core ASR path stays torch-free.
+        import torch
+    except ImportError:
+        return None, "cpu"
+    return torch, _resolve_diarization_device(device, torch)
+
+
+def _run_pyannote(pipeline: Any, audio_np: np.ndarray, sr: int, kwargs: dict[str, int]) -> Any:
+    """Call the pipeline, retrying without speaker-count kwargs if it rejects them."""
+    try:
+        return pipeline(_pyannote_input(audio_np, sr), **kwargs)
+    except TypeError as exc:
+        if not _is_retryable_kwargs_type_error(exc):
+            raise
+        warnings.warn(
+            "pyannote backend rejected speaker-count kwargs; retrying without them.",
+            stacklevel=3,
+        )
+        return pipeline(_pyannote_input(audio_np, sr))
+
+
+def _pipeline_device_name(pipeline: object) -> str:
+    """Return the device a pyannote pipeline sits on; never-moved pipelines report cpu."""
+    return str(getattr(pipeline, "device", "cpu"))
+
+
+def _pyannote_identity() -> tuple[str, str]:
+    """Return the ``(model_id, token)`` pair that identifies the configured pipeline."""
     model_id = os.environ.get("PYANNOTE_MODEL_ID", DEFAULT_PYANNOTE_MODEL_ID)
     token = (
         os.environ.get("PYANNOTE_AUTH_TOKEN")
@@ -240,7 +321,15 @@ def _load_pyannote_pipeline() -> object:
         or os.environ.get("HF_TOKEN")
         or ""
     )
-    key = (model_id, token)
+    return model_id, token
+
+
+def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
+    model_id, token = _pyannote_identity()
+    torch, resolved_device = _resolve_torch_device(device)
+    if (model_id, token, resolved_device) in _UNAVAILABLE_DIARIZATION_DEVICES:
+        resolved_device = "cpu"
+    key = (model_id, token, resolved_device)
     cached = _PYANNOTE_PIPELINE_CACHE.get(key)
     if cached is not None:
         return cached
@@ -264,6 +353,31 @@ def _load_pyannote_pipeline() -> object:
             "Pipeline.from_pretrained returned None; pyannote could not download "
             "or load the pipeline configuration.",
         )
+    if resolved_device != "cpu" and torch is not None:
+        try:
+            pipeline.to(torch.device(resolved_device))
+        except Exception as exc:  # noqa: BLE001 - any backend gap must not be fatal
+            warnings.warn(
+                f"Could not move the pyannote pipeline to {resolved_device} "
+                f"({type(exc).__name__}: {exc}); falling back to CPU.",
+                stacklevel=2,
+            )
+            # Pipeline.to() moves sub-models in a loop, so a mid-loop failure
+            # leaves earlier components on the accelerator. Caching that mixed
+            # state under the CPU key would hand a later CPU caller a pipeline
+            # that dies on a device mismatch at inference time.
+            try:
+                pipeline.to(torch.device("cpu"))
+            except Exception as cpu_exc:  # noqa: BLE001 - unusable either way
+                raise RuntimeError(
+                    "Diarization pipeline was left on mixed devices after a "
+                    f"failed transfer to {resolved_device} and could not be "
+                    f"recovered to CPU ({type(cpu_exc).__name__}: {cpu_exc})."
+                ) from cpu_exc
+            _UNAVAILABLE_DIARIZATION_DEVICES.add((model_id, token, resolved_device))
+            resolved_device = "cpu"
+            key = (model_id, token, resolved_device)
+
     _PYANNOTE_PIPELINE_CACHE[key] = pipeline
     return pipeline
 
@@ -460,7 +574,9 @@ def _speaker_for_interval(start: float, end: float, turns: list[dict]) -> str:
     return best_speaker
 
 
-def _merge_speaker_segments(items: list[dict], *, max_gap_sec: float = 0.8) -> list[dict]:
+def _merge_speaker_segments(
+    items: list[dict], *, language: str = "", max_gap_sec: float = 0.8
+) -> list[dict]:
     """Merge adjacent same-speaker items into longer contiguous turns."""
     if not items:
         return []
@@ -485,7 +601,7 @@ def _merge_speaker_segments(items: list[dict], *, max_gap_sec: float = 0.8) -> l
         gap = start - float(prev["end"])
         if speaker == prev["speaker"] and gap <= max_gap_sec:
             prev["end"] = max(float(prev["end"]), end)
-            prev["text"] = f"{prev['text']} {text}".strip()
+            prev["text"] = join_text_parts([prev["text"], text], language)
         else:
             merged.append(
                 {"speaker": speaker, "start": start, "end": end, "text": text}

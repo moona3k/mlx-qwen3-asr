@@ -343,3 +343,17 @@ class TestBuildPromptTokensContext:
         assert tokens.count(151676) == 3  # <|audio_pad|> count
         assert 151669 in tokens  # <|audio_start|>
         assert 151670 in tokens  # <|audio_end|>
+
+
+class TestJoinTextParts:
+    def test_chinese_and_japanese_join_without_spaces(self):
+        from mlx_qwen3_asr.tokenizer import join_text_parts
+
+        assert join_text_parts(["今天", "天气"], "Chinese") == "今天天气"
+        assert join_text_parts(["今日", "は"], "ja") == "今日は"
+
+    def test_korean_and_latin_join_with_spaces_and_drop_blanks(self):
+        from mlx_qwen3_asr.tokenizer import join_text_parts
+
+        assert join_text_parts(["오늘", "", "날씨"], "Korean") == "오늘 날씨"
+        assert join_text_parts(["hello", " ", "world"], None) == "hello world"

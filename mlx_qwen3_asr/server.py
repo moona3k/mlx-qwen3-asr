@@ -9,11 +9,15 @@ Usage::
 """
 
 import asyncio
+import contextlib
 import logging
+import shutil
+import subprocess
 import tempfile
 import time
 import uuid
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -117,6 +121,8 @@ class _AppState:
     start_time: float = 0.0
     api_keys_set: set[str] = field(default_factory=set)
     session: object = None  # Session instance
+    # Single thread that owns the model: it is constructed and run there.
+    executor: Optional[ThreadPoolExecutor] = None
     config: Optional[ServerConfig] = None
     inference_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     sync_inflight: int = 0  # count of /v1 requests waiting for inference
@@ -136,10 +142,8 @@ def create_app(config: ServerConfig):
     """
     try:
         from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-        from fastapi.exception_handlers import (
-            http_exception_handler,
-            request_validation_exception_handler,
-        )
+        from fastapi.encoders import jsonable_encoder
+        from fastapi.exception_handlers import http_exception_handler
         from fastapi.exceptions import RequestValidationError
         from fastapi.responses import JSONResponse
     except ImportError as exc:
@@ -174,28 +178,37 @@ def create_app(config: ServerConfig):
     # ---- Background tasks ----
 
     async def _job_worker() -> None:
-        """Sequential job processor — pulls from queue, runs transcription."""
+        """Sequential job processor — pulls from queue, runs transcription.
+
+        The loop must outlive any single failure: if it died, later submissions
+        would still return 202 and sit in ``queued`` forever while ``/health``
+        kept reporting ok.
+        """
         while True:
-            job_id = await state.job_queue.get()
+            try:
+                await _process_next_job()
+            except Exception:
+                logger.exception("Job worker iteration failed; continuing")
+
+    async def _process_next_job() -> None:
+        job_id = await state.job_queue.get()
+        try:
             job = state.jobs.get(job_id)
             if job is None or job.status != JobStatus.QUEUED:
-                state.job_queue.task_done()
-                continue
-
+                return
             job.status = JobStatus.PROCESSING
             try:
-                result = await _run_transcription(job)
-                job.result = result
+                job.result = await _run_transcription(job)
                 job.status = JobStatus.COMPLETED
-                job.completed_at = time.time()
             except Exception as exc:
                 logger.exception("Job %s failed", job_id)
                 job.status = JobStatus.FAILED
-                job.completed_at = time.time()
                 job.error = _sanitize_error(exc)
             finally:
+                job.completed_at = time.time()
                 _cleanup_temp(job)
-                state.job_queue.task_done()
+        finally:
+            state.job_queue.task_done()
 
     async def _run_transcription(job: Job) -> dict:
         """Run transcription via Session.transcribe_async (thread offload)."""
@@ -207,6 +220,7 @@ def create_app(config: ServerConfig):
                 context=job.context,
                 return_timestamps=job.timestamps,
                 return_chunks=True,
+                executor=state.executor,
             )
         return _result_to_dict(result)
 
@@ -227,6 +241,52 @@ def create_app(config: ServerConfig):
                 if j:
                     _cleanup_temp(j)
 
+    # ---- Upload handling ----
+
+    async def _save_upload(request: Request, upload: UploadFile) -> str:
+        """Stream an upload to a temp file, enforcing size and duration limits.
+
+        The body is never held in memory: the multipart part is copied in 1 MiB
+        chunks and cut off as soon as the running total exceeds the limit (a
+        declared ``Content-Length`` over the limit is already rejected by the
+        middleware before the body is read). The duration limit is then checked on the
+        file when its duration can be read. Returns the temp path; on any
+        rejection the file is removed.
+        """
+        limit = config.max_file_size_mb * 1024 * 1024
+        too_large = HTTPException(
+            status_code=413,
+            detail=f"File too large. Max: {config.max_file_size_mb} MB",
+        )
+        suffix = Path(upload.filename or "upload.wav").suffix or ".wav"
+        tmp = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed in both branches below
+            suffix=suffix, delete=False, prefix="mlx_asr_"
+        )
+        try:
+            written = 0
+            while chunk := await upload.read(1 << 20):
+                written += len(chunk)
+                if written > limit:
+                    raise too_large
+                tmp.write(chunk)
+            tmp.close()
+            # Unreadable input is left to the transcription step, which reports
+            # it as a failed job / 500 with the decoder's own message.
+            duration = await asyncio.to_thread(_audio_duration_sec, tmp.name)
+            if duration is not None and duration > config.max_duration_sec:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Audio too long ({duration:.0f}s). "
+                        f"Max: {config.max_duration_sec}s"
+                    ),
+                )
+        except BaseException:
+            tmp.close()
+            Path(tmp.name).unlink(missing_ok=True)
+            raise
+        return tmp.name
+
     # ---- Lifespan ----
 
     @asynccontextmanager
@@ -242,22 +302,36 @@ def create_app(config: ServerConfig):
             "bfloat16": mx.bfloat16,
         }
         dtype = dtype_map.get(config.dtype, mx.float16)
-        state.session = Session(config.model, dtype=dtype)
-        logger.info("Model loaded: %s", config.model)
-
-        worker_task = asyncio.create_task(_job_worker())
-        sweeper_task = asyncio.create_task(_ttl_sweeper())
-
-        yield
-
-        worker_task.cancel()
-        sweeper_task.cancel()
-        # Await cancellation to ensure cleanup runs
-        for task in (worker_task, sweeper_task):
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        # One dedicated thread constructs the model and runs every inference.
+        # MLX binds lazily built arrays to the thread that created them, so
+        # loading on the event loop and inferring on an arbitrary pool worker
+        # fails on MLX >= 0.31 with "There is no Stream(gpu, 1) in current
+        # thread" (issue #16). A single worker is enough because inference is
+        # already serialized behind ``inference_lock``.
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mlx-asr")
+        state.executor = executor
+        tasks: list[asyncio.Task] = []
+        try:
+            loop = asyncio.get_running_loop()
+            state.session = await loop.run_in_executor(
+                executor, lambda: Session(config.model, dtype=dtype)
+            )
+            logger.info("Model loaded: %s", config.model)
+            tasks = [
+                asyncio.create_task(_job_worker()),
+                asyncio.create_task(_ttl_sweeper()),
+            ]
+            yield
+        finally:
+            for task in tasks:
+                task.cancel()
+            for task in tasks:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            # Cancelling a task does not stop work already running on the
+            # thread; wait for it off the event loop, then release the thread.
+            # This also runs when Session() itself fails before ``yield``.
+            await asyncio.to_thread(executor.shutdown, wait=True)
 
     app = FastAPI(
         title="mlx-qwen3-asr",
@@ -267,6 +341,20 @@ def create_app(config: ServerConfig):
 
     # Store state on app for test access
     app.state.server = state
+
+    @app.middleware("http")
+    async def _reject_oversized_bodies(request: Request, call_next):
+        """Refuse a declared body over the upload limit before it is received."""
+        declared = request.headers.get("content-length")
+        limit = config.max_file_size_mb * 1024 * 1024
+        if request.method == "POST" and declared and declared.isdigit() and int(declared) > limit:
+            detail = f"File too large. Max: {config.max_file_size_mb} MB"
+            if request.url.path.startswith("/v1/"):
+                content = _openai_error_payload(detail=detail, status_code=413)
+            else:
+                content = {"detail": detail}
+            return JSONResponse(status_code=413, content=content)
+        return await call_next(request)
 
     @app.exception_handler(HTTPException)
     async def _http_exception_handler(request: Request, exc: HTTPException):
@@ -287,7 +375,7 @@ def create_app(config: ServerConfig):
         request: Request,
         exc: RequestValidationError,
     ):
-        """Return OpenAI-style validation errors for OpenAI-compatible routes."""
+        """Return 400 for malformed requests (the API spec reserves 422 for duration)."""
         if request.url.path.startswith("/v1/"):
             return JSONResponse(
                 status_code=400,
@@ -296,7 +384,7 @@ def create_app(config: ServerConfig):
                     status_code=400,
                 ),
             )
-        return await request_validation_exception_handler(request, exc)
+        return JSONResponse(status_code=400, content={"detail": jsonable_encoder(exc.errors())})
 
     # ---- Endpoints ----
 
@@ -335,31 +423,7 @@ def create_app(config: ServerConfig):
                 headers={"Retry-After": str(int(retry) + 1)},
             )
 
-        # File size check
-        contents = await audio.read()
-        size_mb = len(contents) / (1024 * 1024)
-        if size_mb > config.max_file_size_mb:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"File too large ({size_mb:.1f} MB). "
-                    f"Max: {config.max_file_size_mb} MB"
-                ),
-            )
-
-        # Write to temp file
-        suffix = Path(audio.filename or "upload.wav").suffix or ".wav"
-        tmp = tempfile.NamedTemporaryFile(
-            suffix=suffix, delete=False, prefix="mlx_asr_"
-        )
-        try:
-            tmp.write(contents)
-            tmp.flush()
-            tmp.close()
-        except Exception:
-            tmp.close()
-            Path(tmp.name).unlink(missing_ok=True)
-            raise
+        temp_path = await _save_upload(request, audio)
 
         # Create job
         job_id = f"j_{uuid.uuid4().hex}"
@@ -368,7 +432,7 @@ def create_app(config: ServerConfig):
             status=JobStatus.QUEUED,
             created_at=time.time(),
             api_key=key,
-            temp_path=tmp.name,
+            temp_path=temp_path,
             language=language,
             timestamps=_parse_bool(timestamps),
             context=context or "",
@@ -378,7 +442,7 @@ def create_app(config: ServerConfig):
         # Atomic enqueue with backpressure
         try:
             state.job_queue.put_nowait(job_id)
-        except asyncio.QueueFull:
+        except asyncio.QueueFull as exc:
             # Clean up the job and temp file we just created
             state.jobs.pop(job_id, None)
             _cleanup_temp(job)
@@ -386,7 +450,7 @@ def create_app(config: ServerConfig):
                 status_code=503,
                 detail="Server at capacity",
                 headers={"Retry-After": "10"},
-            )
+            ) from exc
 
         return {
             "job_id": job_id,
@@ -483,62 +547,37 @@ def create_app(config: ServerConfig):
                 ),
             )
 
-        # File size check
-        contents = await file.read()
-        size_mb = len(contents) / (1024 * 1024)
-        if size_mb > config.max_file_size_mb:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"File too large ({size_mb:.1f} MB). "
-                    f"Max: {config.max_file_size_mb} MB"
-                ),
-            )
-
-        # Write temp file
-        suffix = Path(file.filename or "upload.wav").suffix or ".wav"
-        tmp = tempfile.NamedTemporaryFile(
-            suffix=suffix, delete=False, prefix="mlx_asr_"
-        )
-        try:
-            tmp.write(contents)
-            tmp.flush()
-            tmp.close()
-        except Exception:
-            tmp.close()
-            Path(tmp.name).unlink(missing_ok=True)
-            raise
-
-        # Timestamps needed for verbose_json, srt, vtt
-        need_timestamps = fmt in ("verbose_json", "srt", "vtt")
-
-        # Backpressure: count queued jobs + in-flight /v1 requests
+        # Backpressure: count queued jobs + in-flight /v1 requests. Checked before
+        # the upload is read so a saturated server does not spend I/O on it.
         if state.job_queue.qsize() + state.sync_inflight >= config.max_queue_depth:
-            Path(tmp.name).unlink(missing_ok=True)
             raise HTTPException(
                 status_code=503,
                 detail="Server at capacity",
                 headers={"Retry-After": "10"},
             )
 
+        temp_path = await _save_upload(request, file)
+
+        # Timestamps needed for verbose_json, srt, vtt
+        need_timestamps = fmt in ("verbose_json", "srt", "vtt")
+
         # Synchronous transcription — serialized via inference lock
         state.sync_inflight += 1
         try:
             async with state.inference_lock:
                 result = await state.session.transcribe_async(
-                    tmp.name,
+                    temp_path,
                     language=language,
                     context=prompt or "",
                     return_timestamps=need_timestamps,
                     return_chunks=True,
+                    executor=state.executor,
                 )
         except Exception as exc:
-            raise HTTPException(
-                status_code=500, detail=_sanitize_error(exc)
-            )
+            raise HTTPException(status_code=500, detail=_sanitize_error(exc)) from exc
         finally:
             state.sync_inflight -= 1
-            Path(tmp.name).unlink(missing_ok=True)
+            Path(temp_path).unlink(missing_ok=True)
 
         return _openai_format_response(result, fmt)
 
@@ -632,6 +671,32 @@ def _validation_error_message(errors: list[dict]) -> str:
     return f"{field}: {msg}"
 
 
+def _audio_duration_sec(path: str) -> Optional[float]:
+    """Return the duration of an audio file, or None if it cannot be read.
+
+    Uses ``ffprobe`` when available (header read, no decode); otherwise decodes
+    through the library's own loader, which also covers WAV without ffmpeg.
+    """
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        proc = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            capture_output=True, text=True, check=False,
+        )
+        try:
+            if proc.returncode == 0:
+                return float(proc.stdout.strip())
+        except ValueError:
+            pass
+    from .audio import SAMPLE_RATE, load_audio_np
+
+    try:
+        return len(load_audio_np(path, sr=SAMPLE_RATE)) / SAMPLE_RATE
+    except Exception:
+        return None
+
+
 def _cleanup_temp(job: Job) -> None:
     if job.temp_path:
         Path(job.temp_path).unlink(missing_ok=True)
@@ -693,7 +758,7 @@ def _openai_format_response(result: object, fmt: str):
         return PlainTextResponse("", media_type="text/plain")
 
     grouped = group_subtitle_segments(
-        result.segments, language=result.language or ""
+        result.segments, language=result.language or "", text=result.text
     )
 
     if fmt == "srt":

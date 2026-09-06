@@ -16,7 +16,7 @@ from typing import Optional, cast
 import mlx.core as mx
 import mlx.nn as nn
 
-from .attention import _scaled_dot_product_attention
+from .attention import _scaled_dot_product_attention, scalar_int
 from .config import Qwen3ASRConfig
 from .decoder import (
     KVCache,
@@ -141,8 +141,8 @@ class Qwen3ASRModel(nn.Module):
     def _validate_input_ids_range(self, input_ids: mx.array) -> None:
         """Validate token ID bounds for embedding lookup."""
         vocab_size = int(self.config.text_config.vocab_size)
-        min_id = int(mx.min(input_ids).item())
-        max_id = int(mx.max(input_ids).item())
+        min_id = scalar_int(mx.min(input_ids))
+        max_id = scalar_int(mx.max(input_ids))
         if min_id < 0 or max_id >= vocab_size:
             raise ValueError(
                 "input_ids out of bounds for embed_tokens: "
@@ -205,7 +205,7 @@ class Qwen3ASRModel(nn.Module):
             )
 
         audio_counts = mx.sum(audio_mask.astype(mx.int32), axis=1)
-        max_count = int(mx.max(audio_counts).item())
+        max_count = scalar_int(mx.max(audio_counts))
         max_audio_tokens = int(audio_features.shape[1])
         if max_count == 0:
             # Nothing to inject; avoid gather() on empty audio feature tensors.
@@ -224,7 +224,7 @@ class Qwen3ASRModel(nn.Module):
         cum_idx = mx.cumsum(audio_mask.astype(mx.int32), axis=1) - 1
         cum_idx = mx.maximum(cum_idx, 0)  # (B, L)
         masked_cum_idx = mx.where(audio_mask, cum_idx, mx.zeros_like(cum_idx))
-        max_masked_idx = int(mx.max(masked_cum_idx).item())
+        max_masked_idx = scalar_int(mx.max(masked_cum_idx))
         if max_masked_idx >= max_audio_tokens:
             raise AssertionError(
                 "Audio injection index overflow: "

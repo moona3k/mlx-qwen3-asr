@@ -29,6 +29,12 @@ GET /jobs/{id}    ─────────→  Return result
 Jobs process sequentially (one at a time, FIFO). Queue capped at 10 by default;
 returns `503` when full.
 
+The model is constructed and run on one dedicated worker thread. MLX binds
+lazily built arrays to the thread that created them, so loading on the event
+loop and inferring on a pool thread fails on MLX 0.31+ with `There is no
+Stream(gpu, 1) in current thread` (issue #16). Both endpoints dispatch to that
+thread; shutdown waits for an in-flight transcription to finish.
+
 ## API at a glance
 
 | Endpoint | Method | Auth | Description |

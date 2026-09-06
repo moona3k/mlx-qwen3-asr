@@ -205,10 +205,10 @@ class Qwen3ASRConfig:
             audio_start_token_id=token_source.get("audio_start_token_id", 151669),
             audio_end_token_id=token_source.get("audio_end_token_id", 151670),
             user_token_id=token_source.get("user_token_id", 872),
-            support_languages=d.get("support_languages", None),
+            support_languages=d.get("support_languages"),
             classify_num=token_source.get("classify_num", d.get("classify_num")),
-            timestamp_token_id=d.get("timestamp_token_id", None),
-            timestamp_segment_time=d.get("timestamp_segment_time", None),
+            timestamp_token_id=d.get("timestamp_token_id"),
+            timestamp_segment_time=d.get("timestamp_segment_time"),
         )
 
     @classmethod

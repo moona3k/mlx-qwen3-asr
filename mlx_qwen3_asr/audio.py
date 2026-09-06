@@ -130,7 +130,7 @@ def _sanitize_audio_array(source: np.ndarray) -> np.ndarray:
 def _normalize_integer_pcm(audio_np: np.ndarray) -> np.ndarray:
     """Convert integer PCM arrays to float32 in approximately [-1, 1]."""
     info = np.iinfo(audio_np.dtype)
-    x = audio_np.astype(np.float32)
+    x: np.ndarray = audio_np.astype(np.float32)
     if info.min >= 0:
         midpoint = (info.max + 1) / 2.0
         return (x - midpoint) / midpoint
@@ -165,8 +165,8 @@ def _load_audio_file(path: str, sr: int) -> np.ndarray:
         result = subprocess.run(cmd, capture_output=True, check=True)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to load audio: {e.stderr.decode()}") from e
-    except FileNotFoundError:
-        raise RuntimeError(_ffmpeg_missing_message())
+    except FileNotFoundError as e:
+        raise RuntimeError(_ffmpeg_missing_message()) from e
 
     return np.frombuffer(result.stdout, np.int16).astype(np.float32) / 32768.0
 
@@ -266,26 +266,25 @@ def _parse_wav_bytes(data: bytes) -> tuple[np.ndarray, int] | None:
 def _decode_pcm_bytes(raw: bytes, sample_width: int) -> np.ndarray | None:
     """Decode PCM bytes from WAV data to float32 in [-1, 1]."""
     if sample_width == 1:
-        x = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
-        return (x - 128.0) / 128.0
+        u8: np.ndarray = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
+        return (u8 - 128.0) / 128.0
 
     if sample_width == 2:
-        x = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
-        return x / 32768.0
+        i16: np.ndarray = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
+        return i16 / 32768.0
 
     if sample_width == 3:
-        b = np.frombuffer(raw, dtype=np.uint8)
-        if len(b) % 3 != 0:
+        if len(raw) % 3 != 0:
             return None
-        b = b.reshape(-1, 3).astype(np.int32)
-        x = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
+        triples: np.ndarray = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3).astype(np.int32)
+        x = triples[:, 0] | (triples[:, 1] << 8) | (triples[:, 2] << 16)
         sign_mask = 1 << 23
         x = np.where((x & sign_mask) != 0, x - (1 << 24), x)
         return x.astype(np.float32) / float(1 << 23)
 
     if sample_width == 4:
-        x = np.frombuffer(raw, dtype=np.int32).astype(np.float32)
-        return x / float(1 << 31)
+        i32: np.ndarray = np.frombuffer(raw, dtype=np.int32).astype(np.float32)
+        return i32 / float(1 << 31)
 
     return None
 
@@ -327,8 +326,8 @@ def _resample_via_ffmpeg(
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to resample audio: {e.stderr.decode()}") from e
-    except FileNotFoundError:
-        raise RuntimeError(_ffmpeg_missing_message())
+    except FileNotFoundError as e:
+        raise RuntimeError(_ffmpeg_missing_message()) from e
 
     return np.frombuffer(result.stdout, np.int16).astype(np.float32) / 32768.0
 
@@ -470,6 +469,13 @@ def stft(
 
     hop = nperseg - noverlap
     pad_len = nperseg // 2
+    if x.shape[0] <= pad_len:
+        # Reflect padding needs more samples than the pad width, and newer MLX
+        # raises an opaque as_strided error instead of producing zero frames.
+        raise ValueError(
+            "Audio too short for STFT: "
+            f"{int(x.shape[0])} samples, need more than {pad_len}."
+        )
 
     # Reflect padding (mx.pad does not support mode="reflect", so do it manually)
     x = _reflect_pad(x, pad_len)
@@ -505,7 +511,7 @@ def log_mel_spectrogram(
         a fixed length; the caller handles padding if needed.
 
     Raises:
-        ValueError: If audio is empty.
+        ValueError: If audio is empty or too short to produce one mel frame.
     """
     if audio.size == 0:
         raise ValueError("Cannot compute mel spectrogram of empty audio.")

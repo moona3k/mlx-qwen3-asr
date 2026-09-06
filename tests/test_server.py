@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -356,10 +357,8 @@ async def _create_test_app_with_worker(
         yield app
     finally:
         worker_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await worker_task
-        except asyncio.CancelledError:
-            pass
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +459,94 @@ async def test_transcribe_rejects_oversized_file():
             files={"audio": ("test.wav", big_data, "audio/wav")},
         )
         assert resp.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_transcribe_rejects_oversized_content_length_before_reading():
+    """A declared Content-Length over the limit is rejected without buffering."""
+    app = _create_test_app(max_file_size_mb=1)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/transcribe",
+            headers={
+                "Authorization": "Bearer testkey",
+                "Content-Length": str(3 * 1024 * 1024),
+                "Content-Type": "multipart/form-data; boundary=x",
+            },
+            content=b"",
+        )
+        assert resp.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_transcribe_rejects_audio_longer_than_max_duration(monkeypatch):
+    import mlx_qwen3_asr.server as srv
+
+    monkeypatch.setattr(srv, "_audio_duration_sec", lambda path: 100.0)
+    config = ServerConfig(api_keys=["testkey"], max_duration_sec=60)
+    app = create_app(config)
+    app.state.server.session = _mock_session()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/transcribe",
+            headers={"Authorization": "Bearer testkey"},
+            files={"audio": ("long.wav", b"fake", "audio/wav")},
+        )
+        assert resp.status_code == 422
+        assert "too long" in resp.json()["detail"]
+        assert app.state.server.jobs == {}
+
+
+@pytest.mark.asyncio
+async def test_transcribe_missing_file_returns_400():
+    app = _create_test_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/transcribe",
+            headers={"Authorization": "Bearer testkey"},
+            data={"language": "English"},
+        )
+        assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_job_worker_survives_unexpected_errors(monkeypatch):
+    """An exception outside the transcription call must not kill the worker."""
+    import mlx_qwen3_asr.server as srv
+
+    calls = {"n": 0}
+
+    def _flaky_cleanup(job):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise PermissionError("cannot unlink")
+        job.temp_path = None
+
+    monkeypatch.setattr(srv, "_cleanup_temp", _flaky_cleanup)
+    config = ServerConfig(api_keys=["testkey"])
+    app = create_app(config)
+    with patch("mlx_qwen3_asr.session.Session", lambda *a, **k: _mock_session()):
+        async with app.router.lifespan_context(app):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                ids = []
+                for _ in range(2):
+                    resp = await client.post(
+                        "/transcribe",
+                        headers={"Authorization": "Bearer testkey"},
+                        files={"audio": ("a.wav", b"fake", "audio/wav")},
+                    )
+                    ids.append(resp.json()["job_id"])
+                for _ in range(50):
+                    await asyncio.sleep(0.02)
+                    statuses = {app.state.server.jobs[j].status for j in ids}
+                    if statuses == {JobStatus.COMPLETED}:
+                        break
+                assert statuses == {JobStatus.COMPLETED}, statuses
+    assert calls["n"] == 2
 
 
 @pytest.mark.asyncio
@@ -848,6 +935,22 @@ def test_cli_legacy_audio_arg_still_works():
     )
     assert result.returncode == 1
     assert "File not found: nonexistent.wav" in result.stderr
+
+
+def test_cli_transcribe_subcommand_is_accepted():
+    """``mlx-qwen3-asr transcribe audio.wav`` is the explicit form of the default mode."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "mlx_qwen3_asr.cli", "transcribe", "nonexistent.wav"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "File not found: nonexistent.wav" in result.stderr
+    assert "File not found: transcribe" not in result.stderr
 
 
 def test_run_server_requires_api_key():
@@ -1365,3 +1468,117 @@ async def test_openai_verbose_json_no_segments():
         assert data["text"] == "Hello"
         assert "words" not in data
         assert "segments" not in data
+
+
+# ---------------------------------------------------------------------------
+# Regression: MLX streams are thread-local (issue #16)
+# ---------------------------------------------------------------------------
+
+
+class TestInferenceThreadAffinity:
+    """The model must be loaded on the same thread that runs inference.
+
+    MLX streams are thread-local. Loading the model on the event-loop thread and
+    then running inference on an arbitrary ``asyncio.to_thread`` worker makes
+    every transcription fail with
+    ``There is no Stream(gpu, N) in current thread.`` (issue #16).
+    """
+
+    @pytest.mark.asyncio
+    async def test_model_is_loaded_on_the_inference_thread(self):
+        import threading
+
+        from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+        seen: dict[str, int] = {}
+
+        class _ThreadRecordingSession:
+            def __init__(self, *args, **kwargs):
+                seen["load"] = threading.get_ident()
+
+            def transcribe(self, *args, **kwargs):
+                seen["infer"] = threading.get_ident()
+                return TranscriptionResult(text="ok", language="English")
+
+            async def transcribe_async(self, audio, *, executor=None, **kwargs):
+                # Mirrors the real Session: dispatch onto the caller's executor.
+                call = lambda: self.transcribe(audio, **kwargs)  # noqa: E731
+                if executor is None:
+                    return await asyncio.to_thread(call)
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(executor, call)
+
+        config = ServerConfig(api_keys=["testkey"])
+        app = create_app(config)
+
+        with patch("mlx_qwen3_asr.session.Session", _ThreadRecordingSession):
+            async with app.router.lifespan_context(app):
+                state = app.state.server
+                assert state.executor is not None, "lifespan must create an executor"
+                await state.session.transcribe_async(
+                    "dummy.wav", executor=state.executor
+                )
+
+        assert seen["load"] == seen["infer"], (
+            "model was loaded on a different thread than the one running "
+            "inference — this is exactly the condition that raises "
+            "'There is no Stream(gpu, N) in current thread.'"
+        )
+
+    @pytest.mark.asyncio
+    async def test_executor_is_released_when_model_load_fails(self):
+        """A failed Session() must not leak the worker thread."""
+
+        class _BrokenSession:
+            def __init__(self, *args, **kwargs):
+                raise RuntimeError("no such model")
+
+        config = ServerConfig(api_keys=["testkey"])
+        app = create_app(config)
+
+        with (
+            patch("mlx_qwen3_asr.session.Session", _BrokenSession),
+            pytest.raises(RuntimeError, match="no such model"),
+        ):
+            async with app.router.lifespan_context(app):
+                pass
+
+        executor = app.state.server.executor
+        assert executor is not None
+        assert executor._shutdown, "executor must be shut down after startup failure"
+
+    @pytest.mark.asyncio
+    async def test_executor_is_single_threaded(self):
+        """Inference must be serialized onto one thread, not a pool."""
+        import threading
+
+        from mlx_qwen3_asr.transcribe import TranscriptionResult
+
+        threads: set[int] = set()
+
+        class _Session:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def transcribe(self, *args, **kwargs):
+                threads.add(threading.get_ident())
+                return TranscriptionResult(text="ok", language="English")
+
+            async def transcribe_async(self, audio, *, executor=None, **kwargs):
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(
+                    executor, lambda: self.transcribe(audio)
+                )
+
+        config = ServerConfig(api_keys=["testkey"])
+        app = create_app(config)
+
+        with patch("mlx_qwen3_asr.session.Session", _Session):
+            async with app.router.lifespan_context(app):
+                state = app.state.server
+                await asyncio.gather(*[
+                    state.session.transcribe_async("d.wav", executor=state.executor)
+                    for _ in range(8)
+                ])
+
+        assert len(threads) == 1, f"expected 1 inference thread, saw {len(threads)}"

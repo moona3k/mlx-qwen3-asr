@@ -8,6 +8,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from .attention import _scaled_dot_product_attention
+from .cache_utils import LRUCache
 from .config import TextDecoderConfig
 from .mrope import InterleavedMRoPE, apply_rotary_pos_emb
 
@@ -427,11 +428,14 @@ def _create_causal_mask(seq_len: int, dtype: mx.Dtype = mx.float32) -> mx.array:
     mask = mx.full((seq_len, seq_len), -1e9, dtype=dtype)
     mask = mx.triu(mask, k=1)  # zero on and below diagonal, -1e9 above
     mask = mask[None, None, :, :]  # (1, 1, L, L)
-    _CAUSAL_MASK_CACHE[cache_key] = mask
+    _CAUSAL_MASK_CACHE.put(cache_key, mask)
     return mask
 
 
-_CAUSAL_MASK_CACHE: dict[tuple[int, str], mx.array] = {}
+# Every distinct prefill length produces an (L, L) mask; bound the caches so a
+# long-running server transcribing varied audio does not accumulate them.
+_MASK_CACHE_ENTRIES = 16
+_CAUSAL_MASK_CACHE: LRUCache[tuple[int, str], mx.array] = LRUCache(_MASK_CACHE_ENTRIES)
 
 
 def _create_causal_mask_with_prefix(
@@ -457,8 +461,10 @@ def _create_causal_mask_with_prefix(
     right = mx.triu(right, k=1)
 
     mask = mx.concatenate([left, right], axis=1)[None, None, :, :]
-    _CAUSAL_MASK_WITH_PREFIX_CACHE[cache_key] = mask
+    _CAUSAL_MASK_WITH_PREFIX_CACHE.put(cache_key, mask)
     return mask
 
 
-_CAUSAL_MASK_WITH_PREFIX_CACHE: dict[tuple[int, int, str], mx.array] = {}
+_CAUSAL_MASK_WITH_PREFIX_CACHE: LRUCache[tuple[int, int, str], mx.array] = LRUCache(
+    _MASK_CACHE_ENTRIES
+)

@@ -24,9 +24,18 @@ MYPY_TYPED_TARGETS = [
     "mlx_qwen3_asr/config.py",
     "mlx_qwen3_asr/chunking.py",
     "mlx_qwen3_asr/attention.py",
+    "mlx_qwen3_asr/mrope.py",
     "mlx_qwen3_asr/encoder.py",
     "mlx_qwen3_asr/decoder.py",
     "mlx_qwen3_asr/model.py",
+    "mlx_qwen3_asr/generate.py",
+    "mlx_qwen3_asr/audio.py",
+    "mlx_qwen3_asr/tokenizer.py",
+    "mlx_qwen3_asr/load_models.py",
+    "mlx_qwen3_asr/cache_utils.py",
+    "mlx_qwen3_asr/writers.py",
+    "mlx_qwen3_asr/transcribe.py",
+    "mlx_qwen3_asr/session.py",
 ]
 
 

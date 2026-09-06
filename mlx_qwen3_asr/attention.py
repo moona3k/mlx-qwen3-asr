@@ -8,6 +8,16 @@ from typing import Optional
 import mlx.core as mx
 
 
+def scalar_int(value: mx.array) -> int:
+    """Return a 0-d integer array as a Python int (a host sync).
+
+    ``mx.array.item()`` is typed ``int | float | complex`` in newer MLX stubs;
+    this keeps call sites honest about the conversion.
+    """
+    return int(value.item())  # type: ignore[arg-type]
+
+
+
 def _scaled_dot_product_attention(
     q: mx.array,
     k: mx.array,
