@@ -1423,6 +1423,26 @@ class TestInferenceThreadAffinity:
         )
 
     @pytest.mark.asyncio
+    async def test_executor_is_released_when_model_load_fails(self):
+        """A failed Session() must not leak the worker thread."""
+
+        class _BrokenSession:
+            def __init__(self, *args, **kwargs):
+                raise RuntimeError("no such model")
+
+        config = ServerConfig(api_keys=["testkey"])
+        app = create_app(config)
+
+        with patch("mlx_qwen3_asr.session.Session", _BrokenSession):
+            with pytest.raises(RuntimeError, match="no such model"):
+                async with app.router.lifespan_context(app):
+                    pass
+
+        executor = app.state.server.executor
+        assert executor is not None
+        assert executor._shutdown, "executor must be shut down after startup failure"
+
+    @pytest.mark.asyncio
     async def test_executor_is_single_threaded(self):
         """Inference must be serialized onto one thread, not a pool."""
         import threading

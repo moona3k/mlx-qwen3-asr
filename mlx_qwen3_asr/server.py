@@ -9,12 +9,12 @@ Usage::
 """
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import logging
 import tempfile
 import time
 import uuid
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -118,9 +118,8 @@ class _AppState:
     start_time: float = 0.0
     api_keys_set: set[str] = field(default_factory=set)
     session: object = None  # Session instance
-    # 推論専用のシングルスレッド。MLX のストリームはスレッドローカルなので、
-    # モデルのロードと推論は必ず同じスレッドで行う必要がある。
-    executor: object = None  # ThreadPoolExecutor(max_workers=1)
+    # Single thread that owns the model: it is constructed and run there.
+    executor: Optional[ThreadPoolExecutor] = None
     config: Optional[ServerConfig] = None
     inference_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     sync_inflight: int = 0  # count of /v1 requests waiting for inference
@@ -247,32 +246,38 @@ def create_app(config: ServerConfig):
             "bfloat16": mx.bfloat16,
         }
         dtype = dtype_map.get(config.dtype, mx.float16)
-        # MLX streams are thread-local: the model must be loaded on the very
-        # thread that will later run inference, so both happen on this
-        # single-worker executor. Loading here and inferring on a different
-        # thread fails with "There is no Stream(gpu, N) in current thread."
-        state.executor = ThreadPoolExecutor(max_workers=1,
-                                            thread_name_prefix="mlx-asr")
-        loop = asyncio.get_running_loop()
-        state.session = await loop.run_in_executor(
-            state.executor, lambda: Session(config.model, dtype=dtype)
-        )
-        logger.info("Model loaded: %s", config.model)
-
-        worker_task = asyncio.create_task(_job_worker())
-        sweeper_task = asyncio.create_task(_ttl_sweeper())
-
-        yield
-
-        worker_task.cancel()
-        sweeper_task.cancel()
-        state.executor.shutdown(wait=False)
-        # Await cancellation to ensure cleanup runs
-        for task in (worker_task, sweeper_task):
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        # One dedicated thread constructs the model and runs every inference.
+        # MLX binds lazily built arrays to the thread that created them, so
+        # loading on the event loop and inferring on an arbitrary pool worker
+        # fails on MLX >= 0.31 with "There is no Stream(gpu, 1) in current
+        # thread" (issue #16). A single worker is enough because inference is
+        # already serialized behind ``inference_lock``.
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mlx-asr")
+        state.executor = executor
+        tasks: list[asyncio.Task] = []
+        try:
+            loop = asyncio.get_running_loop()
+            state.session = await loop.run_in_executor(
+                executor, lambda: Session(config.model, dtype=dtype)
+            )
+            logger.info("Model loaded: %s", config.model)
+            tasks = [
+                asyncio.create_task(_job_worker()),
+                asyncio.create_task(_ttl_sweeper()),
+            ]
+            yield
+        finally:
+            for task in tasks:
+                task.cancel()
+            for task in tasks:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            # Cancelling a task does not stop work already running on the
+            # thread; wait for it off the event loop, then release the thread.
+            # This also runs when Session() itself fails before ``yield``.
+            await asyncio.to_thread(executor.shutdown, wait=True)
 
     app = FastAPI(
         title="mlx-qwen3-asr",
@@ -709,7 +714,7 @@ def _openai_format_response(result: object, fmt: str):
         return PlainTextResponse("", media_type="text/plain")
 
     grouped = group_subtitle_segments(
-        result.segments, language=result.language or ""
+        result.segments, language=result.language or "", text=result.text
     )
 
     if fmt == "srt":

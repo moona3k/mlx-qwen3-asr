@@ -156,14 +156,21 @@ class Session:
         on_progress: Optional[ProgressCallback] = None,
         executor: Optional[ThreadPoolExecutor] = None,
     ) -> TranscriptionResult:
-        """Async wrapper for ``transcribe`` that offloads to a worker thread.
+        """Transcribe audio on a worker thread without blocking the event loop.
 
-        MLX streams are thread-local, so the thread that runs inference must be
-        the same thread the model was loaded on. Callers that load the model on a
-        dedicated thread (see ``server.py``) must pass that thread's ``executor``
-        here; otherwise ``asyncio.to_thread`` picks an arbitrary worker from the
-        default pool and inference fails with
-        ``There is no Stream(gpu, N) in current thread.``
+        Accepts the same keyword arguments as :meth:`transcribe`.
+
+        Args:
+            audio: Audio source (file path, numpy array, mx.array, or
+                ``(array, sample_rate)`` tuple).
+            executor: Optional single-thread executor that owns the model.
+                Long-lived services should construct the ``Session`` on that
+                executor and pass it here so loading and inference share one
+                thread (see ``server.py``). When omitted, the call runs on the
+                default ``asyncio.to_thread`` pool.
+
+        Returns:
+            TranscriptionResult for the audio.
         """
         options = _build_transcribe_options(
             context=context,
