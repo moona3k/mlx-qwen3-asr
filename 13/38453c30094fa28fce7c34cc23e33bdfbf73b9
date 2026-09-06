@@ -1,0 +1,22 @@
+mlx_qwen3_asr/audio.py
+  s_87541436bf054f::t_b29d0c226cafc3 473-479,515
+tests/test_audio.py
+  s_87541436bf054f::t_b29d0c226cafc3 349-351,355-358
+  s_87541436bf054f::t_108a0c9c55e6c5 359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1338453c30094fa28fce7c34cc23e33bdfbf73b9",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
