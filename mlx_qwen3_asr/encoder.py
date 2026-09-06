@@ -9,7 +9,7 @@ import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
-from .attention import _scaled_dot_product_attention
+from .attention import _scaled_dot_product_attention, scalar_int
 from .config import AudioEncoderConfig
 
 # Use segmented per-window execution only once we have enough windows that
@@ -314,7 +314,7 @@ class AudioEncoder(nn.Module):
         all_output_lens = []
 
         for b in range(B):
-            feat_len = int(feature_lens[b].item())
+            feat_len = scalar_int(feature_lens[b])
             mel = input_features[b, :, :feat_len]  # (128, actual_frames)
             features = self._encode_single(mel, chunk_size, n_window_infer)
             all_features.append(features)

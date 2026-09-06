@@ -9,6 +9,7 @@ from typing import Optional
 import mlx.core as mx
 import numpy as np
 
+from .attention import scalar_int
 from .model import Qwen3ASRModel
 
 # Repetition detection constants (from official repo)
@@ -492,9 +493,9 @@ def _sample(logits: mx.array, temperature: float) -> int:
 
     if temperature <= 0.0:
         # Greedy
-        return int(mx.argmax(logits).item())
+        return scalar_int(mx.argmax(logits))
     # Temperature sampling — pass logits directly (categorical expects log-probs)
-    return int(mx.random.categorical(logits / temperature).item())
+    return scalar_int(mx.random.categorical(logits / temperature))
 
 
 def _build_decode_positions(

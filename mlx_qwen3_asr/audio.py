@@ -266,26 +266,25 @@ def _parse_wav_bytes(data: bytes) -> tuple[np.ndarray, int] | None:
 def _decode_pcm_bytes(raw: bytes, sample_width: int) -> np.ndarray | None:
     """Decode PCM bytes from WAV data to float32 in [-1, 1]."""
     if sample_width == 1:
-        x = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
-        return (x - 128.0) / 128.0
+        u8: np.ndarray = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
+        return (u8 - 128.0) / 128.0
 
     if sample_width == 2:
-        x = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
-        return x / 32768.0
+        i16: np.ndarray = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
+        return i16 / 32768.0
 
     if sample_width == 3:
-        b = np.frombuffer(raw, dtype=np.uint8)
-        if len(b) % 3 != 0:
+        if len(raw) % 3 != 0:
             return None
-        b = b.reshape(-1, 3).astype(np.int32)
-        x = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
+        triples: np.ndarray = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3).astype(np.int32)
+        x = triples[:, 0] | (triples[:, 1] << 8) | (triples[:, 2] << 16)
         sign_mask = 1 << 23
         x = np.where((x & sign_mask) != 0, x - (1 << 24), x)
         return x.astype(np.float32) / float(1 << 23)
 
     if sample_width == 4:
-        x = np.frombuffer(raw, dtype=np.int32).astype(np.float32)
-        return x / float(1 << 31)
+        i32: np.ndarray = np.frombuffer(raw, dtype=np.int32).astype(np.float32)
+        return i32 / float(1 << 31)
 
     return None
 

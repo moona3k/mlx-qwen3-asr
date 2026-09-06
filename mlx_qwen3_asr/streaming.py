@@ -8,6 +8,7 @@ from typing import Optional
 import mlx.core as mx
 import numpy as np
 
+from .attention import scalar_int
 from .audio import compute_features
 from .config import DEFAULT_MODEL_ID
 from .generate import (
@@ -367,7 +368,7 @@ def _decode_tokens_incremental(
     generated: list[int] = []
     position = int(start_pos)
     for _ in range(max_new_tokens):
-        token = int(mx.argmax(logits.reshape(-1)).item())
+        token = scalar_int(mx.argmax(logits.reshape(-1)))
         if token in eos_token_ids:
             break
 
