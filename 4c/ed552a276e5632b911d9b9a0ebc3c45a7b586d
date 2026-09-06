@@ -1,0 +1,19 @@
+mlx_qwen3_asr/cli.py
+  s_87541436bf054f::t_44f72d72817fa1 755,781,806-808,810
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4ced552a276e5632b911d9b9a0ebc3c45a7b586d",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
