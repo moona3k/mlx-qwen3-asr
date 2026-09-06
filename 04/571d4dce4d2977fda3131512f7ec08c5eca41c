@@ -1,0 +1,26 @@
+tests/test_diarization.py
+  s_87541436bf054f::t_90030ee4941cf8 878
+  s_87541436bf054f::t_057bebc5e6ac4e 858-860,883-887
+  s_87541436bf054f::t_693f958ddd5435 842-844,879-880
+  s_87541436bf054f::t_6098d1b2c53f9f 830-841,845-857,861-877,881-882,888-892
+mlx_qwen3_asr/diarization.py
+  s_87541436bf054f::t_6098d1b2c53f9f 80-83,85-87,89-90,93-95,97-101,305-325,333-337
+README.md
+  s_87541436bf054f::t_693f958ddd5435 444-448,651
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "04571d4dce4d2977fda3131512f7ec08c5eca41c",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
