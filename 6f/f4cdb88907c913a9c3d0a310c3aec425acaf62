@@ -1,0 +1,24 @@
+mlx_qwen3_asr/mrope.py
+  s_87541436bf054f::t_845904c6c16380 65-67
+mlx_qwen3_asr/encoder.py
+  s_87541436bf054f::t_845904c6c16380 59-63
+tests/test_model.py
+  s_87541436bf054f::t_96dc3780e74368 647-671,677-688
+  s_87541436bf054f::t_845904c6c16380 672-676
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6ff4cdb88907c913a9c3d0a310c3aec425acaf62",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
