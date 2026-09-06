@@ -1,0 +1,32 @@
+mlx_qwen3_asr/encoder.py
+  s_87541436bf054f::t_d39ba5612230f6 12,317
+mlx_qwen3_asr/attention.py
+  s_87541436bf054f::t_d39ba5612230f6 11-20
+mlx_qwen3_asr/generate.py
+  s_87541436bf054f::t_d39ba5612230f6 12,496,498
+mlx_qwen3_asr/model.py
+  s_87541436bf054f::t_d39ba5612230f6 19,144-145,208,227
+mlx_qwen3_asr/streaming.py
+  s_87541436bf054f::t_85af55ba756816 11
+  s_87541436bf054f::t_7a541601dd784d 371
+mlx_qwen3_asr/audio.py
+  s_87541436bf054f::t_8cd7dd715d1005 269,273,279,286
+  s_87541436bf054f::t_d39ba5612230f6 270,274,277,280
+  s_87541436bf054f::t_5b52a2f20476ad 287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "25a2eaa5eedb71b451c17470944bf09d55d7d854",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
