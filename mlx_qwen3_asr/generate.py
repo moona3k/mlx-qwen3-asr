@@ -418,9 +418,23 @@ def generate_speculative_with_info(
         while accepted < num_draft and verify_pred[accepted] == draft_tokens[accepted]:
             accepted += 1
 
-        # Rewind unaccepted speculative steps so both caches match accepted path.
+        # Rewind unaccepted speculative steps so both caches hold exactly the
+        # committed tokens. The target saw all num_draft + 1 verify tokens; the
+        # draft saw only its own inputs (token plus the first num_draft - 1
+        # proposals), so it sits one token behind the target for the same
+        # accepted count and must be trimmed by one less.
         target_cache.trim(num_draft - accepted)
-        draft_cache.trim(num_draft - accepted)
+        if accepted < num_draft:
+            draft_cache.trim(num_draft - accepted - 1)
+        else:
+            # Every proposal was accepted: the draft never consumed its last
+            # one. Feed it so the next round starts from an aligned cache.
+            draft_model.step(
+                input_ids=mx.array([[draft_tokens[-1]]]),
+                position_ids=next_pos_3d[:, :, step - 1 + num_draft : step + num_draft],
+                cache=draft_cache,
+                **unchecked_draft_step_kw,
+            )
 
         stop = False
         for i in range(accepted):

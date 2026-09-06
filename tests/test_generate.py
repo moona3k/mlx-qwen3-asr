@@ -433,12 +433,60 @@ class _SpecDummyModel:
         return self._logits(next_tokens)
 
 
+class _CacheAlignedSpecModel(_SpecDummyModel):
+    """Like _SpecDummyModel, but refuses a token whose position != cache length.
+
+    A real KV cache only works when each fed token sits at exactly the next
+    position; this double turns any target/draft cache drift into an error.
+    """
+
+    def _check(self, position_ids, cache):  # noqa: ANN001
+        pos = int(np.array(position_ids)[0, 0, 0])
+        if pos != cache.offset:
+            raise AssertionError(f"token at position {pos} fed to cache of length {cache.offset}")
+
+    def step(self, input_ids, position_ids, cache):  # noqa: ANN001
+        self._check(position_ids, cache)
+        return super().step(input_ids, position_ids, cache)
+
+    def step_many(self, input_ids, position_ids, cache):  # noqa: ANN001
+        self._check(position_ids, cache)
+        return super().step_many(input_ids, position_ids, cache)
+
+
 class TestGenerateSpeculative:
     def _dummy_inputs(self):
         input_ids = mx.array([[10, 20, 30]])
         audio_features = mx.zeros((1, 2, 4))
         position_ids = mx.zeros((1, 3, 3), dtype=mx.int32)
         return input_ids, audio_features, position_ids
+
+    @pytest.mark.parametrize("agreement", ["all", "none", "partial"])
+    def test_draft_cache_stays_aligned_across_rounds(self, agreement):
+        """Regression: the draft cache fell one token behind per verify round."""
+        target_transitions = {i: i + 1 for i in range(0, 40)}
+        if agreement == "all":
+            draft_transitions = dict(target_transitions)
+        elif agreement == "none":
+            draft_transitions = {i: i + 2 for i in range(0, 40)}
+        else:
+            draft_transitions = {i: (i + 1 if i % 2 else i + 3) for i in range(0, 40)}
+        target = _CacheAlignedSpecModel(transitions=target_transitions, first_token=1)
+        draft = _CacheAlignedSpecModel(transitions=draft_transitions, first_token=1)
+        input_ids, audio_features, position_ids = self._dummy_inputs()
+        cfg = GenerationConfig(
+            max_new_tokens=20, temperature=0.0, eos_token_ids=[999], num_draft_tokens=3
+        )
+        speculative = generate_speculative(
+            model=target,
+            input_ids=input_ids,
+            audio_features=audio_features,
+            position_ids=position_ids,
+            draft_model=draft,
+            draft_audio_features=audio_features,
+            config=cfg,
+        )
+        assert speculative == list(range(1, 21))
 
     def test_matches_greedy_when_target_and_draft_agree(self):
         transitions = {i: i + 1 for i in range(0, 20)}
@@ -507,8 +555,9 @@ class TestGenerateSpeculative:
 
         assert speculative == greedy
         assert any(v > 0 for v in target.last_cache.trim_calls)
-        assert any(v > 0 for v in draft.last_cache.trim_calls)
-        assert target.last_cache.trim_calls == draft.last_cache.trim_calls
+        # The draft consumes one token fewer per round than the target verifies,
+        # so its trims are one smaller; what must match is the resulting length.
+        assert target.last_cache.offset == draft.last_cache.offset
 
     def test_rejects_non_greedy_mode(self):
         transitions = {i: i + 1 for i in range(0, 20)}
