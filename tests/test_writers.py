@@ -260,6 +260,19 @@ class TestSubtitleGrouping:
         )
         assert [g["text"] for g in grouped] == ["The quick brown fox jumps.", "It ran!"]
 
+    def test_korean_keeps_spaces_and_word_cap(self):
+        # Korean is wide-script but space-delimited: it must not be glued together.
+        words = "오늘 날씨가 정말 좋네요 우리 같이 공원에 산책하러 갑시다".split()
+        segments = [
+            {"text": w, "start": i * 0.3, "end": (i + 1) * 0.3} for i, w in enumerate(words)
+        ]
+        text = "오늘 날씨가 정말 좋네요, 우리 같이 공원에 산책하러 갑시다."
+        grouped = group_subtitle_segments(segments, language="Korean", text=text)
+        assert [g["text"] for g in grouped] == [
+            "오늘 날씨가 정말 좋네요,",
+            "우리 같이 공원에 산책하러 갑시다.",
+        ]
+
     def test_speaker_change_starts_new_cue(self):
         segments = [
             {"text": "你好", "start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"},

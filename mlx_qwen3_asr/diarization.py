@@ -14,6 +14,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from .tokenizer import join_text_parts
+
 DEFAULT_SPEAKER_LABEL = "SPEAKER_00"
 DEFAULT_PYANNOTE_MODEL_ID = "pyannote/speaker-diarization-community-1"
 DEFAULT_DIARIZATION_DEVICE = "auto"
@@ -115,14 +117,9 @@ def infer_speaker_turns(
 def diarize_word_segments(
     segments: list[dict],
     *,
-    config: DiarizationConfig,
     speaker_turns: Optional[list[dict]] = None,
-) -> tuple[list[dict], list[dict]]:
-    """Assign speaker labels to word-level segments."""
-    _ = config
-    if not segments:
-        return [], []
-
+) -> list[dict]:
+    """Return copies of word-level segments with a ``speaker`` label attached."""
     turns = speaker_turns or []
     labeled: list[dict] = []
     for seg in segments:
@@ -131,7 +128,7 @@ def diarize_word_segments(
         end = float(item.get("end", start))
         item["speaker"] = _speaker_for_interval(start, end, turns)
         labeled.append(item)
-    return labeled, _merge_speaker_segments(labeled)
+    return labeled
 
 
 def build_speaker_segments_from_turns(
@@ -139,11 +136,13 @@ def build_speaker_segments_from_turns(
     speaker_turns: list[dict],
     word_segments: Optional[list[dict]] = None,
     max_gap_sec: float = 0.2,
+    language: str = "",
 ) -> list[dict]:
     """Build transcript speaker segments from diarization turns.
 
     Unlike ``_merge_speaker_segments``, this keeps empty-text turns so output
     time coverage tracks diarization output even when ASR words are sparse.
+    ``language`` selects the word delimiter (none for Chinese/Japanese).
     """
     if not speaker_turns:
         return []
@@ -191,7 +190,7 @@ def build_speaker_segments_from_turns(
                 "speaker": speaker,
                 "start": start,
                 "end": end,
-                "text": " ".join(text_parts).strip(),
+                "text": join_text_parts(text_parts, language),
             }
         )
 
@@ -204,14 +203,7 @@ def build_speaker_segments_from_turns(
         gap = float(item["start"]) - float(prev["end"])
         if prev["speaker"] == item["speaker"] and gap <= max_gap_sec:
             prev["end"] = max(float(prev["end"]), float(item["end"]))
-            prev_text = str(prev.get("text", "")).strip()
-            next_text = str(item.get("text", "")).strip()
-            if prev_text and next_text:
-                prev["text"] = f"{prev_text} {next_text}".strip()
-            elif next_text:
-                prev["text"] = next_text
-            else:
-                prev["text"] = prev_text
+            prev["text"] = join_text_parts([prev.get("text", ""), item.get("text", "")], language)
         else:
             merged.append(dict(item))
     return merged
@@ -220,11 +212,10 @@ def build_speaker_segments_from_turns(
 def diarize_chunk_items(
     chunks: list[dict],
     *,
-    config: DiarizationConfig,
     speaker_turns: Optional[list[dict]] = None,
+    language: str = "",
 ) -> list[dict]:
     """Fallback speaker segments derived from chunk-level transcript items."""
-    _ = config
     if not chunks:
         return []
     turns = speaker_turns or []
@@ -243,7 +234,7 @@ def diarize_chunk_items(
                 "text": text,
             }
         )
-    return _merge_speaker_segments(items)
+    return _merge_speaker_segments(items, language=language)
 
 
 _PYANNOTE_PIPELINE_CACHE: dict[tuple[str, str, str], object] = {}
@@ -583,7 +574,9 @@ def _speaker_for_interval(start: float, end: float, turns: list[dict]) -> str:
     return best_speaker
 
 
-def _merge_speaker_segments(items: list[dict], *, max_gap_sec: float = 0.8) -> list[dict]:
+def _merge_speaker_segments(
+    items: list[dict], *, language: str = "", max_gap_sec: float = 0.8
+) -> list[dict]:
     """Merge adjacent same-speaker items into longer contiguous turns."""
     if not items:
         return []
@@ -608,7 +601,7 @@ def _merge_speaker_segments(items: list[dict], *, max_gap_sec: float = 0.8) -> l
         gap = start - float(prev["end"])
         if speaker == prev["speaker"] and gap <= max_gap_sec:
             prev["end"] = max(float(prev["end"]), end)
-            prev["text"] = f"{prev['text']} {text}".strip()
+            prev["text"] = join_text_parts([prev["text"], text], language)
         else:
             merged.append(
                 {"speaker": speaker, "start": start, "end": end, "text": text}

@@ -516,10 +516,10 @@ def test_diarize_word_segments_adds_speaker_labels():
         {"text": "hello", "start": 0.1, "end": 0.3},
         {"text": "world", "start": 0.35, "end": 0.6},
     ]
-    labeled, speakers = diarize_word_segments(words, config=cfg)
-    assert labeled[0]["speaker"] == DEFAULT_SPEAKER_LABEL
-    assert speakers[0]["speaker"] == DEFAULT_SPEAKER_LABEL
-    assert speakers[0]["text"] == "hello world"
+    _ = cfg
+    labeled = diarize_word_segments(words)
+    assert [w["speaker"] for w in labeled] == [DEFAULT_SPEAKER_LABEL, DEFAULT_SPEAKER_LABEL]
+    assert words[0].get("speaker") is None, "input segments must not be mutated"
 
 
 def test_diarize_chunk_items_returns_fallback_speaker_segments():
@@ -532,10 +532,40 @@ def test_diarize_chunk_items_returns_fallback_speaker_segments():
         {"text": "hello", "start": 0.0, "end": 0.8},
         {"text": "world", "start": 1.0, "end": 1.5},
     ]
-    speaker_segments = diarize_chunk_items(chunks, config=cfg)
+    _ = cfg
+    speaker_segments = diarize_chunk_items(chunks)
     assert len(speaker_segments) == 1
     assert speaker_segments[0]["speaker"] == DEFAULT_SPEAKER_LABEL
     assert speaker_segments[0]["text"] == "hello world"
+
+
+def test_diarize_chunk_items_joins_chinese_without_spaces():
+    chunks = [
+        {"text": "今天", "start": 0.0, "end": 0.8},
+        {"text": "天气很好", "start": 1.0, "end": 1.5},
+    ]
+    speaker_segments = diarize_chunk_items(chunks, language="Chinese")
+    assert [s["text"] for s in speaker_segments] == ["今天天气很好"]
+
+
+def test_build_speaker_segments_joins_words_by_language():
+    turns = [{"speaker": "SPEAKER_00", "start": 0.0, "end": 2.0}]
+    zh_words = [
+        {"text": "今", "start": 0.1, "end": 0.2, "speaker": "SPEAKER_00"},
+        {"text": "天", "start": 0.2, "end": 0.3, "speaker": "SPEAKER_00"},
+    ]
+    ko_words = [
+        {"text": "오늘", "start": 0.1, "end": 0.2, "speaker": "SPEAKER_00"},
+        {"text": "날씨", "start": 0.2, "end": 0.3, "speaker": "SPEAKER_00"},
+    ]
+    zh = build_speaker_segments_from_turns(
+        speaker_turns=turns, word_segments=zh_words, language="Chinese"
+    )
+    ko = build_speaker_segments_from_turns(
+        speaker_turns=turns, word_segments=ko_words, language="Korean"
+    )
+    assert zh[0]["text"] == "今天"
+    assert ko[0]["text"] == "오늘 날씨"
 
 
 def test_diarize_word_segments_uses_turn_overlap():
@@ -552,14 +582,10 @@ def test_diarize_word_segments_uses_turn_overlap():
         {"text": "hello", "start": 0.1, "end": 0.4},
         {"text": "world", "start": 1.2, "end": 1.6},
     ]
-    labeled, speaker_segments = diarize_word_segments(
-        words,
-        config=cfg,
-        speaker_turns=turns,
-    )
+    _ = cfg
+    labeled = diarize_word_segments(words, speaker_turns=turns)
     assert labeled[0]["speaker"] == "SPEAKER_00"
     assert labeled[1]["speaker"] == "SPEAKER_01"
-    assert len(speaker_segments) == 2
 
 
 def test_build_speaker_segments_from_turns_keeps_empty_turn_text():

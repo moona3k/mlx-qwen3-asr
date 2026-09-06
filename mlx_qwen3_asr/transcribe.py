@@ -38,6 +38,7 @@ from .tokenizer import (
     Tokenizer,
     _TokenizerHolder,
     canonicalize_language,
+    join_text_parts,
     known_language_names,
     language_is_known,
     parse_asr_output,
@@ -50,20 +51,6 @@ generate = generate_with_info
 generate_speculative = generate_speculative_with_info
 AudioInput = Union[str, Path, np.ndarray, mx.array, tuple[np.ndarray, int]]
 ProgressCallback = Callable[[dict[str, Any]], None]
-CJK_LANG_ALIASES = {
-    "chinese",
-    "zh",
-    "zh-cn",
-    "zh-tw",
-    "cantonese",
-    "yue",
-    "japanese",
-    "ja",
-    "jp",
-    "korean",
-    "ko",
-    "kr",
-}
 
 
 @dataclass(frozen=True)
@@ -109,15 +96,6 @@ class TranscribeOptions:
     num_draft_tokens: int = 4
     verbose: bool = False
     on_progress: Optional[ProgressCallback] = None
-
-
-def _join_chunk_texts(texts: list[str], language: str) -> str:
-    """Join per-chunk text while preserving languages without whitespace delimiters."""
-    if not texts:
-        return ""
-    normalized = (language or "").strip().lower()
-    joiner = "" if normalized in CJK_LANG_ALIASES else " "
-    return joiner.join(texts)
 
 
 def _clear_mlx_cache() -> None:
@@ -218,7 +196,8 @@ def _resolve_model_components(
 
 def _resolve_runtime_options(
     options: TranscribeOptions,
-) -> tuple[bool, Optional[ForcedAligner], Optional[DiarizationConfig]]:
+) -> tuple[Optional[ForcedAligner], Optional[DiarizationConfig]]:
+    """Resolve the aligner (timestamps or diarization need one) and diarization config."""
     diarization_config = _resolve_diarization_config(
         diarize=options.diarize,
         diarization_num_speakers=options.diarization_num_speakers,
@@ -230,7 +209,7 @@ def _resolve_runtime_options(
         options.return_timestamps or diarization_config is not None
     )
     aligner = _resolve_aligner(effective_return_timestamps, options.forced_aligner)
-    return effective_return_timestamps, aligner, diarization_config
+    return aligner, diarization_config
 
 
 def transcribe(
@@ -258,7 +237,7 @@ def transcribe(
 
     Pipeline:
     1. Load audio -> mono 16kHz
-    2. Split into chunks if > 1200s
+    2. Split into ~30 s chunks at low-energy points (see chunking.py)
     3. Per chunk: mel spectrogram -> encode -> build prompt -> decode -> parse
     4. Merge chunks
     5. Optional: forced aligner for word-level timestamps
@@ -309,7 +288,7 @@ def transcribe(
         verbose=verbose,
         on_progress=on_progress,
     )
-    _, aligner, diarization_config = _resolve_runtime_options(options)
+    aligner, diarization_config = _resolve_runtime_options(options)
 
     # Load model
     model_obj, model_path = _resolve_model_components(model, dtype=options.dtype)
@@ -455,7 +434,7 @@ def transcribe_batch(
         verbose=verbose,
         on_progress=on_progress,
     )
-    _, aligner, diarization_config = _resolve_runtime_options(options)
+    aligner, diarization_config = _resolve_runtime_options(options)
     model_obj, model_path = _resolve_model_components(model, dtype=options.dtype)
 
     draft_model_obj = _resolve_draft_model(
@@ -861,14 +840,11 @@ def _transcribe_loaded_components(
             sr=SAMPLE_RATE,
             config=diarization_config,
         )
-        labeled_segments, speaker_segments = diarize_word_segments(
-            all_segments,
-            config=diarization_config,
-            speaker_turns=speaker_turns,
-        )
+        labeled_segments = diarize_word_segments(all_segments, speaker_turns=speaker_turns)
         speaker_segments = build_speaker_segments_from_turns(
             speaker_turns=speaker_turns,
             word_segments=labeled_segments or all_segments,
+            language=final_language,
         )
         if return_timestamps:
             out_segments = labeled_segments
@@ -877,15 +853,15 @@ def _transcribe_loaded_components(
             if not fallback_chunks:
                 fallback_chunks = [
                     {
-                        "text": _join_chunk_texts(all_texts, final_language),
+                        "text": join_text_parts(all_texts, final_language),
                         "start": 0.0,
                         "end": total_audio_sec,
                     }
                 ]
             speaker_segments = diarize_chunk_items(
                 fallback_chunks,
-                config=diarization_config,
                 speaker_turns=speaker_turns,
+                language=final_language,
             )
         _emit_progress(
             on_progress,
@@ -914,7 +890,7 @@ def _transcribe_loaded_components(
         },
     )
     return TranscriptionResult(
-        text=_join_chunk_texts(all_texts, final_language),
+        text=join_text_parts(all_texts, final_language),
         language=final_language,
         segments=out_segments,
         chunks=all_chunk_items if return_chunks else None,

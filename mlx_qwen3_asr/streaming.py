@@ -18,7 +18,13 @@ from .generate import (
 from .load_models import _ModelHolder
 from .model import Qwen3ASRModel
 from .runtime_utils import supports_kwarg
-from .tokenizer import Tokenizer, _TokenizerHolder, canonicalize_language, parse_asr_output
+from .tokenizer import (
+    Tokenizer,
+    _TokenizerHolder,
+    canonicalize_language,
+    is_no_space_language,
+    parse_asr_output,
+)
 
 # Streaming constants (from official repo)
 UNFIXED_CHUNK_NUM = 2     # Trailing chunks considered unfixed
@@ -26,21 +32,6 @@ UNFIXED_TOKEN_NUM = 5     # Trailing tokens considered unfixed
 
 _DEFAULT_EOS_TOKEN_IDS = (151643, 151645)
 _ENDPOINTING_MODES = {"fixed", "energy"}
-_CJK_LANG_ALIASES = {
-    "chinese",
-    "zh",
-    "zh-cn",
-    "zh-tw",
-    "cantonese",
-    "yue",
-    "japanese",
-    "ja",
-    "jp",
-    "korean",
-    "ko",
-    "kr",
-}
-
 
 @dataclass
 class StreamingState:
@@ -614,8 +605,7 @@ def _append_chunk_text(current: str, addition: str, language: str) -> str:
     if add.startswith(curr):
         return add
 
-    lang = (language or "").strip().lower()
-    joiner = "" if lang in _CJK_LANG_ALIASES else " "
+    joiner = "" if is_no_space_language(language) else " "
     if joiner == " ":
         curr_units = curr.split()
         add_units = add.split()

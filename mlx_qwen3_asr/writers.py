@@ -7,22 +7,8 @@ import re
 import unicodedata
 from typing import Callable, Optional
 
+from .tokenizer import is_no_space_language
 from .transcribe import TranscriptionResult
-
-_CJK_LANG_ALIASES = {
-    "chinese",
-    "zh",
-    "zh-cn",
-    "zh-tw",
-    "cantonese",
-    "yue",
-    "japanese",
-    "ja",
-    "jp",
-    "korean",
-    "ko",
-    "kr",
-}
 
 
 def write_txt(result: TranscriptionResult, output_path: str) -> None:
@@ -141,13 +127,14 @@ def group_subtitle_segments(
     ``max_gap_sec``, or when adding the next word would exceed ``max_chars``
     display cells (CJK characters count double) or ``max_duration_sec``. A
     clause boundary (comma, semicolon) also ends a cue once it is at least half
-    full. ``max_words`` applies only to space-delimited languages; for CJK the
-    aligner emits one segment per character, so a word cap would cut phrases
-    at arbitrary points (issue #15).
+    full. ``max_words`` applies only to space-delimited languages; for Chinese
+    and Japanese the aligner emits one segment per character, so a word cap
+    would cut phrases at arbitrary points (issue #15). Korean is wide-script
+    but space-delimited, so it keeps spaces and the word cap.
 
     Args:
         segments: Timed word segments ``[{text, start, end, speaker?}, ...]``.
-        language: Transcript language; CJK languages are joined without spaces.
+        language: Transcript language; decides the word delimiter.
         text: Full transcript. The forced aligner drops punctuation, so when
             given, the transcript's punctuation is re-attached to the segments
             before grouping so sentence and clause boundaries can be used.
@@ -163,7 +150,7 @@ def group_subtitle_segments(
         return []
     if text:
         segments = restore_punctuation(segments, text)
-    cjk = _is_cjk_language(language)
+    no_space = is_no_space_language(language)
 
     grouped: list[dict] = []
     current: list[dict] = []
@@ -195,7 +182,7 @@ def group_subtitle_segments(
             start - float(current[-1]["end"]) >= max_gap_sec
             or end - float(current[0]["start"]) > max_duration_sec
             or item["speaker"] != current[-1]["speaker"]
-            or (not cjk and len(current) >= max_words)
+            or (not no_space and len(current) >= max_words)
             or _display_width(candidate_text) > max_chars
             or _ends_sentence(last_text)
             or (_ends_clause(last_text) and _display_width(current_text) * 2 >= max_chars)
@@ -266,10 +253,6 @@ def _is_opening_punct(char: str) -> bool:
     return unicodedata.category(char) in {"Ps", "Pi"}
 
 
-def _is_cjk_language(language: str) -> bool:
-    return str(language or "").strip().lower() in _CJK_LANG_ALIASES
-
-
 def _display_width(text: str) -> int:
     """Terminal-style display width: wide and fullwidth characters count double."""
     return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in text)
@@ -294,7 +277,7 @@ def _join_subtitle_tokens(tokens: list[dict], *, language: str) -> str:
         for item in tokens
         if str(item.get("text", "")).strip()
     ]
-    if _is_cjk_language(language):
+    if is_no_space_language(language):
         return "".join(parts)
 
     joined = " ".join(parts).strip()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 import regex as re
 
@@ -79,6 +79,28 @@ PRETOKENIZE_REGEX = (
     r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}|"
     r" ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"
 )
+
+
+# Languages written without spaces between words. Korean uses a wide script but
+# is space-delimited, so it is deliberately absent.
+NO_SPACE_LANGUAGES: frozenset[str] = frozenset(
+    {"chinese", "zh", "zh-cn", "zh-tw", "cantonese", "yue", "japanese", "ja", "jp"}
+)
+
+
+def is_no_space_language(language: Optional[str]) -> bool:
+    """Return True when ``language`` is written without spaces between words."""
+    key = str(language or "").strip().casefold().replace("_", "-")
+    return key in NO_SPACE_LANGUAGES
+
+
+def join_text_parts(parts: Iterable[str], language: Optional[str]) -> str:
+    """Join transcript fragments with the word delimiter of ``language``.
+
+    Empty fragments are dropped so a blank chunk never yields doubled spaces.
+    """
+    joiner = "" if is_no_space_language(language) else " "
+    return joiner.join(part for part in (str(x).strip() for x in parts) if part)
 
 
 def canonicalize_language(language: Optional[str]) -> Optional[str]:
