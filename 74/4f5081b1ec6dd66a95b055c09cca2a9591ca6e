@@ -1,0 +1,40 @@
+CLAUDE.md
+  s_87541436bf054f::t_72be81274df4b4 3,7,9-10,12-17,19,21,23-25,27-28,30,32,34-37,39-40,42,44,46-51,53,55-62,68-90,95,97-106,108,110-116,118,120-132,134-136,138-142,145,148-149,155,159-164,166,172-194
+docs/ARCHITECTURE.md
+  s_87541436bf054f::t_d1cb95d5c9f2a1 211,215-218,220-222
+docs/archive/README.md
+  s_87541436bf054f::t_d1cb95d5c9f2a1 1-6
+docs/EVAL_GAPS.md
+  s_87541436bf054f::t_d1cb95d5c9f2a1 64
+docs/DECISIONS.md
+  s_87541436bf054f::t_72be81274df4b4 321-394
+docs/RESEARCH.md
+  s_87541436bf054f::t_d1cb95d5c9f2a1 6,307
+README.md
+  s_87541436bf054f::t_d1cb95d5c9f2a1 22,32,707,766-788,800
+  s_87541436bf054f::t_2bd055d8992ec5 808
+docs/memory/operating-memory.md
+  s_87541436bf054f::t_72be81274df4b4 58-60,64-69,73
+scripts/update_readme_stats.py
+  s_87541436bf054f::t_d1cb95d5c9f2a1 81
+docs/QUALITY_GATE.md
+  s_87541436bf054f::t_72be81274df4b4 347-358
+docs/memory/events/2026-09.md
+  s_87541436bf054f::t_72be81274df4b4 1-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "744f5081b1ec6dd66a95b055c09cca2a9591ca6e",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
