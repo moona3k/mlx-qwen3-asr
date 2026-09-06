@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
@@ -111,69 +112,6 @@ def _clear_mlx_cache() -> None:
         metal_clear_cache()
 
 
-def _build_transcribe_options(
-    *,
-    context: str = "",
-    language: Optional[str] = None,
-    return_timestamps: bool = False,
-    diarize: bool = False,
-    diarization_num_speakers: Optional[int] = None,
-    diarization_min_speakers: int = 1,
-    diarization_max_speakers: int = 8,
-    diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
-    return_chunks: bool = False,
-    forced_aligner: Optional[Union[str, ForcedAligner]] = None,
-    dtype: mx.Dtype = mx.float16,
-    max_new_tokens: Optional[int] = None,
-    num_draft_tokens: int = 4,
-    verbose: bool = False,
-    on_progress: Optional[ProgressCallback] = None,
-) -> TranscribeOptions:
-    return TranscribeOptions(
-        context=context or "",
-        language=language,
-        return_timestamps=return_timestamps,
-        diarize=diarize,
-        diarization_num_speakers=diarization_num_speakers,
-        diarization_min_speakers=diarization_min_speakers,
-        diarization_max_speakers=diarization_max_speakers,
-        diarization_device=diarization_device,
-        return_chunks=return_chunks,
-        forced_aligner=forced_aligner,
-        dtype=dtype,
-        max_new_tokens=max_new_tokens,
-        num_draft_tokens=num_draft_tokens,
-        verbose=verbose,
-        on_progress=on_progress,
-    )
-
-
-def _transcribe_options_to_kwargs(
-    options: TranscribeOptions,
-    *,
-    include_dtype: bool = True,
-) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {
-        "context": options.context,
-        "language": options.language,
-        "return_timestamps": options.return_timestamps,
-        "diarize": options.diarize,
-        "diarization_num_speakers": options.diarization_num_speakers,
-        "diarization_min_speakers": options.diarization_min_speakers,
-        "diarization_max_speakers": options.diarization_max_speakers,
-        "diarization_device": options.diarization_device,
-        "return_chunks": options.return_chunks,
-        "forced_aligner": options.forced_aligner,
-        "max_new_tokens": options.max_new_tokens,
-        "num_draft_tokens": options.num_draft_tokens,
-        "verbose": options.verbose,
-        "on_progress": options.on_progress,
-    }
-    if include_dtype:
-        kwargs["dtype"] = options.dtype
-    return kwargs
-
-
 def _resolve_model_components(
     model: Union[str, Qwen3ASRModel],
     *,
@@ -271,8 +209,8 @@ def transcribe(
     Returns:
         TranscriptionResult with text, language, and optional segments
     """
-    options = _build_transcribe_options(
-        context=context,
+    options = TranscribeOptions(
+        context=context or "",
         language=language,
         return_timestamps=return_timestamps,
         diarize=diarize,
@@ -313,67 +251,16 @@ def transcribe(
         audio_np=audio_np,
         model_obj=model_obj,
         tokenizer=tokenizer,
-        dtype=options.dtype,
         draft_model_obj=draft_model_obj,
-        context=options.context,
-        language=options.language,
+        options=options,
         aligner=aligner,
-        return_timestamps=options.return_timestamps,
         diarization_config=diarization_config,
-        return_chunks=options.return_chunks,
-        max_new_tokens=options.max_new_tokens,
-        num_draft_tokens=options.num_draft_tokens,
-        verbose=options.verbose,
-        on_progress=options.on_progress,
     )
 
 
-async def transcribe_async(
-    audio: AudioInput,
-    *,
-    model: Union[str, Qwen3ASRModel] = DEFAULT_MODEL_ID,
-    draft_model: Optional[Union[str, Qwen3ASRModel]] = None,
-    context: str = "",
-    language: Optional[str] = None,
-    return_timestamps: bool = False,
-    diarize: bool = False,
-    diarization_num_speakers: Optional[int] = None,
-    diarization_min_speakers: int = 1,
-    diarization_max_speakers: int = 8,
-    diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
-    return_chunks: bool = False,
-    forced_aligner: Optional[Union[str, ForcedAligner]] = None,
-    dtype: mx.Dtype = mx.float16,
-    max_new_tokens: Optional[int] = None,
-    num_draft_tokens: int = 4,
-    verbose: bool = False,
-    on_progress: Optional[ProgressCallback] = None,
-) -> TranscriptionResult:
-    """Async wrapper for ``transcribe`` using ``asyncio.to_thread``."""
-    options = _build_transcribe_options(
-        context=context,
-        language=language,
-        return_timestamps=return_timestamps,
-        diarize=diarize,
-        diarization_num_speakers=diarization_num_speakers,
-        diarization_min_speakers=diarization_min_speakers,
-        diarization_max_speakers=diarization_max_speakers,
-        diarization_device=diarization_device,
-        return_chunks=return_chunks,
-        forced_aligner=forced_aligner,
-        dtype=dtype,
-        max_new_tokens=max_new_tokens,
-        num_draft_tokens=num_draft_tokens,
-        verbose=verbose,
-        on_progress=on_progress,
-    )
-    return await asyncio.to_thread(
-        transcribe,
-        audio,
-        model=model,
-        draft_model=draft_model,
-        **_transcribe_options_to_kwargs(options),
-    )
+async def transcribe_async(audio: AudioInput, **kwargs: Any) -> TranscriptionResult:
+    """Run :func:`transcribe` on a worker thread; accepts the same keyword arguments."""
+    return await asyncio.to_thread(functools.partial(transcribe, audio, **kwargs))
 
 
 def transcribe_batch(
@@ -418,7 +305,7 @@ def transcribe_batch(
             )
         contexts = [c or "" for c in context]
 
-    options = _build_transcribe_options(
+    options = TranscribeOptions(
         language=language,
         return_timestamps=return_timestamps,
         diarize=diarize,
@@ -461,22 +348,18 @@ def transcribe_batch(
             audio_np=audio_np,
             model_obj=model_obj,
             tokenizer=tokenizer,
-            dtype=options.dtype,
             draft_model_obj=draft_model_obj,
-            context=contexts[index - 1],
-            language=options.language,
-            aligner=aligner,
-            return_timestamps=options.return_timestamps,
-            diarization_config=diarization_config,
-            return_chunks=options.return_chunks,
-            max_new_tokens=options.max_new_tokens,
-            num_draft_tokens=options.num_draft_tokens,
-            verbose=options.verbose,
-            on_progress=_batch_progress_adapter(
-                on_progress=options.on_progress,
-                file_index=index,
-                file_total=total,
+            options=replace(
+                options,
+                context=contexts[index - 1],
+                on_progress=_batch_progress_adapter(
+                    on_progress=options.on_progress,
+                    file_index=index,
+                    file_total=total,
+                ),
             ),
+            aligner=aligner,
+            diarization_config=diarization_config,
         )
         outputs.append(result)
         if options.on_progress is not None:
@@ -492,54 +375,10 @@ def transcribe_batch(
 
 
 async def transcribe_batch_async(
-    audios: list[AudioInput],
-    *,
-    model: Union[str, Qwen3ASRModel] = DEFAULT_MODEL_ID,
-    draft_model: Optional[Union[str, Qwen3ASRModel]] = None,
-    context: Union[str, list[str]] = "",
-    language: Optional[str] = None,
-    return_timestamps: bool = False,
-    diarize: bool = False,
-    diarization_num_speakers: Optional[int] = None,
-    diarization_min_speakers: int = 1,
-    diarization_max_speakers: int = 8,
-    diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
-    return_chunks: bool = False,
-    forced_aligner: Optional[Union[str, ForcedAligner]] = None,
-    dtype: mx.Dtype = mx.float16,
-    max_new_tokens: Optional[int] = None,
-    num_draft_tokens: int = 4,
-    verbose: bool = False,
-    on_progress: Optional[ProgressCallback] = None,
+    audios: list[AudioInput], **kwargs: Any
 ) -> list[TranscriptionResult]:
-    """Async wrapper for ``transcribe_batch`` using ``asyncio.to_thread``."""
-    options = _build_transcribe_options(
-        language=language,
-        return_timestamps=return_timestamps,
-        diarize=diarize,
-        diarization_num_speakers=diarization_num_speakers,
-        diarization_min_speakers=diarization_min_speakers,
-        diarization_max_speakers=diarization_max_speakers,
-        diarization_device=diarization_device,
-        return_chunks=return_chunks,
-        forced_aligner=forced_aligner,
-        dtype=dtype,
-        max_new_tokens=max_new_tokens,
-        num_draft_tokens=num_draft_tokens,
-        verbose=verbose,
-        on_progress=on_progress,
-    )
-    kwargs = _transcribe_options_to_kwargs(options)
-    # Override scalar context from options with the original (possibly list)
-    # context so per-audio context propagates correctly.
-    kwargs["context"] = context
-    return await asyncio.to_thread(
-        transcribe_batch,
-        audios,
-        model=model,
-        draft_model=draft_model,
-        **kwargs,
-    )
+    """Run :func:`transcribe_batch` on a worker thread; accepts the same keyword arguments."""
+    return await asyncio.to_thread(functools.partial(transcribe_batch, audios, **kwargs))
 
 
 def _to_audio_np(audio: AudioInput) -> np.ndarray:
@@ -647,20 +486,26 @@ def _transcribe_loaded_components(
     audio_np: np.ndarray,
     model_obj: Qwen3ASRModel,
     tokenizer: Tokenizer,
-    dtype: mx.Dtype,
     draft_model_obj: Optional[Qwen3ASRModel],
-    context: str = "",
-    language: Optional[str],
+    options: TranscribeOptions,
     aligner: Optional[ForcedAligner],
-    return_timestamps: bool,
     diarization_config: Optional[DiarizationConfig],
-    return_chunks: bool,
-    max_new_tokens: Optional[int],
-    num_draft_tokens: int,
-    verbose: bool,
-    on_progress: Optional[ProgressCallback] = None,
 ) -> TranscriptionResult:
-    """Transcribe using already-loaded model/tokenizer components."""
+    """Transcribe using already-loaded model/tokenizer components.
+
+    ``aligner`` and ``diarization_config`` are resolved by the caller (see
+    ``_resolve_runtime_options``) because both may load models.
+    """
+    dtype = options.dtype
+    context = options.context
+    language = options.language
+    return_timestamps = options.return_timestamps
+    return_chunks = options.return_chunks
+    max_new_tokens = options.max_new_tokens
+    num_draft_tokens = options.num_draft_tokens
+    verbose = options.verbose
+    on_progress = options.on_progress
+
     chunks = split_audio_into_chunks(audio_np, sr=SAMPLE_RATE)
     forced_language = canonicalize_language(language)
     _warn_if_unsupported_language(language, model_obj)

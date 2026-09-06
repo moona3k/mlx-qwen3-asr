@@ -982,84 +982,40 @@ def test_transcribe_async_wrapper(monkeypatch):
     assert result.text == "hello world"
 
 
-def test_option_kwargs_bind_to_every_splat_consumer():
-    """Every key `_transcribe_options_to_kwargs` emits must bind to the
-    signatures that dict is splatted into.
-
-    Adding an option and updating only some consumers is a TypeError raised at
-    call time, from a path a unit test may never exercise -- adding
-    `diarization_device` to the dict while `Session.transcribe` still lacked the
-    parameter broke every async session transcription, including with
-    `diarize=False`.
-    """
-    import inspect
-
-    from mlx_qwen3_asr.session import Session
-    from mlx_qwen3_asr.transcribe import (
-        _build_transcribe_options,
-        _transcribe_options_to_kwargs,
-        transcribe,
-        transcribe_batch,
-    )
-
-    options = _build_transcribe_options()
-    consumers = [
-        (transcribe, _transcribe_options_to_kwargs(options), ("dummy.wav",)),
-        (transcribe_batch, _transcribe_options_to_kwargs(options), (["dummy.wav"],)),
-        (
-            Session.transcribe,
-            _transcribe_options_to_kwargs(options, include_dtype=False),
-            (None, "dummy.wav"),
-        ),
-    ]
-
-    for func, kwargs, args in consumers:
-        try:
-            inspect.signature(func).bind(*args, **kwargs)
-        except TypeError as exc:  # pragma: no cover - failure path is the point
-            pytest.fail(f"{func.__qualname__} cannot accept option kwargs: {exc}")
-
-
 def test_every_public_entry_point_exposes_all_transcribe_options():
-    """The async wrappers are producers, not consumers, of the option dict.
+    """Every `TranscribeOptions` field must be a parameter of each explicit entry
+    point, and the async wrappers must forward arbitrary keyword arguments.
 
-    A wrapper missing a parameter does not raise -- it silently drops the option
-    and the caller gets the default, which is worse than the TypeError the bind
-    test above catches. So check the parameter surface of all six public entry
-    points, not just the three the dict is splatted into.
-
-    `dtype` is deliberately absent from the Session methods: the session owns
-    the model and its dtype, which is what `include_dtype=False` encodes.
+    A wrapper missing a parameter does not raise; it silently drops the option
+    and the caller gets the default. `dtype` is deliberately absent from the
+    Session methods: the session owns the model and its dtype.
     """
+    import dataclasses
     import inspect
 
     from mlx_qwen3_asr.session import Session
     from mlx_qwen3_asr.transcribe import (
-        _build_transcribe_options,
-        _transcribe_options_to_kwargs,
+        TranscribeOptions,
         transcribe,
         transcribe_async,
         transcribe_batch,
         transcribe_batch_async,
     )
 
-    options = _build_transcribe_options()
-    module_level = set(_transcribe_options_to_kwargs(options))
-    session_level = set(_transcribe_options_to_kwargs(options, include_dtype=False))
-
-    surfaces = [
-        (transcribe, module_level),
-        (transcribe_async, module_level),
-        (transcribe_batch, module_level),
-        (transcribe_batch_async, module_level),
-        (Session.transcribe, session_level),
-        (Session.transcribe_async, session_level),
-    ]
-
-    for func, expected in surfaces:
-        params = set(inspect.signature(func).parameters)
-        missing = expected - params
-        assert not missing, (
-            f"{func.__qualname__} does not expose {sorted(missing)}; "
-            "the option would be silently dropped for its callers"
+    fields = {f.name for f in dataclasses.fields(TranscribeOptions)}
+    for func, expected in [
+        (transcribe, fields),
+        (transcribe_batch, fields),
+        (Session.transcribe, fields - {"dtype"}),
+    ]:
+        params = inspect.signature(func).parameters
+        missing = expected - set(params)
+        assert not missing, f"{func.__qualname__} does not expose {sorted(missing)}"
+        inspect.signature(func).bind(
+            *(("dummy.wav",) if func is not Session.transcribe else (None, "dummy.wav")),
+            **{name: getattr(TranscribeOptions(), name) for name in expected},
         )
+
+    for func in (transcribe_async, transcribe_batch_async, Session.transcribe_async):
+        kinds = {p.kind for p in inspect.signature(func).parameters.values()}
+        assert inspect.Parameter.VAR_KEYWORD in kinds, f"{func.__qualname__} must forward **kwargs"
