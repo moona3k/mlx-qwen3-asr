@@ -14,6 +14,10 @@ from typing import Optional
 
 from ._version import __version__
 from .config import DEFAULT_MODEL_ID
+from .diarization import (
+    DEFAULT_DIARIZATION_DEVICE,
+    SUPPORTED_DIARIZATION_DEVICES,
+)
 
 _FFMPEG_REQUIRED_SUFFIXES = {
     ".aac",
@@ -197,7 +201,15 @@ def _run_doctor() -> int:
     return 0
 
 
-def _preflight_diarization_runtime() -> None:
+def _preflight_diarization_runtime(
+    device: str = DEFAULT_DIARIZATION_DEVICE,
+) -> None:
+    """Fail fast when the diarization backend or model access is unusable.
+
+    Args:
+        device: Device the transcription run will use, so preflight warms the
+            same cache entry instead of a second one.
+    """
     if not _has_module_spec("pyannote.audio"):
         print(
             "Error: --diarize requires optional dependency 'pyannote.audio'.",
@@ -237,19 +249,27 @@ def _preflight_diarization_runtime() -> None:
         )
 
     try:
-        _ensure_diarization_backend_ready()
+        _ensure_diarization_backend_ready(device)
     except (ImportError, RuntimeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
 
-def _ensure_diarization_backend_ready() -> None:
-    """Validate diarization backend/model access before transcription starts."""
+def _ensure_diarization_backend_ready(
+    device: str = DEFAULT_DIARIZATION_DEVICE,
+) -> None:
+    """Validate diarization backend/model access before transcription starts.
+
+    Args:
+        device: Device the transcription run will use. Preflight must warm the
+            same device, otherwise the cached pipeline is keyed to a different
+            one and transcription pays for a second load.
+    """
     # Intentional private import: we want to fail fast before spending time
     # on ASR transcription when diarization backend access is invalid.
     from .diarization import _load_pyannote_pipeline
 
-    _load_pyannote_pipeline()
+    _load_pyannote_pipeline(device=device)
 
 
 def _emit_new_stable_text(
@@ -412,6 +432,15 @@ def main():
         type=int,
         default=8,
         help="Maximum speaker count for --diarize auto mode (default: 8).",
+    )
+    parser.add_argument(
+        "--diarize-device",
+        choices=SUPPORTED_DIARIZATION_DEVICES,
+        default=DEFAULT_DIARIZATION_DEVICE,
+        help=(
+            "Device for the pyannote diarization pipeline "
+            "(default: auto -> mps/cuda when available, else cpu)."
+        ),
     )
     parser.add_argument(
         "--forced-aligner",
@@ -620,7 +649,7 @@ def main():
         )
         raise SystemExit(1)
     if args.diarize and not args.streaming and not args.mic:
-        _preflight_diarization_runtime()
+        _preflight_diarization_runtime(args.diarize_device)
 
     # Lazy imports for faster --help
     import mlx.core as mx
@@ -819,6 +848,7 @@ def main():
                     diarization_num_speakers=args.num_speakers,
                     diarization_min_speakers=args.min_speakers,
                     diarization_max_speakers=args.max_speakers,
+                    diarization_device=args.diarize_device,
                     return_chunks=True,
                     forced_aligner=aligner,
                     dtype=dtype,

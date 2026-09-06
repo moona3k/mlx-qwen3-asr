@@ -356,3 +356,69 @@ def test_session_transcribe_async_wrapper(monkeypatch):
 
     out = asyncio.run(session.transcribe_async(np.zeros(10, dtype=np.float32)))
     assert out.text == "ok-async"
+
+
+def _stub_session(monkeypatch, calls):
+    """Session with every heavy dependency replaced, capturing the diarization config."""
+
+    class _DummyTokenizer:
+        def __init__(self, path):  # noqa: ANN001
+            self.path = path
+
+    class _DummyModel:
+        pass
+
+    monkeypatch.setattr(sessmod, "Tokenizer", _DummyTokenizer)
+    monkeypatch.setattr(sessmod, "load_model", lambda model, dtype: (_DummyModel(), object()))
+    monkeypatch.setattr(sessmod, "_resolve_path", lambda model: "/tmp/resolved-model")
+    monkeypatch.setattr(sessmod, "_to_audio_np", lambda audio: np.zeros(160, dtype=np.float32))
+    monkeypatch.setattr(sessmod, "_resolve_aligner", lambda rt, fa: "ALIGNER")
+    monkeypatch.setattr(sessmod, "_resolve_draft_model", lambda **kwargs: None)
+
+    real_resolve = sessmod._resolve_diarization_config
+
+    def spy_resolve(**kwargs):  # noqa: ANN003
+        calls.update(kwargs)
+        return real_resolve(**kwargs)
+
+    monkeypatch.setattr(sessmod, "_resolve_diarization_config", spy_resolve)
+    monkeypatch.setattr(
+        sessmod,
+        "_transcribe_loaded_components",
+        lambda **kwargs: TranscriptionResult(text="ok", language="English"),
+    )
+    return sessmod.Session("repo/a", dtype=mx.float32)
+
+
+def test_session_transcribe_forwards_the_requested_diarization_device(monkeypatch):
+    """Accepting the option is not the same as honouring it.
+
+    `Session.transcribe` built the options with the device but then called
+    `_resolve_diarization_config` without it, so an explicit device was silently
+    replaced by `auto` - the caller got the accelerator they asked not to use.
+    """
+    calls: dict = {}
+    session = _stub_session(monkeypatch, calls)
+
+    session.transcribe(
+        np.zeros(160, dtype=np.float32),
+        diarize=True,
+        diarization_device="cpu",
+    )
+
+    assert calls["diarization_device"] == "cpu"
+
+
+def test_session_transcribe_async_forwards_the_requested_diarization_device(monkeypatch):
+    calls: dict = {}
+    session = _stub_session(monkeypatch, calls)
+
+    asyncio.run(
+        session.transcribe_async(
+            np.zeros(160, dtype=np.float32),
+            diarize=True,
+            diarization_device="cpu",
+        )
+    )
+
+    assert calls["diarization_device"] == "cpu"

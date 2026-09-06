@@ -475,7 +475,7 @@ def test_cli_diarize_preflight_emits_token_hint(monkeypatch, capsys):
     monkeypatch.delenv("PYANNOTE_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
-    monkeypatch.setattr(cli, "_ensure_diarization_backend_ready", lambda: None)
+    monkeypatch.setattr(cli, "_ensure_diarization_backend_ready", lambda device: None)
 
     cli._preflight_diarization_runtime()  # noqa: SLF001
     assert "default pyannote/speaker-diarization-community-1" in capsys.readouterr().err
@@ -489,7 +489,7 @@ def test_cli_diarize_preflight_checks_backend_readiness(monkeypatch):
     monkeypatch.setattr(
         cli,
         "_ensure_diarization_backend_ready",
-        lambda: called.__setitem__("value", True),
+        lambda device: called.__setitem__("value", True),
     )
 
     cli._preflight_diarization_runtime()  # noqa: SLF001
@@ -503,7 +503,7 @@ def test_cli_diarize_preflight_fails_fast_when_backend_unavailable(monkeypatch, 
     monkeypatch.setattr(
         cli,
         "_ensure_diarization_backend_ready",
-        lambda: (_ for _ in ()).throw(RuntimeError("backend unavailable")),
+        lambda device: (_ for _ in ()).throw(RuntimeError("backend unavailable")),
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -586,7 +586,7 @@ def test_cli_diarize_auto_enables_timestamps_and_forwards_args(monkeypatch, tmp_
             str(audio_path),
         ],
     )
-    monkeypatch.setattr(cli, "_preflight_diarization_runtime", lambda: None)
+    monkeypatch.setattr(cli, "_preflight_diarization_runtime", lambda device: None)
     monkeypatch.setattr(transcribe_mod, "transcribe", _fake_transcribe)
     monkeypatch.setattr(writers_mod, "get_writer", lambda fmt: (lambda result, out_path: None))
 
@@ -619,3 +619,25 @@ def test_cli_streaming_rejects_subtitle_formats(monkeypatch, capsys, tmp_path):
         cli.main()
     assert exc.value.code == 1
     assert "require offline transcription" in capsys.readouterr().err
+
+
+def test_cli_diarize_preflight_uses_the_requested_device(monkeypatch):
+    """Preflight must warm the same device the run will use.
+
+    Otherwise it caches a pipeline under a different device key and the
+    transcription pays for a second load - and an explicit --diarize-device cpu
+    would still put the preflight pipeline on the accelerator.
+    """
+    cli = __import__("mlx_qwen3_asr.cli", fromlist=["main"])
+    seen: dict = {}
+
+    monkeypatch.setattr(cli.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(
+        cli,
+        "_ensure_diarization_backend_ready",
+        lambda device: seen.__setitem__("device", device),
+    )
+
+    cli._preflight_diarization_runtime("cpu")  # noqa: SLF001
+
+    assert seen["device"] == "cpu"

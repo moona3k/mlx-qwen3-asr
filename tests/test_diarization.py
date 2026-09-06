@@ -10,8 +10,10 @@ import numpy as np
 import pytest
 
 from mlx_qwen3_asr.diarization import (
+    DEFAULT_DIARIZATION_DEVICE,
     DEFAULT_PYANNOTE_MODEL_ID,
     DEFAULT_SPEAKER_LABEL,
+    _resolve_diarization_device,
     build_speaker_segments_from_turns,
     diarize_chunk_items,
     diarize_word_segments,
@@ -240,7 +242,8 @@ def test_infer_speaker_turns_falls_back_when_pyannote4_exclusive_is_empty(monkey
 def test_infer_speaker_turns_raises_helpful_error_when_dependency_missing(monkeypatch):
     dmod = importlib.import_module("mlx_qwen3_asr.diarization")
 
-    def _raise_import_error():
+    def _raise_import_error(device=DEFAULT_DIARIZATION_DEVICE):
+        _ = device
         raise ImportError("missing pyannote")
 
     monkeypatch.setattr(dmod, "_load_pyannote_pipeline", _raise_import_error)
@@ -376,9 +379,11 @@ def test_load_pyannote_pipeline_uses_pyannote4_token_kwarg(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
     monkeypatch.setenv("PYANNOTE_AUTH_TOKEN", "hf_test")
     monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
-    dmod._load_pyannote_pipeline()  # noqa: SLF001
+    dmod._load_pyannote_pipeline(device="cpu")  # noqa: SLF001
 
     assert calls == {
         "model_id": DEFAULT_PYANNOTE_MODEL_ID,
@@ -406,9 +411,11 @@ def test_load_pyannote_pipeline_defaults_to_token_for_kwargs_signature(monkeypat
     monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
     monkeypatch.setenv("PYANNOTE_AUTH_TOKEN", "hf_test")
     monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
-    dmod._load_pyannote_pipeline()  # noqa: SLF001
+    dmod._load_pyannote_pipeline(device="cpu")  # noqa: SLF001
 
     assert calls == {
         "model_id": DEFAULT_PYANNOTE_MODEL_ID,
@@ -438,7 +445,7 @@ def test_load_pyannote_pipeline_falls_back_to_pyannote3_auth_kwarg(monkeypatch):
     monkeypatch.setenv("PYANNOTE_MODEL_ID", "pyannote/speaker-diarization-3.1")
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
-    dmod._load_pyannote_pipeline()  # noqa: SLF001
+    dmod._load_pyannote_pipeline(device="cpu")  # noqa: SLF001
 
     assert calls == {
         "model_id": "pyannote/speaker-diarization-3.1",
@@ -463,10 +470,12 @@ def test_load_pyannote_pipeline_wraps_from_pretrained_errors(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyannote", fake_pkg)
     monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
     monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
     with pytest.raises(RuntimeError, match="Root cause: RuntimeError: 401 unauthorized"):
-        dmod._load_pyannote_pipeline()  # noqa: SLF001
+        dmod._load_pyannote_pipeline(device="cpu")  # noqa: SLF001
 
 
 def test_load_pyannote_pipeline_rejects_none_return(monkeypatch):
@@ -486,13 +495,15 @@ def test_load_pyannote_pipeline_rejects_none_return(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyannote", fake_pkg)
     monkeypatch.setitem(sys.modules, "pyannote.audio", fake_audio_module)
     monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
     dmod._PYANNOTE_PIPELINE_CACHE.clear()  # noqa: SLF001
 
     with pytest.raises(
         RuntimeError,
         match=r"Root cause: Pipeline\.from_pretrained returned None",
     ):
-        dmod._load_pyannote_pipeline()  # noqa: SLF001
+        dmod._load_pyannote_pipeline(device="cpu")  # noqa: SLF001
 
 
 def test_diarize_word_segments_adds_speaker_labels():
@@ -568,3 +579,251 @@ def test_build_speaker_segments_from_turns_keeps_empty_turn_text():
     assert speaker_segments[0]["text"] == "hello"
     assert speaker_segments[1]["speaker"] == "SPEAKER_01"
     assert speaker_segments[1]["text"] == ""
+
+
+class _FakeBackendFlag:
+    def __init__(self, available: bool):
+        self._available = available
+
+    def is_available(self) -> bool:
+        return self._available
+
+
+class _FakeTorch:
+    """Minimal torch stand-in for device resolution tests."""
+
+    def __init__(self, *, mps: bool = False, cuda: bool = False):
+        self.backends = types.SimpleNamespace(mps=_FakeBackendFlag(mps))
+        self.cuda = _FakeBackendFlag(cuda)
+
+    def device(self, name: str) -> str:
+        return f"device:{name}"
+
+
+class _MovablePipeline:
+    """Fake pipeline that can fail accelerator transfers but accept CPU ones.
+
+    Mirrors pyannote's ``Pipeline.to``, which moves sub-models in a loop: a
+    mid-loop failure leaves earlier components on the accelerator, so the
+    recovery path must be able to move what is left back to CPU.
+    """
+
+    def __init__(self, fail_accelerator: bool = False, fail_cpu: bool = False):
+        self.moved_to: list[str] = []
+        self._fail_accelerator = fail_accelerator
+        self._fail_cpu = fail_cpu
+
+    def to(self, device):
+        is_cpu = str(device).endswith("cpu")
+        if is_cpu and self._fail_cpu:
+            raise RuntimeError("cpu transfer is broken too")
+        if not is_cpu and self._fail_accelerator:
+            self.moved_to.append(f"{device}:partial")
+            raise RuntimeError("backend does not support this op")
+        self.moved_to.append(device)
+        return self
+
+
+def test_validate_diarization_config_defaults_device_to_auto():
+    cfg = validate_diarization_config(
+        num_speakers=None, min_speakers=1, max_speakers=8
+    )
+    assert cfg.device == "auto"
+
+
+def test_validate_diarization_config_rejects_unknown_device():
+    with pytest.raises(ValueError, match="diarization_device"):
+        validate_diarization_config(
+            num_speakers=None, min_speakers=1, max_speakers=8, device="tpu"
+        )
+
+
+@pytest.mark.parametrize(
+    ("mps", "cuda", "expected"),
+    [
+        (True, False, "mps"),
+        (False, True, "cuda"),
+        (False, False, "cpu"),
+        (True, True, "mps"),
+    ],
+)
+def test_resolve_diarization_device_auto_prefers_fastest(mps, cuda, expected):
+    torch_stub = _FakeTorch(mps=mps, cuda=cuda)
+    assert _resolve_diarization_device("auto", torch_stub) == expected
+
+
+def test_resolve_diarization_device_respects_explicit_choice():
+    torch_stub = _FakeTorch(mps=True)
+    assert _resolve_diarization_device("cpu", torch_stub) == "cpu"
+
+
+def test_resolve_diarization_device_survives_torch_without_mps_attr():
+    torch_stub = _FakeTorch()
+    torch_stub.backends = types.SimpleNamespace()
+    assert _resolve_diarization_device("auto", torch_stub) == "cpu"
+
+
+def _isolate_pyannote_env(monkeypatch):
+    """Keep cache-key assertions independent of the developer's environment."""
+    for var in ("PYANNOTE_AUTH_TOKEN", "HUGGINGFACE_TOKEN", "HF_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.delenv("PYANNOTE_MODEL_ID", raising=False)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_UNAVAILABLE_DIARIZATION_DEVICES", set())
+
+
+def _install_fake_pyannote(monkeypatch, pipeline):
+    fake_module = types.ModuleType("pyannote.audio")
+    fake_module.Pipeline = types.SimpleNamespace(
+        from_pretrained=lambda model_id, **kwargs: pipeline
+    )
+    monkeypatch.setitem(sys.modules, "pyannote", types.ModuleType("pyannote"))
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_module)
+
+
+def test_load_pyannote_pipeline_moves_to_resolved_device(monkeypatch):
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", {})
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    pipeline = _MovablePipeline()
+    _install_fake_pyannote(monkeypatch, pipeline)
+
+    loaded = diarization._load_pyannote_pipeline("auto")
+
+    assert loaded is pipeline
+    assert pipeline.moved_to == ["device:mps"]
+
+
+def test_load_pyannote_pipeline_skips_move_for_cpu(monkeypatch):
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", {})
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    pipeline = _MovablePipeline()
+    _install_fake_pyannote(monkeypatch, pipeline)
+
+    diarization._load_pyannote_pipeline("cpu")
+
+    assert pipeline.moved_to == []
+
+
+def test_load_pyannote_pipeline_falls_back_when_move_fails(monkeypatch):
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    cache: dict = {}
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", cache)
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    pipeline = _MovablePipeline(fail_accelerator=True)
+    _install_fake_pyannote(monkeypatch, pipeline)
+
+    with pytest.warns(UserWarning, match="falling back to CPU"):
+        loaded = diarization._load_pyannote_pipeline("auto")
+
+    assert loaded is pipeline
+    # The partially moved pipeline must be pulled back to CPU before caching,
+    # otherwise a later CPU caller inherits a mixed-device pipeline.
+    assert pipeline.moved_to == ["device:mps:partial", "device:cpu"]
+    assert set(cache) == {(DEFAULT_PYANNOTE_MODEL_ID, "", "cpu")}
+
+
+def test_load_pyannote_pipeline_raises_when_cpu_recovery_also_fails(monkeypatch):
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    cache: dict = {}
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", cache)
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    pipeline = _MovablePipeline(fail_accelerator=True, fail_cpu=True)
+    _install_fake_pyannote(monkeypatch, pipeline)
+
+    with pytest.warns(UserWarning), pytest.raises(RuntimeError, match="mixed devices"):
+        diarization._load_pyannote_pipeline("auto")
+
+    assert cache == {}, "an unusable pipeline must never be cached"
+
+
+def test_load_pyannote_pipeline_caches_per_device(monkeypatch):
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    cache: dict = {}
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", cache)
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    _install_fake_pyannote(monkeypatch, _MovablePipeline())
+
+    diarization._load_pyannote_pipeline("cpu")
+    diarization._load_pyannote_pipeline("mps")
+
+    assert {key[2] for key in cache} == {"cpu", "mps"}
+
+
+def test_load_pyannote_pipeline_does_not_retry_a_device_that_already_failed(monkeypatch):
+    """A failed accelerator must be remembered for the rest of the process.
+
+    The fallback pipeline is cached under the CPU key, so without this the next
+    `auto` call misses its own key, reloads the pipeline, retries the same
+    doomed transfer, and warns again - every single call.
+    """
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", {})
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+
+    loads = {"count": 0}
+
+    def _load(model_id, **kwargs):
+        loads["count"] += 1
+        return _MovablePipeline(fail_accelerator=True)
+
+    fake_module = types.ModuleType("pyannote.audio")
+    fake_module.Pipeline = types.SimpleNamespace(from_pretrained=_load)
+    monkeypatch.setitem(sys.modules, "pyannote", types.ModuleType("pyannote"))
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_module)
+
+    with pytest.warns(UserWarning, match="falling back to CPU"):
+        first = diarization._load_pyannote_pipeline("auto")
+    second = diarization._load_pyannote_pipeline("auto")
+
+    assert first is second
+    assert loads["count"] == 1, "the failed accelerator was retried"
+    assert diarization._UNAVAILABLE_DIARIZATION_DEVICES == {
+        (DEFAULT_PYANNOTE_MODEL_ID, "", "mps")
+    }
+
+
+def test_explicit_request_for_a_known_bad_device_resolves_to_cpu(monkeypatch):
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", {})
+    monkeypatch.setattr(
+        diarization,
+        "_UNAVAILABLE_DIARIZATION_DEVICES",
+        {(DEFAULT_PYANNOTE_MODEL_ID, "", "mps")},
+    )
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    pipeline = _MovablePipeline()
+    _install_fake_pyannote(monkeypatch, pipeline)
+
+    diarization._load_pyannote_pipeline("mps")
+
+    assert pipeline.moved_to == [], "a known-bad accelerator must not be retried"
+
+
+def test_failed_device_is_remembered_per_model_not_globally(monkeypatch):
+    """One model failing on MPS must not disable MPS for a different model.
+
+    MPS operator gaps are model-specific, so a process-wide flag would strand
+    every other pipeline on CPU for the rest of the run.
+    """
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", {})
+    monkeypatch.setattr(
+        diarization,
+        "_UNAVAILABLE_DIARIZATION_DEVICES",
+        {("some/other-model", "", "mps")},
+    )
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    pipeline = _MovablePipeline()
+    _install_fake_pyannote(monkeypatch, pipeline)
+
+    diarization._load_pyannote_pipeline("auto")
+
+    assert pipeline.moved_to == ["device:mps"]

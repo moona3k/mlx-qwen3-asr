@@ -12,6 +12,7 @@ import numpy as np
 
 from . import streaming as streaming_mod
 from .config import DEFAULT_MODEL_ID
+from .diarization import DEFAULT_DIARIZATION_DEVICE
 from .forced_aligner import ForcedAligner
 from .load_models import _resolve_path, load_model
 from .model import Qwen3ASRModel
@@ -78,6 +79,7 @@ class Session:
         diarization_num_speakers: Optional[int] = None,
         diarization_min_speakers: int = 1,
         diarization_max_speakers: int = 8,
+        diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
         return_chunks: bool = False,
         forced_aligner: Optional[Union[str, ForcedAligner]] = None,
         max_new_tokens: Optional[int] = None,
@@ -94,6 +96,7 @@ class Session:
             diarization_num_speakers=diarization_num_speakers,
             diarization_min_speakers=diarization_min_speakers,
             diarization_max_speakers=diarization_max_speakers,
+            diarization_device=diarization_device,
             return_chunks=return_chunks,
             forced_aligner=forced_aligner,
             dtype=self.dtype,
@@ -107,6 +110,7 @@ class Session:
             diarization_num_speakers=options.diarization_num_speakers,
             diarization_min_speakers=options.diarization_min_speakers,
             diarization_max_speakers=options.diarization_max_speakers,
+            diarization_device=options.diarization_device,
         )
         effective_return_timestamps = bool(
             options.return_timestamps or diarization_config is not None
@@ -148,6 +152,7 @@ class Session:
         diarization_num_speakers: Optional[int] = None,
         diarization_min_speakers: int = 1,
         diarization_max_speakers: int = 8,
+        diarization_device: str = DEFAULT_DIARIZATION_DEVICE,
         return_chunks: bool = False,
         forced_aligner: Optional[Union[str, ForcedAligner]] = None,
         max_new_tokens: Optional[int] = None,
@@ -180,6 +185,7 @@ class Session:
             diarization_num_speakers=diarization_num_speakers,
             diarization_min_speakers=diarization_min_speakers,
             diarization_max_speakers=diarization_max_speakers,
+            diarization_device=diarization_device,
             return_chunks=return_chunks,
             forced_aligner=forced_aligner,
             dtype=self.dtype,

@@ -980,3 +980,132 @@ def test_transcribe_async_wrapper(monkeypatch):
 
     result = asyncio.run(transcribe_async(np.zeros(3200, dtype=np.float32)))
     assert result.text == "hello world"
+
+
+def test_option_kwargs_bind_to_every_splat_consumer():
+    """Every key `_transcribe_options_to_kwargs` emits must bind to the
+    signatures that dict is splatted into.
+
+    Adding an option and updating only some consumers is a TypeError raised at
+    call time, from a path a unit test may never exercise -- adding
+    `diarization_device` to the dict while `Session.transcribe` still lacked the
+    parameter broke every async session transcription, including with
+    `diarize=False`.
+    """
+    import inspect
+
+    from mlx_qwen3_asr.session import Session
+    from mlx_qwen3_asr.transcribe import (
+        _build_transcribe_options,
+        _transcribe_options_to_kwargs,
+        transcribe,
+        transcribe_batch,
+    )
+
+    options = _build_transcribe_options()
+    consumers = [
+        (transcribe, _transcribe_options_to_kwargs(options), ("dummy.wav",)),
+        (transcribe_batch, _transcribe_options_to_kwargs(options), (["dummy.wav"],)),
+        (
+            Session.transcribe,
+            _transcribe_options_to_kwargs(options, include_dtype=False),
+            (None, "dummy.wav"),
+        ),
+    ]
+
+    for func, kwargs, args in consumers:
+        try:
+            inspect.signature(func).bind(*args, **kwargs)
+        except TypeError as exc:  # pragma: no cover - failure path is the point
+            pytest.fail(f"{func.__qualname__} cannot accept option kwargs: {exc}")
+
+
+def test_every_public_entry_point_exposes_all_transcribe_options():
+    """The async wrappers are producers, not consumers, of the option dict.
+
+    A wrapper missing a parameter does not raise -- it silently drops the option
+    and the caller gets the default, which is worse than the TypeError the bind
+    test above catches. So check the parameter surface of all six public entry
+    points, not just the three the dict is splatted into.
+
+    `dtype` is deliberately absent from the Session methods: the session owns
+    the model and its dtype, which is what `include_dtype=False` encodes.
+    """
+    import inspect
+
+    from mlx_qwen3_asr.session import Session
+    from mlx_qwen3_asr.transcribe import (
+        _build_transcribe_options,
+        _transcribe_options_to_kwargs,
+        transcribe,
+        transcribe_async,
+        transcribe_batch,
+        transcribe_batch_async,
+    )
+
+    options = _build_transcribe_options()
+    module_level = set(_transcribe_options_to_kwargs(options))
+    session_level = set(_transcribe_options_to_kwargs(options, include_dtype=False))
+
+    surfaces = [
+        (transcribe, module_level),
+        (transcribe_async, module_level),
+        (transcribe_batch, module_level),
+        (transcribe_batch_async, module_level),
+        (Session.transcribe, session_level),
+        (Session.transcribe_async, session_level),
+    ]
+
+    for func, expected in surfaces:
+        params = set(inspect.signature(func).parameters)
+        missing = expected - params
+        assert not missing, (
+            f"{func.__qualname__} does not expose {sorted(missing)}; "
+            "the option would be silently dropped for its callers"
+        )
+
+
+def test_every_resolve_diarization_config_call_forwards_all_options():
+    """Accepting an option is not the same as honouring it.
+
+    This bug class bit this feature twice: `Session.transcribe` first failed to
+    *accept* `diarization_device` (a loud TypeError), then accepted it and
+    dropped it before `_resolve_diarization_config` (silent - the caller got the
+    accelerator they asked not to use). A signature check catches the first, not
+    the second.
+
+    So assert the invariant directly: every call site passes every parameter the
+    resolver declares. Adding an option and forgetting one call site fails here
+    instead of silently degrading to the default.
+    """
+    import ast
+    import inspect
+    import pathlib
+
+    from mlx_qwen3_asr.transcribe import _resolve_diarization_config
+
+    expected = {
+        name
+        for name, param in inspect.signature(_resolve_diarization_config).parameters.items()
+        if param.kind is inspect.Parameter.KEYWORD_ONLY
+        or param.default is not inspect.Parameter.empty
+    }
+    assert expected, "resolver has no keyword parameters; test needs updating"
+
+    package = pathlib.Path(inspect.getfile(_resolve_diarization_config)).parent
+    call_sites = []
+    for path in sorted(package.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            if name != "_resolve_diarization_config":
+                continue
+            passed = {kw.arg for kw in node.keywords if kw.arg is not None}
+            call_sites.append((f"{path.name}:{node.lineno}", expected - passed))
+
+    assert call_sites, "no call sites found; the test is not checking anything"
+    offenders = {site: sorted(missing) for site, missing in call_sites if missing}
+    assert not offenders, f"call sites drop options instead of forwarding them: {offenders}"
