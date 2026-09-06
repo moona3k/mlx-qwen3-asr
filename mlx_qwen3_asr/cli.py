@@ -752,6 +752,7 @@ def main():
             language=args.language,
         )
         emitted_stable = ""
+        captured_samples = 0
         try:
             with sd.InputStream(
                 samplerate=args.mic_sample_rate,
@@ -777,6 +778,7 @@ def main():
                     if overflowed and args.verbose:
                         print("Warning: microphone overflow detected.", file=sys.stderr)
                     chunk = np.asarray(data, dtype=np.float32).reshape(-1)
+                    captured_samples += int(chunk.shape[0])
                     state = feed_audio(chunk, state)
                     if not args.quiet:
                         emitted_stable = _emit_new_stable_text(state.stable_text, emitted_stable)
@@ -801,11 +803,12 @@ def main():
                 print(f"\n{result.text}")
         elapsed = time.time() - mic_started
         if args.verbose:
-            duration = elapsed
-            rtf = (elapsed / duration) if duration > 0 else 0.0
+            # Live capture runs at wall-clock speed, so a real-time factor is
+            # meaningless here; report what was captured instead.
+            captured_sec = captured_samples / float(args.mic_sample_rate)
             print(f"\nLanguage: {result.language}", file=sys.stderr)
+            print(f"Captured: {captured_sec:.2f}s of audio", file=sys.stderr)
             print(f"Time: {elapsed:.2f}s", file=sys.stderr)
-            print(f"RTF: {rtf:.4f}x", file=sys.stderr)
 
         if write_output_files:
             stem = datetime.now().strftime("microphone-%Y%m%d-%H%M%S")
