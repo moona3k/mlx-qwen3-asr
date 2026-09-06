@@ -441,6 +441,11 @@ Current status:
 - `PYANNOTE_MODEL_ID` can point to another pyannote pipeline or a local
   offline clone.
 - `--diarize` auto-enables timestamps and is not supported in `--streaming`/`--mic` mode.
+- `--diarize-device {auto,cpu,mps,cuda}` (Python: `diarization_device`) selects
+  where the pyannote pipeline runs. The default `auto` prefers MPS, then CUDA,
+  then CPU; on an M-series Mac this cuts the diarization stage from minutes to
+  seconds with identical output. If the accelerator cannot run the pipeline,
+  the run warns and falls back to CPU.
 - Migration note (2026-02-15): legacy diarization `window/hop` controls were
   removed (`diarization_window_sec`, `diarization_hop_sec`,
   `--diarization-window-sec`, `--diarization-hop-sec`). Speaker-count controls
@@ -643,7 +648,7 @@ Optional microphone flags: `--mic-device`, `--mic-duration-sec`, `--mic-sample-r
 
 ## API reference
 
-### `transcribe(audio, *, model, draft_model, context, language, return_timestamps, diarize, diarization_num_speakers, diarization_min_speakers, diarization_max_speakers, return_chunks, forced_aligner, dtype, max_new_tokens, num_draft_tokens, verbose, on_progress)`
+### `transcribe(audio, *, model, draft_model, context, language, return_timestamps, diarize, diarization_num_speakers, diarization_min_speakers, diarization_max_speakers, diarization_device, return_chunks, forced_aligner, dtype, max_new_tokens, num_draft_tokens, verbose, on_progress)`
 
 Transcribe audio to text. Accepts a file path, numpy array, `mx.array`, or `(array, sample_rate)` tuple. Returns a `TranscriptionResult`.
 

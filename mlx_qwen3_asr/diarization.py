@@ -77,21 +77,28 @@ def infer_speaker_turns(
     audio_np = np.asarray(audio, dtype=np.float32).reshape(-1)
 
     try:
-        diarization = pipeline(_pyannote_input(audio_np, sr), **kwargs)
-    except TypeError as exc:
-        # Some pyannote versions reject speaker-count kwargs.
-        if not _is_retryable_kwargs_type_error(exc):
+        diarization = _run_pyannote(pipeline, audio_np, sr, kwargs)
+    except Exception as exc:
+        device_name = _pipeline_device_name(pipeline)
+        if _pipeline is not None or device_name.startswith("cpu"):
             raise _diarization_runtime_error(exc) from exc
+        # Accelerator operator gaps surface when the pipeline runs, not when it
+        # is moved with ``.to()``. Fall back to CPU rather than losing the
+        # transcription after the ASR work is already done.
         warnings.warn(
-            "pyannote backend rejected speaker-count kwargs; retrying without them.",
+            f"Diarization failed on {device_name} ({type(exc).__name__}: {exc}); "
+            "retrying on CPU.",
             stacklevel=2,
         )
+        _UNAVAILABLE_DIARIZATION_DEVICES.add(
+            (*_pyannote_identity(), device_name.split(":", 1)[0])
+        )
         try:
-            diarization = pipeline(_pyannote_input(audio_np, sr))
-        except Exception as exc:
-            raise _diarization_runtime_error(exc) from exc
-    except Exception as exc:
-        raise _diarization_runtime_error(exc) from exc
+            diarization = _run_pyannote(
+                _load_pyannote_pipeline(device="cpu"), audio_np, sr, kwargs
+            )
+        except Exception as cpu_exc:
+            raise _diarization_runtime_error(cpu_exc) from cpu_exc
 
     turns = _annotation_to_turns(diarization, duration=float(audio_np.shape[0] / sr))
     if not turns:
@@ -295,7 +302,27 @@ def _resolve_torch_device(device: str) -> tuple[Any, str]:
     return torch, _resolve_diarization_device(device, torch)
 
 
-def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
+def _run_pyannote(pipeline: Any, audio_np: np.ndarray, sr: int, kwargs: dict[str, int]) -> Any:
+    """Call the pipeline, retrying without speaker-count kwargs if it rejects them."""
+    try:
+        return pipeline(_pyannote_input(audio_np, sr), **kwargs)
+    except TypeError as exc:
+        if not _is_retryable_kwargs_type_error(exc):
+            raise
+        warnings.warn(
+            "pyannote backend rejected speaker-count kwargs; retrying without them.",
+            stacklevel=3,
+        )
+        return pipeline(_pyannote_input(audio_np, sr))
+
+
+def _pipeline_device_name(pipeline: object) -> str:
+    """Return the device a pyannote pipeline sits on; never-moved pipelines report cpu."""
+    return str(getattr(pipeline, "device", "cpu"))
+
+
+def _pyannote_identity() -> tuple[str, str]:
+    """Return the ``(model_id, token)`` pair that identifies the configured pipeline."""
     model_id = os.environ.get("PYANNOTE_MODEL_ID", DEFAULT_PYANNOTE_MODEL_ID)
     token = (
         os.environ.get("PYANNOTE_AUTH_TOKEN")
@@ -303,6 +330,11 @@ def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
         or os.environ.get("HF_TOKEN")
         or ""
     )
+    return model_id, token
+
+
+def _load_pyannote_pipeline(device: str = DEFAULT_DIARIZATION_DEVICE) -> object:
+    model_id, token = _pyannote_identity()
     torch, resolved_device = _resolve_torch_device(device)
     if (model_id, token, resolved_device) in _UNAVAILABLE_DIARIZATION_DEVICES:
         resolved_device = "cpu"

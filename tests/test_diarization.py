@@ -827,3 +827,66 @@ def test_failed_device_is_remembered_per_model_not_globally(monkeypatch):
     diarization._load_pyannote_pipeline("auto")
 
     assert pipeline.moved_to == ["device:mps"]
+
+
+class _CallFailsOnAcceleratorPipeline(_MovablePipeline):
+    """Moves fine but raises when called on an accelerator (MPS operator gap)."""
+
+    def __init__(self):
+        super().__init__()
+        self.device = "cpu"
+        self.called_on: list[str] = []
+
+    def to(self, device):
+        super().to(device)
+        # Real torch.device strings look like "mps" / "cuda:0"; the fake torch
+        # builds "device:mps", so keep only the trailing device name here.
+        self.device = str(device).rsplit(":", 1)[-1]
+        return self
+
+    def __call__(self, payload, **kwargs):  # noqa: ANN001
+        self.called_on.append(str(self.device))
+        if not str(self.device).endswith("cpu"):
+            raise NotImplementedError("aten::foo is not implemented for the MPS device")
+        return _FakeAnnotation([(0.0, 1.0, "A")])
+
+
+def test_infer_speaker_turns_retries_on_cpu_when_accelerator_inference_fails(monkeypatch):
+    _isolate_pyannote_env(monkeypatch)
+    diarization = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(diarization, "_PYANNOTE_PIPELINE_CACHE", {})
+    monkeypatch.setattr(
+        diarization, "_pyannote_input", lambda audio, sr: {"waveform": audio, "sample_rate": sr}
+    )
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch(mps=True))
+    pipelines: list[_CallFailsOnAcceleratorPipeline] = []
+
+    def _from_pretrained(model_id, **kwargs):  # noqa: ANN001
+        pipelines.append(_CallFailsOnAcceleratorPipeline())
+        return pipelines[-1]
+
+    fake_module = types.ModuleType("pyannote.audio")
+    fake_module.Pipeline = types.SimpleNamespace(from_pretrained=_from_pretrained)
+    monkeypatch.setitem(sys.modules, "pyannote", types.ModuleType("pyannote"))
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_module)
+
+    cfg = validate_diarization_config(num_speakers=None, min_speakers=1, max_speakers=8)
+    audio = np.zeros(16000, dtype=np.float32)
+    with pytest.warns(UserWarning, match="retrying on CPU"):
+        turns = diarization.infer_speaker_turns(audio, sr=16000, config=cfg)
+
+    assert [(t["speaker"], t["start"], t["end"]) for t in turns] == [("SPEAKER_00", 0.0, 1.0)]
+    assert [p.called_on for p in pipelines] == [["mps"], ["cpu"]]
+    assert (DEFAULT_PYANNOTE_MODEL_ID, "", "mps") in diarization._UNAVAILABLE_DIARIZATION_DEVICES
+
+
+def test_infer_speaker_turns_does_not_retry_for_injected_pipeline(monkeypatch):
+    dmod = importlib.import_module("mlx_qwen3_asr.diarization")
+    monkeypatch.setattr(
+        dmod, "_pyannote_input", lambda audio, sr: {"waveform": audio, "sample_rate": sr}
+    )
+    pipe = _CallFailsOnAcceleratorPipeline()
+    pipe.device = "mps"
+    cfg = validate_diarization_config(num_speakers=None, min_speakers=1, max_speakers=8)
+    with pytest.raises(RuntimeError, match="diarization inference failed"):
+        infer_speaker_turns(np.zeros(16000, dtype=np.float32), sr=16000, config=cfg, _pipeline=pipe)
