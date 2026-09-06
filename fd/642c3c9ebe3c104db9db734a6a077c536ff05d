@@ -1,0 +1,26 @@
+mlx_qwen3_asr/transcribe.py
+  s_87541436bf054f::t_d2586697458b26 6,8,212-213,255,261-263,308,352-360,378,380-381,490,494-508
+tests/test_session.py
+  s_87541436bf054f::t_e89bf5da2e35cb 64-65
+  s_87541436bf054f::t_2141ae42242824 32-40,52-54,56-62,68-69,71-74,91,95-96,98,102,106-107,109,118-120
+mlx_qwen3_asr/session.py
+  s_87541436bf054f::t_d2586697458b26 23,26,90-91,107,114,118,128,130,140,145
+tests/test_transcribe.py
+  s_87541436bf054f::t_d2586697458b26 986-987,989-991,993,998,1005-1016,1018-1021
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fd642c3c9ebe3c104db9db734a6a077c536ff05d",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": null
+    }
+  }
+}
