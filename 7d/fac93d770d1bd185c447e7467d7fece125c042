@@ -1,0 +1,34 @@
+tests/test_writers.py
+  s_87541436bf054f::t_c0082cc7baa7e3 269-270
+  s_87541436bf054f::t_d91e5314412fc2 263-268,271-275
+mlx_qwen3_asr/diarization.py
+  s_87541436bf054f::t_73cc7f45ece81b 17-18,121-122,131,139,145,193,206,216,237,577-579,604
+mlx_qwen3_asr/streaming.py
+  s_87541436bf054f::t_18603fa6c14ec3 21-27,608
+mlx_qwen3_asr/tokenizer.py
+  s_87541436bf054f::t_627c0ff60f2a59 7,84-105
+mlx_qwen3_asr/transcribe.py
+  s_87541436bf054f::t_5ba69b08b5606b 41,199-200,212,240,291,437,843,847,856,864,893
+mlx_qwen3_asr/writers.py
+  s_87541436bf054f::t_e66d8dbaf68bc7 10,130-133,137,153,185,280
+tests/test_diarization.py
+  s_87541436bf054f::t_c3ed7116c8185c 519-522,535-536,542-570,585-586
+tests/test_tokenizer.py
+  s_87541436bf054f::t_dfc4a203d13ea2 346-359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "7dfac93d770d1bd185c447e7467d7fece125c042",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
