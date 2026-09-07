@@ -1,0 +1,52 @@
+docs/memory/events/2026-09.md
+  s_87541436bf054f::t_a3783a949655a7 143-145
+docs/BENCHMARKS.md
+  s_87541436bf054f::t_f11d4f2a3d1e0e 11-12,30,239,241-242,249,251-252,265,269,275-277,279,283-284,287-294,296,300-302,305-306,308-315,317-318,320,322,428-429
+README.md
+  s_87541436bf054f::t_f11d4f2a3d1e0e 289,297,299
+  s_87541436bf054f::t_a3783a949655a7 353,355
+docs/benchmarks/2026-09-07-quality-matrix-refresh.md
+  s_87541436bf054f::t_f11d4f2a3d1e0e 148-166
+docs/benchmarks/2026-09-07-quality-head2head-mlx-vs-pytorch-longform10.json
+  s_87541436bf054f::t_f13f76c364948a 1-320
+docs/benchmarks/2026-09-07-quality-head2head-mlx-vs-pytorch-longform10.md
+  s_87541436bf054f::t_d077b53c7d05f8 1-13
+docs/benchmarks/2026-09-07-quality-head2head-mlx-vs-pytorch-multilingual100.json
+  s_f004fcd19ae182::t_53566ef23c8471 1-1760
+docs/benchmarks/2026-09-07-quality-head2head-mlx-vs-pytorch-multilingual100.md
+  s_f004fcd19ae182::t_2c0d271d4dd488 1-13
+docs/benchmarks/2026-09-07-quality-head2head-mlx-vs-pytorch-test-other100.json
+  s_87541436bf054f::t_3a8e278d34d058 1-1126
+docs/benchmarks/2026-09-07-quality-head2head-mlx-vs-pytorch-test-other100.md
+  s_87541436bf054f::t_9e2475381a88f3 1-15
+docs/benchmarks/2026-09-07-reference-parity-suite-multilingual100-analysis.json
+  s_87541436bf054f::t_d2e4795c4bf3a9 1-267
+docs/benchmarks/2026-09-07-reference-parity-suite-multilingual100-analysis.md
+  s_87541436bf054f::t_59b5972ee95c5d 1-50
+docs/benchmarks/2026-09-07-reference-parity-suite-multilingual100.json
+  s_87541436bf054f::t_a3581c2f3ae10c 1-2317
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1e28932dac8e2c68b34c29f32e2be338ffc1c852",
+  "prompts": {},
+  "sessions": {
+    "s_87541436bf054f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f514400f-a30b-4117-a759-562e3e750260",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    },
+    "s_f004fcd19ae182": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e565480c-1956-49c5-8c55-0bf3a90ccde4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
