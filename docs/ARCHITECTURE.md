@@ -51,6 +51,16 @@ output_lengths = ((feat_lengths - 1) // 2 + 1 - 1) // 2 + 1 + (input_lengths // 
 Implication: exact multiples of 100 frames produce 13 tokens per chunk
 (e.g., 400 -> 52, 1000 -> 130).
 
+**Tail chunk padding.** The official encoder runs `pad_sequence` over a
+sample's chunks before the conv stem, then keeps only the first
+`ceil(tail_frames / 8)` post-CNN tokens of the tail. A tail that follows at
+least one full chunk is therefore convolved at width 100, not at its own
+width; because the conv biases are non-zero and GELU follows each layer, the
+two are not equivalent and the last valid tail token differs. `_encode_single`
+mirrors this: it right-pads such tails to `chunk_size` and crops the output.
+An input shorter than one chunk is convolved at its own width, matching
+`pad_sequence` on a single element.
+
 ### Sinusoidal Position Embeddings
 
 Fixed (not learned) sinusoidal embeddings added after the conv stem:
