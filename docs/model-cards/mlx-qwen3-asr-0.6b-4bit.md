@@ -66,7 +66,7 @@ greedy decoding, Apple M4 Pro, MLX 0.30.6:
 | `Qwen/Qwen3-ASR-0.6B` fp16 | 2.33% | 0.59% |
 | **this artifact (4-bit g64)** | **2.63%** | **0.93%** |
 
-Hypotheses: 1 of 100 hypotheses differs from fp16 (`fifteenth` vs `15th`).
+Hypotheses: 28 of 100 hypotheses differ from fp16, mostly proper-noun spellings (`tintoret` vs `tintaret`, `hawkeye` vs `hawkey`) plus a few word substitutions; 1 of 100 differs from the committed 4-bit matrix run of 2026-09-07 (`fifteenth` vs `15th`).
 
 Latency envelope from the committed quantization matrix
 (`docs/benchmarks/2026-09-07-quant-matrix-test-clean-speaker100.md`, 0.6B):
@@ -77,7 +77,7 @@ repository under `docs/benchmarks/2026-09-19-quantized-artifacts-*.json`.
 ## Reproduce
 
 ```bash
-git clone https://github.com/moona3k/mlx-qwen3-asr && cd mlx-qwen3-asr  # commit 5479ea7
+git clone https://github.com/moona3k/mlx-qwen3-asr && cd mlx-qwen3-asr  # commit ae642d8
 python scripts/convert.py --model Qwen/Qwen3-ASR-0.6B --quantize 4 --group-size 64 \
   --dtype float16 --output-dir Qwen3-ASR-0.6B-4bit-g64
 python scripts/eval_librispeech.py --model Qwen3-ASR-0.6B-4bit-g64 --samples 100 --sampling speaker_round_robin

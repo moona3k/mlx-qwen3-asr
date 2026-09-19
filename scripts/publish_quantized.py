@@ -24,11 +24,17 @@ temporary directory, and ``--skip-upload`` to stop after conversion.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+try:
+    import _repo_path  # noqa: F401
+except ModuleNotFoundError:  # invoked as ``python -m scripts.<name>``
+    from scripts import _repo_path  # noqa: F401
 
 REQUIRED_FILES = ("config.json", "vocab.json", "merges.txt", "quantization_config.json")
 
@@ -71,12 +77,37 @@ def _default_card(args: argparse.Namespace) -> str:
     )
 
 
-def _validate_dir(model_dir: Path) -> None:
+def _validate_dir(model_dir: Path, *, load_check: bool = True) -> dict:
+    """Check the artifact layout, read its quantization metadata, and load it once.
+
+    Returns the parsed ``quantization_config.json``. The load check runs the
+    real loader so a truncated or mismatched tensor file fails here rather
+    than on a user's machine.
+    """
     missing = [name for name in REQUIRED_FILES if not (model_dir / name).exists()]
     if not any(model_dir.glob("*.safetensors")):
         missing.append("*.safetensors")
     if missing:
         raise SystemExit(f"{model_dir} is missing: {', '.join(missing)}")
+    quant_cfg = json.loads((model_dir / "quantization_config.json").read_text(encoding="utf-8"))
+    if int(quant_cfg.get("bits", 0)) not in (4, 8) or int(quant_cfg.get("group_size", 0)) <= 0:
+        raise SystemExit(f"{model_dir}/quantization_config.json is not a valid 4/8-bit config")
+    if load_check:
+        from mlx_qwen3_asr import load_model
+
+        print(f"Load check: {model_dir}")
+        model, _ = load_model(str(model_dir))
+        del model
+    return quant_cfg
+
+
+def _require_empty_dir(path: Path) -> None:
+    if path.exists() and any(path.iterdir()):
+        raise SystemExit(
+            f"{path} is not empty; conversion overwrites only its own files and the whole "
+            "directory is uploaded, so stale tensors would be published. Use an empty directory."
+        )
+    path.mkdir(parents=True, exist_ok=True)
 
 
 def _upload(model_dir: Path, args: argparse.Namespace, token: str) -> None:
@@ -132,6 +163,11 @@ def main() -> None:
         help="Keep converted files here instead of a temporary directory",
     )
     parser.add_argument("--skip-upload", action="store_true", help="Convert only")
+    parser.add_argument(
+        "--skip-load-check",
+        action="store_true",
+        help="Do not load the artifact with mlx_qwen3_asr.load_model before uploading",
+    )
     parser.add_argument("--commit-message", default=None, help="Override the upload commit message")
     parser.add_argument("--private", action="store_true", help="Create the target repo as private")
     args = parser.parse_args()
@@ -143,9 +179,15 @@ def main() -> None:
     if not token and not args.skip_upload:
         raise RuntimeError("Set HF_TOKEN (or HUGGINGFACE_HUB_TOKEN) before publishing.")
 
+    load_check = not args.skip_load_check
+
     if args.from_dir is not None:
         model_dir = Path(args.from_dir).expanduser().resolve()
-        _validate_dir(model_dir)
+        quant_cfg = _validate_dir(model_dir, load_check=load_check)
+        # Take the quantization settings from the artifact itself so the card
+        # and commit message never report a guessed or missing value.
+        args.bits = int(quant_cfg["bits"])
+        args.group_size = int(quant_cfg["group_size"])
         if not (model_dir / "README.md").exists():
             (model_dir / "README.md").write_text(_default_card(args), encoding="utf-8")
         if not args.skip_upload:
@@ -154,11 +196,10 @@ def main() -> None:
 
     if args.output_dir is not None:
         out_dir = Path(args.output_dir).expanduser().resolve()
-        out_dir.mkdir(parents=True, exist_ok=True)
+        _require_empty_dir(out_dir)
         _convert(args, out_dir)
-        _validate_dir(out_dir)
-        if not (out_dir / "README.md").exists():
-            (out_dir / "README.md").write_text(_default_card(args), encoding="utf-8")
+        _validate_dir(out_dir, load_check=load_check)
+        (out_dir / "README.md").write_text(_default_card(args), encoding="utf-8")
         if not args.skip_upload:
             _upload(out_dir, args, token or "")
         return
@@ -166,7 +207,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="mlx-qwen3-asr-quant-") as tmpdir:
         out_dir = Path(tmpdir) / "model"
         _convert(args, out_dir)
-        _validate_dir(out_dir)
+        _validate_dir(out_dir, load_check=load_check)
         (out_dir / "README.md").write_text(_default_card(args), encoding="utf-8")
         if not args.skip_upload:
             _upload(out_dir, args, token or "")

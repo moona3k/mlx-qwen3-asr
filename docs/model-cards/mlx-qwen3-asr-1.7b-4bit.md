@@ -77,7 +77,7 @@ repository under `docs/benchmarks/2026-09-19-quantized-artifacts-*.json`.
 ## Reproduce
 
 ```bash
-git clone https://github.com/moona3k/mlx-qwen3-asr && cd mlx-qwen3-asr  # commit 5479ea7
+git clone https://github.com/moona3k/mlx-qwen3-asr && cd mlx-qwen3-asr  # commit ae642d8
 python scripts/convert.py --model Qwen/Qwen3-ASR-1.7B --quantize 4 --group-size 64 \
   --dtype float16 --output-dir Qwen3-ASR-1.7B-4bit-g64
 python scripts/eval_librispeech.py --model Qwen3-ASR-1.7B-4bit-g64 --samples 100 --sampling speaker_round_robin
