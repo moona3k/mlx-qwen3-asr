@@ -101,15 +101,16 @@ make broad "production-grade across languages/conditions" quality claims.
      window every chunk (RTF 0.18 on 75 s clips with a 30 s window).
    - Candidates: cache encoder output per 100-frame chunk across re-decodes;
      overlap windows at commit so boundary words are not cut.
-2. `P2` Streaming lane in the release gate
-   - Why: the strict release gate still checks a single fixture; the
-     manifest lane with reference scoring is what caught the regression.
-   - Candidate: `RUN_STREAMING_MANIFEST_QUALITY_EVAL=1` with a primary-error
-     ceiling relative to the offline artifact.
+2. Streaming lane in the release gate: closed 2026-09-19.
+   `scripts/eval_streaming_manifest.py` scores `final_text` against manifest
+   references itself (`quality_vs_reference`, schema v1.2) and the strict
+   release gate runs it by default against the multilingual-100 manifest with
+   a ceiling of offline primary error + 3pp. A test re-scores the committed
+   pre-fix artifact and asserts the gate fails it (`docs/QUALITY_GATE.md`).
 
 ## Follow-up Order
 
-1. Add reference scoring (`quality_vs_reference`) to
-   `scripts/eval_streaming_manifest.py` itself so the lane reports quality
-   without a separate script.
-2. Gate the streaming manifest lane in strict release mode.
+1. Extend the strict streaming ceiling to the long-form lane
+   (`2026-09-07-fleurs-longform-10x75-manifest.jsonl` against
+   `2026-09-07-manifest-quality-longform10-0p6b.json`) once the P2 encoder
+   caching / window-overlap work lands, so boundary regressions are gated too.

@@ -79,8 +79,10 @@ Promote to distilled learnings when:
 4. Any decode path that departs from how the model was prompted in training
    (streaming, speculative, chunking) needs a lane that scores its output
    against references before it ships. Stability and latency metrics alone
-   passed a decoder that was 56% wrong.
-   - refs: `MEM-2026-09-19-011`
+   passed a decoder that was 56% wrong. When building such a gate, prove it
+   against the committed failing artifact in a test, not just against the
+   current passing one.
+   - refs: `MEM-2026-09-19-011`, `MEM-2026-09-19-013`
 5. Judge numerics changes by the measurement closest to the change (encoder
    output vs the fp32 reference), not by downstream greedy token match, which
    flips on borderline fp16 decisions in both directions. Record the reference
@@ -99,10 +101,9 @@ Promote to distilled learnings when:
 
 1. Memory updates are currently social-process enforced, not CI-enforced.
    - refs: `MEM-2026-02-16-001`, `MEM-2026-02-16-002`
-2. The streaming gate still cannot catch a repeat of the 2026-09-19 failure:
-   reference scoring lives in an ad-hoc script and in artifacts, not in
-   `eval_streaming_manifest.py` or the strict release gate.
-   - refs: `MEM-2026-09-19-011`; work item in `docs/ROADMAP.md` "Handoff".
+2. The strict streaming ceiling covers only the multilingual-100 manifest;
+   the long-form lane (boundary duplicates/drops) is scored but not gated.
+   - refs: `MEM-2026-09-19-013`; follow-up in `docs/EVAL_GAPS.md`.
 3. The forced aligner has not been audited since February; it has its own
    encoder path and was not checked against the newest MLX or after #21.
    - refs: `MEM-2026-09-19-011`

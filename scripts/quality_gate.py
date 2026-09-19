@@ -342,6 +342,15 @@ def _run_streaming_quality_gate(
     )
 
 
+STREAMING_MANIFEST_STRICT_DEFAULT_MANIFEST = (
+    "docs/benchmarks/2026-09-07-fleurs-multilingual-100-manifest.jsonl"
+)
+STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_JSON = (
+    "docs/benchmarks/2026-09-07-manifest-quality-multilingual100-0p6b.json"
+)
+STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_PP = "3.0"
+
+
 def _run_streaming_manifest_quality_gate(
     *,
     repo: Path,
@@ -349,6 +358,16 @@ def _run_streaming_manifest_quality_gate(
     strict_release: bool,
 ) -> StepResult:
     manifest_jsonl = os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_JSONL")
+    offline_json = os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON")
+    if strict_release and not manifest_jsonl:
+        # Strict release anchors on the committed multilingual-100 manifest and
+        # its offline artifact so the reference ceiling always has a baseline.
+        default_manifest = repo / STREAMING_MANIFEST_STRICT_DEFAULT_MANIFEST
+        default_offline = repo / STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_JSON
+        if default_manifest.exists():
+            manifest_jsonl = str(default_manifest)
+            if offline_json is None and default_offline.exists():
+                offline_json = str(default_offline)
     if not manifest_jsonl:
         return StepResult(
             name="streaming-manifest-quality",
@@ -432,6 +451,40 @@ def _run_streaming_manifest_quality_gate(
             "32",
         ),
     ]
+    if offline_json:
+        offline_path = Path(offline_json).expanduser().resolve()
+        if not offline_path.exists():
+            return StepResult(
+                name="streaming-manifest-quality",
+                cmd="scripts/eval_streaming_manifest.py --manifest-jsonl <path>",
+                passed=False,
+                duration_sec=0.0,
+                returncode=1,
+                note=f"Offline quality artifact not found: {offline_path}",
+            )
+        cmd.extend(["--offline-quality-json", str(offline_path)])
+        offline_pp = os.environ.get(
+            "STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE_OFFLINE_PP",
+            STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_PP if strict_release else "",
+        )
+        if offline_pp:
+            cmd.extend(["--fail-primary-above-offline-pp", offline_pp])
+    elif strict_release:
+        return StepResult(
+            name="streaming-manifest-quality",
+            cmd="scripts/eval_streaming_manifest.py --manifest-jsonl <path>",
+            passed=False,
+            duration_sec=0.0,
+            returncode=1,
+            note=(
+                "Strict release requires STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON "
+                "(offline eval_manifest_quality artifact for the same manifest) so the "
+                "reference-scored ceiling has a baseline"
+            ),
+        )
+    fail_primary = os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE")
+    if fail_primary:
+        cmd.extend(["--fail-primary-above", fail_primary])
     limit = os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_LIMIT")
     if limit:
         cmd.extend(["--limit", limit])
@@ -906,7 +959,7 @@ def run_gate(mode: str, repo: Path, python_bin: str) -> tuple[list[StepResult], 
             )
         if os.environ.get(
             "RUN_STREAMING_MANIFEST_QUALITY_EVAL",
-            "0",
+            "1" if strict_release else "0",
         ) == "1":
             steps.append(
                 _run_streaming_manifest_quality_gate(

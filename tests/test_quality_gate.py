@@ -270,7 +270,10 @@ def test_streaming_manifest_quality_gate_passes_and_uses_threshold_defaults(
         "audio_path": str(audio),
     }
     manifest.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    offline = tmp_path / "offline.json"
+    offline.write_text("{}", encoding="utf-8")
     monkeypatch.setenv("STREAMING_MANIFEST_QUALITY_EVAL_JSONL", str(manifest))
+    monkeypatch.setenv("STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON", str(offline))
 
     called: dict[str, object] = {}
 
@@ -299,3 +302,113 @@ def test_streaming_manifest_quality_gate_passes_and_uses_threshold_defaults(
     assert cmd[idx + 1] == "0.85"
     idx = cmd.index("--fail-rewrite-rate-above")
     assert cmd[idx + 1] == "0.85"
+    idx = cmd.index("--offline-quality-json")
+    assert cmd[idx + 1] == str(offline.resolve())
+    idx = cmd.index("--fail-primary-above-offline-pp")
+    assert cmd[idx + 1] == "3.0"
+
+
+def test_streaming_manifest_quality_gate_strict_requires_offline_artifact(
+    monkeypatch,
+    tmp_path,
+):
+    qg = _load_quality_gate_module()
+    manifest = tmp_path / "streaming_manifest.jsonl"
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"RIFF")
+    manifest.write_text(
+        json.dumps({"sample_id": "s1", "audio_path": str(audio)}) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("STREAMING_MANIFEST_QUALITY_EVAL_JSONL", str(manifest))
+    monkeypatch.delenv("STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON", raising=False)
+
+    step = qg._run_streaming_manifest_quality_gate(
+        repo=tmp_path,
+        python_bin="python",
+        strict_release=True,
+    )
+
+    assert not step.passed
+    assert "STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON" in step.note
+
+
+def test_streaming_manifest_quality_gate_strict_defaults_to_committed_manifest(
+    monkeypatch,
+    tmp_path,
+):
+    qg = _load_quality_gate_module()
+    monkeypatch.delenv("STREAMING_MANIFEST_QUALITY_EVAL_JSONL", raising=False)
+    monkeypatch.delenv("STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON", raising=False)
+
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"RIFF")
+    default_manifest = tmp_path / qg.STREAMING_MANIFEST_STRICT_DEFAULT_MANIFEST
+    default_manifest.parent.mkdir(parents=True)
+    default_manifest.write_text(
+        json.dumps({"sample_id": "s1", "audio_path": str(audio), "reference_text": "x"}) + "\n",
+        encoding="utf-8",
+    )
+    default_offline = tmp_path / qg.STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_JSON
+    default_offline.write_text("{}", encoding="utf-8")
+
+    called: dict[str, object] = {}
+
+    def _fake_run(cmd, _cwd, env=None):  # noqa: ANN001, ANN002, ARG001
+        called["cmd"] = cmd
+        return qg.StepResult(
+            name="python", cmd=" ".join(cmd), passed=True, duration_sec=0.0, returncode=0
+        )
+
+    monkeypatch.setattr(qg, "_run", _fake_run)
+
+    step = qg._run_streaming_manifest_quality_gate(
+        repo=tmp_path,
+        python_bin="python",
+        strict_release=True,
+    )
+
+    assert step.passed
+    cmd = called["cmd"]
+    assert isinstance(cmd, list)
+    assert cmd[cmd.index("--manifest-jsonl") + 1] == str(default_manifest.resolve())
+    assert cmd[cmd.index("--offline-quality-json") + 1] == str(default_offline.resolve())
+    assert cmd[cmd.index("--fail-primary-above-offline-pp") + 1] == "3.0"
+
+
+def test_streaming_manifest_quality_gate_non_strict_has_no_reference_ceiling(
+    monkeypatch,
+    tmp_path,
+):
+    qg = _load_quality_gate_module()
+    manifest = tmp_path / "streaming_manifest.jsonl"
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"RIFF")
+    manifest.write_text(
+        json.dumps({"sample_id": "s1", "audio_path": str(audio)}) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("STREAMING_MANIFEST_QUALITY_EVAL_JSONL", str(manifest))
+    monkeypatch.delenv("STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON", raising=False)
+
+    called: dict[str, object] = {}
+
+    def _fake_run(cmd, _cwd, env=None):  # noqa: ANN001, ANN002, ARG001
+        called["cmd"] = cmd
+        return qg.StepResult(
+            name="python", cmd=" ".join(cmd), passed=True, duration_sec=0.0, returncode=0
+        )
+
+    monkeypatch.setattr(qg, "_run", _fake_run)
+
+    step = qg._run_streaming_manifest_quality_gate(
+        repo=tmp_path,
+        python_bin="python",
+        strict_release=False,
+    )
+
+    assert step.passed
+    cmd = called["cmd"]
+    assert isinstance(cmd, list)
+    assert "--offline-quality-json" not in cmd
+    assert "--fail-primary-above-offline-pp" not in cmd

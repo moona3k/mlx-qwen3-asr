@@ -92,9 +92,11 @@ What strict profile turns on by default:
       regenerates the trailing `unfixed_token_num` tokens every chunk, so
       ~0.65 is normal; this catches runaway rewriting, not quality)
     - `STREAMING_QUALITY_FAIL_FINALIZATION_DELTA_CHARS_ABOVE=32`
-- Streaming manifest quality lane remains opt-in:
-  - enable with `RUN_STREAMING_MANIFEST_QUALITY_EVAL=1`
-  - requires `STREAMING_MANIFEST_QUALITY_EVAL_JSONL` with local `audio_path`s.
+- Streaming manifest quality lane with the reference ceiling
+  (`RUN_STREAMING_MANIFEST_QUALITY_EVAL=1`); defaults to the committed
+  multilingual-100 manifest and offline artifact, fails if the worst
+  endpointing mode exceeds offline primary error by more than 3pp. Requires
+  the manifest's `audio_path`s locally (`scripts/build_multilingual_manifest.py`).
 
 Relevant perf env overrides:
 - `PERF_BENCH_AUDIO`
@@ -136,6 +138,9 @@ Relevant streaming-manifest-quality env overrides:
 - `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PARTIAL_STABILITY_BELOW`
 - `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_REWRITE_RATE_ABOVE`
 - `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_FINALIZATION_DELTA_CHARS_ABOVE`
+- `STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON`
+- `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE_OFFLINE_PP`
+- `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE`
 - `STREAMING_MANIFEST_QUALITY_EVAL_LIMIT`
 - `STREAMING_MANIFEST_QUALITY_EVAL_JSON_OUTPUT`
 
@@ -152,16 +157,40 @@ python scripts/quality_gate.py --mode release
 ```
 
 This runs `scripts/eval_streaming_manifest.py` and enforces aggregate
-streaming thresholds over the manifest. These are stability and latency
-metrics; they passed while the pre-0.4.2 streaming decoder produced 56%
-primary error (`docs/EVAL_GAPS.md`). Score `final_text` against the manifest
-references as well (the 2026-09-19 artifacts carry `quality_vs_reference`)
-until that scoring is built into the lane:
+streaming thresholds over the manifest:
 - `partial_stability_mean >= threshold`
 - `rewrite_rate_mean <= threshold`
 - `finalization_delta_chars_max <= threshold`
+- Reference score: when manifest rows carry `reference_text`, `final_text` is
+  scored with the `eval_manifest_quality` normalisation and the artifact gains
+  a `quality_vs_reference` block (`aggregate`, `by_mode`,
+  `worst_mode_primary_error_rate`, optional `offline`). Gate it with
+  `--fail-primary-above` (absolute) or `--fail-primary-above-offline-pp`
+  together with `--offline-quality-json` (the offline
+  `eval_manifest_quality.py` artifact for the same manifest; the script
+  refuses artifacts from a different manifest).
 - Artifact payload also includes provenance fields:
-  - `schema_version`, `generated_at_utc`, `git_commit`, `manifest_sha256`.
+  - `schema_version` (`streaming-manifest-quality-v1.2`), `generated_at_utc`,
+    `git_commit`, `manifest_sha256`.
+
+The stability and latency thresholds alone are not a quality gate: the
+pre-0.4.2 streaming decoder held `partial_stability_mean` at 1.0 while
+producing 56% primary error (`docs/EVAL_GAPS.md`). The reference ceiling is
+what catches that class of failure;
+`tests/test_eval_streaming_manifest.py::test_reference_gate_would_have_failed_pre_fix_streaming_decoder`
+re-scores the committed pre-fix artifact through the gate and asserts it fails.
+
+In strict release mode this lane is on by default and anchors on the
+committed multilingual-100 manifest and its offline artifact:
+- `STREAMING_MANIFEST_QUALITY_EVAL_JSONL` defaults to
+  `docs/benchmarks/2026-09-07-fleurs-multilingual-100-manifest.jsonl`
+- `STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON` defaults to
+  `docs/benchmarks/2026-09-07-manifest-quality-multilingual100-0p6b.json`
+  (required in strict mode when the manifest is overridden)
+- `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE_OFFLINE_PP=3.0`
+  (worst endpointing mode may exceed offline primary error by at most 3pp)
+- `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE` sets an absolute
+  ceiling instead of or in addition to the relative one.
 
 ### Nightly Regression Lane (scheduled/manual)
 

@@ -114,16 +114,16 @@ Performance progress:
 Ordered by how much a regression would cost. Each item has an acceptance
 criterion so the next agent can tell when it is done.
 
-1. **Reference-scored streaming gate.** Fold the `quality_vs_reference` block
-   (primary error of `final_text` against manifest references, using
-   `eval_manifest_quality` normalisation) into `scripts/eval_streaming_manifest.py`,
-   and give the strict release gate a ceiling relative to the offline artifact
-   for the same manifest.
-   - Done when: `RUN_STRICT_RELEASE=1 ... --mode release` fails if streaming
-     primary error exceeds offline + 3pp on the multilingual-100 manifest, and
-     a test proves the pre-#26 artifact
-     (`2026-09-19-streaming-manifest-multilingual100-incremental-kv.json`)
-     would have failed it.
+1. **Reference-scored streaming gate.** Done 2026-09-19.
+   `scripts/eval_streaming_manifest.py` scores `final_text` against manifest
+   references (`quality_vs_reference`, schema v1.2) and the strict release
+   gate runs the lane by default against the multilingual-100 manifest with a
+   ceiling of offline primary error + 3pp.
+   `test_reference_gate_would_have_failed_pre_fix_streaming_decoder` re-scores
+   the committed pre-#26 artifact and asserts the gate rejects it (57.6% vs a
+   12.5% ceiling) while the post-#26 artifact passes (11.4%).
+   Remaining: the long-form manifest is not yet under the strict ceiling
+   (`docs/EVAL_GAPS.md` follow-up).
 2. **Forced aligner audit.** Run `scripts/eval_aligner_parity.py` on the newest
    MLX against `qwen-asr`; add an encoder-output MAE check for the aligner
    model like the one in `MEM-2026-09-19-010`.

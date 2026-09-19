@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Evaluate streaming quality diagnostics over a JSONL manifest."""
+"""Evaluate streaming quality over a JSONL manifest.
+
+Emits stability/latency diagnostics for every sample and endpointing mode,
+and, when the manifest carries ``reference_text``, scores ``final_text``
+against the references with the same normalization as
+``eval_manifest_quality.py``. The reference score is the gate that matters:
+the pre-0.4.2 streaming decoder passed every stability threshold while
+producing 56% primary error (``docs/EVAL_GAPS.md``).
+"""
 
 from __future__ import annotations
 
@@ -30,6 +38,14 @@ from mlx_qwen3_asr.streaming import (
     streaming_metrics,
 )
 
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from eval.metrics import score_hypothesis  # noqa: E402
+
+SCHEMA_VERSION = "streaming-manifest-quality-v1.2"
+
 
 @dataclass(frozen=True)
 class ManifestSample:
@@ -38,6 +54,7 @@ class ManifestSample:
     speaker_id: str
     language: str | None
     audio_path: Path
+    reference_text: str | None = None
 
 
 def _sha256_file(path: Path) -> str:
@@ -91,6 +108,8 @@ def _parse_manifest(path: Path) -> list[ManifestSample]:
         audio_path = Path(str(audio_path_value)).expanduser().resolve()
         if not audio_path.exists():
             raise FileNotFoundError(f"Manifest row {i} references missing audio: {audio_path}")
+        reference_raw = obj.get("reference_text")
+        reference_text = str(reference_raw).strip() if reference_raw is not None else None
         rows.append(
             ManifestSample(
                 sample_id=str(obj.get("sample_id", f"manifest-{i:05d}")),
@@ -98,9 +117,147 @@ def _parse_manifest(path: Path) -> list[ManifestSample]:
                 speaker_id=str(obj.get("speaker_id", "unknown")),
                 language=(None if obj.get("language") is None else str(obj.get("language"))),
                 audio_path=audio_path,
+                reference_text=reference_text or None,
             )
         )
     return rows
+
+
+def _load_references(manifest_path: Path) -> dict[str, tuple[str, str | None]]:
+    """Map ``sample_id`` to ``(reference_text, language)`` without touching audio.
+
+    Used to re-score committed artifacts whose rows carry ``final_text`` but
+    not the reference; the manifest audio need not exist locally.
+    """
+    refs: dict[str, tuple[str, str | None]] = {}
+    for i, line in enumerate(manifest_path.read_text(encoding="utf-8").splitlines(), start=1):
+        row = line.strip()
+        if not row:
+            continue
+        obj = json.loads(row)
+        reference = str(obj.get("reference_text", "")).strip()
+        if not reference:
+            continue
+        sample_id = str(obj.get("sample_id", f"manifest-{i:05d}"))
+        language = None if obj.get("language") is None else str(obj.get("language"))
+        refs[sample_id] = (reference, language)
+    return refs
+
+
+def _error_rate(errors: int, total: int) -> float:
+    return float(errors) / float(max(1, total))
+
+
+def _score_rows_against_references(
+    rows: list[dict],
+    references: dict[str, tuple[str, str | None]],
+) -> dict[str, object] | None:
+    """Score ``final_text`` per row and aggregate WER/CER/primary by mode.
+
+    Mutates each scored row in place to add the per-sample error fields.
+    Returns ``None`` when no row has a reference. Rows without a reference
+    are left unscored and counted in ``unscored_rows``.
+    """
+    totals: dict[str, dict[str, int]] = {}
+    scored = 0
+    unscored = 0
+    for row in rows:
+        ref = references.get(str(row.get("sample_id")))
+        if ref is None:
+            unscored += 1
+            continue
+        reference_text, language = ref
+        score = score_hypothesis(reference_text, str(row.get("final_text", "")), language)
+        row["reference_raw"] = reference_text
+        row["reference_normalized"] = score["reference_normalized"]
+        row["hypothesis_normalized"] = score["hypothesis_normalized"]
+        row["wer_errors"] = score["wer_errors"]
+        row["wer_denominator"] = score["wer_denominator"]
+        row["wer"] = _error_rate(int(score["wer_errors"]), int(score["wer_denominator"]))
+        row["cer_errors"] = score["cer_errors"]
+        row["cer_denominator"] = score["cer_denominator"]
+        row["cer"] = _error_rate(int(score["cer_errors"]), int(score["cer_denominator"]))
+        row["primary_metric"] = score["primary_metric"]
+        row["primary_error_rate"] = _error_rate(
+            int(score["primary_errors"]), int(score["primary_denominator"])
+        )
+        scored += 1
+
+        mode = str(row.get("endpointing_mode", "unknown"))
+        for key in ("all", mode):
+            bucket = totals.setdefault(
+                key,
+                {
+                    "wer_errors": 0,
+                    "wer_denominator": 0,
+                    "cer_errors": 0,
+                    "cer_denominator": 0,
+                    "primary_errors": 0,
+                    "primary_denominator": 0,
+                    "evaluations": 0,
+                },
+            )
+            bucket["evaluations"] += 1
+            for field in (
+                "wer_errors",
+                "wer_denominator",
+                "cer_errors",
+                "cer_denominator",
+                "primary_errors",
+                "primary_denominator",
+            ):
+                bucket[field] += int(score[field])
+
+    if scored == 0:
+        return None
+
+    def _rates(bucket: dict[str, int]) -> dict[str, float | int]:
+        return {
+            "evaluations": bucket["evaluations"],
+            "wer": _error_rate(bucket["wer_errors"], bucket["wer_denominator"]),
+            "cer": _error_rate(bucket["cer_errors"], bucket["cer_denominator"]),
+            "primary_error_rate": _error_rate(
+                bucket["primary_errors"], bucket["primary_denominator"]
+            ),
+        }
+
+    by_mode = {mode: _rates(bucket) for mode, bucket in sorted(totals.items()) if mode != "all"}
+    return {
+        "note": (
+            "final_text scored against manifest reference_text with "
+            "eval_manifest_quality normalization"
+        ),
+        "scored_rows": scored,
+        "unscored_rows": unscored,
+        "aggregate": _rates(totals["all"]),
+        "by_mode": by_mode,
+        "worst_mode_primary_error_rate": max(
+            float(stats["primary_error_rate"]) for stats in by_mode.values()
+        ),
+    }
+
+
+def _load_offline_quality(path: Path, *, manifest_path: Path) -> dict[str, float | str]:
+    """Read the offline ``eval_manifest_quality`` artifact used as the ceiling anchor.
+
+    Refuses artifacts produced from a different manifest: comparing streaming
+    on one dataset against offline on another would make the ceiling
+    meaningless.
+    """
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    offline_manifest = Path(str(payload.get("manifest_jsonl", ""))).name
+    if offline_manifest and offline_manifest != manifest_path.name:
+        raise ValueError(
+            "Offline quality artifact was produced from a different manifest: "
+            f"{offline_manifest} != {manifest_path.name}"
+        )
+    return {
+        "source": str(path),
+        "model": str(payload.get("model", "")),
+        "wer": float(payload["wer"]),
+        "cer": float(payload["cer"]),
+        "primary_error_rate": float(payload["primary_error_rate"]),
+    }
 
 
 def _split_modes(raw: str) -> list[str]:
@@ -169,6 +326,9 @@ def _threshold_failures(
     fail_partial_stability_below: float | None,
     fail_rewrite_rate_above: float | None,
     fail_finalization_delta_chars_above: int | None,
+    quality: dict[str, object] | None = None,
+    fail_primary_above: float | None = None,
+    fail_primary_above_offline_pp: float | None = None,
 ) -> list[str]:
     failures: list[str] = []
     stability_mean = float(aggregate.get("partial_stability_mean", 0.0))
@@ -199,6 +359,43 @@ def _threshold_failures(
             f"finalization_delta_chars_max={final_delta_max} "
             f"> threshold={fail_finalization_delta_chars_above}"
         )
+
+    wants_reference_gate = (
+        fail_primary_above is not None or fail_primary_above_offline_pp is not None
+    )
+    if wants_reference_gate and quality is None:
+        failures.append(
+            "Streaming reference gate failed: a primary-error threshold was requested "
+            "but no manifest row carried reference_text, so final_text was not scored"
+        )
+        return failures
+    if quality is None:
+        return failures
+
+    worst_primary = float(quality["worst_mode_primary_error_rate"])
+    if fail_primary_above is not None and worst_primary > fail_primary_above:
+        failures.append(
+            "Streaming reference gate failed: "
+            f"worst_mode_primary_error_rate={worst_primary:.6f} "
+            f"> threshold={fail_primary_above:.6f}"
+        )
+    if fail_primary_above_offline_pp is not None:
+        offline = quality.get("offline")
+        if not isinstance(offline, dict):
+            failures.append(
+                "Streaming reference gate failed: --fail-primary-above-offline-pp "
+                "requires --offline-quality-json"
+            )
+        else:
+            offline_primary = float(offline["primary_error_rate"])
+            ceiling = offline_primary + fail_primary_above_offline_pp / 100.0
+            if worst_primary > ceiling:
+                failures.append(
+                    "Streaming reference gate failed: "
+                    f"worst_mode_primary_error_rate={worst_primary:.6f} "
+                    f"> offline {offline_primary:.6f} + "
+                    f"{fail_primary_above_offline_pp:.2f}pp = {ceiling:.6f}"
+                )
 
     return failures
 
@@ -233,15 +430,47 @@ def main() -> int:
     parser.add_argument("--fail-partial-stability-below", type=float, default=None)
     parser.add_argument("--fail-rewrite-rate-above", type=float, default=None)
     parser.add_argument("--fail-finalization-delta-chars-above", type=int, default=None)
+    parser.add_argument(
+        "--offline-quality-json",
+        default=None,
+        help=(
+            "eval_manifest_quality.py artifact for the same manifest; recorded under "
+            "quality_vs_reference.offline and used as the anchor for "
+            "--fail-primary-above-offline-pp"
+        ),
+    )
+    parser.add_argument(
+        "--fail-primary-above",
+        type=float,
+        default=None,
+        help="Fail if the worst endpointing mode's primary error rate exceeds this",
+    )
+    parser.add_argument(
+        "--fail-primary-above-offline-pp",
+        type=float,
+        default=None,
+        help=(
+            "Fail if the worst endpointing mode's primary error rate exceeds the "
+            "offline artifact's by more than this many percentage points"
+        ),
+    )
     args = parser.parse_args()
 
     if args.chunk_size_sec <= 0:
         raise ValueError("--chunk-size-sec must be > 0")
     if args.max_context_sec <= 0:
         raise ValueError("--max-context-sec must be > 0")
+    if args.fail_primary_above_offline_pp is not None and not args.offline_quality_json:
+        parser.error("--fail-primary-above-offline-pp requires --offline-quality-json")
 
     started = time.perf_counter()
     manifest_path = Path(args.manifest_jsonl).expanduser().resolve()
+    offline_quality: dict[str, float | str] | None = None
+    if args.offline_quality_json:
+        offline_quality = _load_offline_quality(
+            Path(args.offline_quality_json).expanduser().resolve(),
+            manifest_path=manifest_path,
+        )
     samples = _parse_manifest(manifest_path)
     if args.limit is not None:
         samples = samples[: max(0, int(args.limit))]
@@ -304,9 +533,15 @@ def main() -> int:
 
     summary = _summarize_rows(rows)
     aggregate = summary["aggregate"]
+    references = {
+        s.sample_id: (s.reference_text, s.language) for s in samples if s.reference_text
+    }
+    quality = _score_rows_against_references(rows, references)
+    if quality is not None and offline_quality is not None:
+        quality["offline"] = offline_quality
     repo_root = Path(__file__).resolve().parents[1]
     payload = {
-        "schema_version": "streaming-manifest-quality-v1.1",
+        "schema_version": SCHEMA_VERSION,
         "suite": "streaming-manifest-quality-v1",
         "generated_at_utc": _iso_utc_now(),
         "git_commit": _git_head_commit(repo_root),
@@ -324,6 +559,7 @@ def main() -> int:
         "evaluations": len(rows),
         "aggregate": aggregate,
         "by_mode": summary["by_mode"],
+        "quality_vs_reference": quality,
         "rows": rows,
         "elapsed_sec": time.perf_counter() - started,
     }
@@ -339,6 +575,9 @@ def main() -> int:
         fail_partial_stability_below=args.fail_partial_stability_below,
         fail_rewrite_rate_above=args.fail_rewrite_rate_above,
         fail_finalization_delta_chars_above=args.fail_finalization_delta_chars_above,
+        quality=quality,
+        fail_primary_above=args.fail_primary_above,
+        fail_primary_above_offline_pp=args.fail_primary_above_offline_pp,
     )
     if failures:
         for msg in failures:
