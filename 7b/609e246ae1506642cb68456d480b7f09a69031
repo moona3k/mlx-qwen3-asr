@@ -1,0 +1,24 @@
+README.md
+  s_7b5ee2ad1f9b97::t_a41ea6ea0e6604 627-631,638-639
+mlx_qwen3_asr/streaming.py
+  s_7b5ee2ad1f9b97::t_a41ea6ea0e6604 80-82,112,200,436-439,465-468,479-482
+tests/test_streaming.py
+  s_7b5ee2ad1f9b97::t_a41ea6ea0e6604 614-627,682-706
+  s_7b5ee2ad1f9b97::t_3a9addabb0f3ce 707
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7b609e246ae1506642cb68456d480b7f09a69031",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
