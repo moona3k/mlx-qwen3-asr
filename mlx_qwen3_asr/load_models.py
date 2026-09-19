@@ -128,7 +128,12 @@ def _load_model_with_resolved_path(
             group_size = int(quant_cfg.get("group_size", 64))
         else:
             bits, group_size = _infer_quantization_params(weights, model)
-        _quantize_model_for_loaded_weights(model, weights, bits=bits, group_size=group_size)
+        _quantize_model_for_loaded_weights(
+            model,
+            weights,
+            default_bits=bits,
+            default_group_size=group_size,
+        )
 
     # Load weights into model
     model.load_weights(list(weights.items()))
@@ -216,17 +221,57 @@ def _quantized_module_paths(weights: dict[str, mx.array]) -> set[str]:
 def _quantize_model_for_loaded_weights(
     model: Qwen3ASRModel,
     weights: dict[str, mx.array],
-    bits: int,
-    group_size: int,
+    default_bits: int,
+    default_group_size: int,
 ) -> None:
-    """Quantize only modules that have matching tensors in the checkpoint."""
-    quantized_paths = _quantized_module_paths(weights)
-    nn.quantize(
-        model,
-        bits=bits,
-        group_size=group_size,
-        class_predicate=lambda path, _module: path in quantized_paths,
-    )
+    """Quantize exactly the modules the checkpoint quantized, each at its own width.
+
+    A module's bit width and group size are read from its packed ``.weight``
+    and ``.scales`` shapes, so mixed-precision checkpoints (for example an
+    8-bit audio encoder with a 4-bit decoder) load correctly. Modules whose
+    shapes cannot be resolved fall back to the checkpoint-level defaults.
+    """
+    per_module = _infer_module_quantization(weights, model)
+    groups: dict[tuple[int, int], set[str]] = {}
+    for path in _quantized_module_paths(weights):
+        key = per_module.get(path, (default_bits, default_group_size))
+        groups.setdefault(key, set()).add(path)
+    for (bits, group_size), paths in groups.items():
+        nn.quantize(
+            model,
+            bits=bits,
+            group_size=group_size,
+            class_predicate=lambda path, _module, _paths=paths: path in _paths,
+        )
+
+
+def _infer_module_quantization(
+    weights: dict[str, mx.array],
+    model: Qwen3ASRModel,
+) -> dict[str, tuple[int, int]]:
+    """Return ``{module_path: (bits, group_size)}`` for every resolvable quantized module."""
+    ref_params = dict(mlx_utils.tree_flatten(model.parameters()))
+    resolved: dict[str, tuple[int, int]] = {}
+    for key, packed_weight in weights.items():
+        if not key.endswith(".weight"):
+            continue
+        path = key[: -len(".weight")]
+        scales = weights.get(f"{path}.scales")
+        ref = ref_params.get(key)
+        if scales is None or ref is None or ref.ndim < 2 or packed_weight.ndim < 2:
+            continue
+        input_dim = int(ref.shape[-1])
+        packed_cols = int(packed_weight.shape[-1])
+        scale_cols = int(scales.shape[-1])
+        if input_dim <= 0 or scale_cols <= 0:
+            continue
+        if (packed_cols * 32) % input_dim != 0 or input_dim % scale_cols != 0:
+            continue
+        bits = (packed_cols * 32) // input_dim
+        group_size = input_dim // scale_cols
+        if bits in (2, 4, 8) and group_size in (32, 64, 128):
+            resolved[path] = (bits, group_size)
+    return resolved
 
 
 def _resolve_path(path_or_hf_repo: str) -> Path:

@@ -53,6 +53,17 @@ def main():
         help="Quantize to N bits (4 or 8)",
     )
     parser.add_argument(
+        "--encoder-bits",
+        type=int,
+        choices=[4, 8, 16],
+        default=None,
+        help=(
+            "Bit width for the audio encoder when --quantize is set; 16 keeps it in "
+            "float16. Defaults to --quantize. The encoder carries most of the 4-bit "
+            "quality loss, so --quantize 4 --encoder-bits 8 is the recommended 4-bit recipe."
+        ),
+    )
+    parser.add_argument(
         "--group-size",
         type=int,
         default=64,
@@ -94,9 +105,18 @@ def main():
     model.load_weights(list(weights.items()))
 
     # Quantize if requested
+    encoder_bits = args.encoder_bits if args.encoder_bits is not None else args.quantize
     if args.quantize:
-        print(f"Quantizing to {args.quantize}-bit (group_size={args.group_size})")
-        quantize_model(model, bits=args.quantize, group_size=args.group_size)
+        print(
+            f"Quantizing decoder to {args.quantize}-bit, audio encoder to "
+            f"{encoder_bits}-bit (group_size={args.group_size})"
+        )
+        quantize_model(
+            model,
+            bits=args.quantize,
+            group_size=args.group_size,
+            encoder_bits=encoder_bits,
+        )
 
     # Save
     output_dir = Path(args.output_dir)
@@ -128,6 +148,7 @@ def main():
         quant_cfg = {
             "bits": int(args.quantize),
             "group_size": int(args.group_size),
+            "audio_tower_bits": int(encoder_bits),
         }
         (output_dir / "quantization_config.json").write_text(
             json.dumps(quant_cfg, indent=2),
