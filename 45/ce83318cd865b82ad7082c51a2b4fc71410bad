@@ -1,0 +1,31 @@
+docs/model-cards/mlx-qwen3-asr-1.7b-8bit.md
+  s_7b5ee2ad1f9b97::t_a3480946ffd6a3 80
+scripts/publish_quantized.py
+  s_7b5ee2ad1f9b97::t_917c3ad6cbc2c6 27
+  s_7b5ee2ad1f9b97::t_67b6285d0813ba 80-86,92-110
+  s_7b5ee2ad1f9b97::t_dc0b1cd17ed31b 34-38
+  s_7b5ee2ad1f9b97::t_97c4763b855387 166-170
+  s_7b5ee2ad1f9b97::t_24fe065275e879 182-183,186-190,199,201-202,210
+docs/model-cards/mlx-qwen3-asr-1.7b-4bit.md
+  s_7b5ee2ad1f9b97::t_a3480946ffd6a3 80
+docs/model-cards/mlx-qwen3-asr-0.6b-8bit.md
+  s_7b5ee2ad1f9b97::t_a3480946ffd6a3 80
+docs/model-cards/mlx-qwen3-asr-0.6b-4bit.md
+  s_7b5ee2ad1f9b97::t_a3480946ffd6a3 69,80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "45ce83318cd865b82ad7082c51a2b4fc71410bad",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
