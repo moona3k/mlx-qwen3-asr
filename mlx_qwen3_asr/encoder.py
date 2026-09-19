@@ -392,10 +392,20 @@ class AudioEncoder(nn.Module):
             chunk_conv_outputs.append(x_full.reshape(n_full_chunks * T_d, C_d * F_d))
             chunk_token_lens.extend([int(T_d)] * n_full_chunks)
 
-        # Tail chunk uses exact per-chunk semantics (no extra right-padding).
+        # 官方先对本条音频的 chunk 做 pad_sequence，再卷积并 mask 掉无效输出。
+        # 直接卷积短尾块并不等价：多层卷积的非零 bias/GELU 会使补齐位置产生
+        # 激活，进而影响最后一个有效 token。短尾不补齐曾造成编码器语义偏离。
         if n_full_chunks * chunk_size < total_frames:
             chunk_mel = mel[:, n_full_chunks * chunk_size :]  # (n_mels, chunk_len)
+            valid_tail_tokens = (int(chunk_mel.shape[1]) + 7) // 8
+            if n_full_chunks > 0:
+                # 只有本条存在完整块时 pad_sequence 才会补到 chunk_size；
+                # 短于一整块的输入保持自身长度，不凭空增加有效音频时长。
+                chunk_mel = mx.pad(
+                    chunk_mel, [(0, 0), (0, chunk_size - int(chunk_mel.shape[1]))]
+                )
             x_tail = self._apply_conv_stem(chunk_mel[None, :, :, None])
+            x_tail = x_tail[:, :, :valid_tail_tokens, :]
             _, F_d, T_d, C_d = x_tail.shape
             x_tail = x_tail.transpose(0, 2, 3, 1).reshape(1, T_d, C_d * F_d)
             chunk_token_lens.append(int(T_d))

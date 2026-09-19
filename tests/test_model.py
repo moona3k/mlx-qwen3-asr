@@ -297,15 +297,21 @@ def _encode_single_reference_loop(
     chunk_size: int,
     n_window_infer: int,
 ) -> mx.array:
-    """Reference chunk-by-chunk implementation for encoder parity tests."""
+    """按 Qwen 官方 pad_sequence 语义构造独立逐块基准，不能把旧循环当真值。"""
     total_frames = mel.shape[1]
+    # 官方先把本条音频所有块补到最长块，再卷积，最后用有效长度 mask 裁剪。
+    # 不足一整块的短音频只补到自身长度；超过一块时最长块为 chunk_size。
+    padded_width = min(total_frames, chunk_size)
     chunk_token_lens: list[int] = []
     chunk_conv_outputs: list[mx.array] = []
 
     for start in range(0, total_frames, chunk_size):
         end = min(start + chunk_size, total_frames)
         chunk_mel = mel[:, start:end]
+        valid_tokens = (end - start + 7) // 8
+        chunk_mel = mx.pad(chunk_mel, [(0, 0), (0, padded_width - (end - start))])
         x = encoder._apply_conv_stem(chunk_mel[None, :, :, None])
+        x = x[:, :, :valid_tokens, :]
         _, F_d, T_d, C_d = x.shape
         x = x.transpose(0, 2, 3, 1).reshape(1, T_d, C_d * F_d)
         chunk_token_lens.append(int(T_d))
@@ -347,13 +353,19 @@ def _encode_single_reference_loop(
 
 
 class TestAudioEncoderEncodeSingleOptimized:
-    def test_matches_reference_loop_with_tail_chunk(self):
+    @pytest.mark.parametrize("frames", [37, 100, 101, 107, 108, 137, 199, 200, 337])
+    def test_matches_reference_loop_with_tail_chunk(self, frames):
+        """覆盖短句、整块及不同模 8 尾长，确保补齐不多出有效音频 token。"""
+        mx.random.seed(20260918)
         cfg = _tiny_audio_config()
         encoder = AudioEncoder(cfg)
+        # 小模型默认 bias 为 0 会掩盖尾部补齐差异；真实训练权重包含非零 bias。
+        # 不同层使用确定的非零值，验证虚拟位置激活是否正确进入后续卷积。
+        for index, conv in enumerate([encoder.conv2d1, encoder.conv2d2, encoder.conv2d3]):
+            conv.bias = mx.full(conv.bias.shape, 0.1 * (index + 1))
         chunk_size = cfg.n_window * 2
 
-        # Force multiple full chunks + a tail chunk.
-        mel = mx.random.normal((cfg.num_mel_bins, chunk_size * 3 + 37))
+        mel = mx.random.normal((cfg.num_mel_bins, frames))
         optimized = encoder._encode_single(
             mel,
             chunk_size=chunk_size,
@@ -366,6 +378,7 @@ class TestAudioEncoderEncodeSingleOptimized:
             n_window_infer=cfg.n_window_infer,
         )
         mx.eval(optimized, reference)
+        assert optimized.shape[0] == int(encoder.get_output_lengths(mx.array([frames])).item())
         np.testing.assert_allclose(
             np.array(optimized),
             np.array(reference),
