@@ -2,11 +2,12 @@
 
 `scripts/` mixes user-facing utilities and internal evaluation tooling.
 
-Every script that imports `mlx_qwen3_asr` starts with `import _repo_path`
+Every script that imports `mlx_qwen3_asr` starts with a guarded `import _repo_path`
 (`scripts/_repo_path.py`, mirrored in `scripts/eval/`). It puts the script's own
 repository root first on `sys.path`, so a benchmark run from a git worktree
 measures that worktree rather than whichever checkout the editable install
-points at. New scripts must keep the import above the package imports.
+points at. The `except ModuleNotFoundError` fallback keeps `python -m scripts.<name>`
+working. New scripts must keep the import above the package imports.
 
 ## User-facing utilities
 

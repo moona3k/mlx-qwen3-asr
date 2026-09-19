@@ -8,7 +8,11 @@ import json
 import statistics
 import time
 
-import _repo_path  # noqa: F401
+try:
+    import _repo_path  # noqa: F401
+except ModuleNotFoundError:  # invoked as ``python -m scripts.<name>``
+    from scripts import _repo_path  # noqa: F401
+
 import mlx.core as mx
 import numpy as np
 
