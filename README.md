@@ -29,7 +29,7 @@ This project rewrites every layer for MLX so the same model runs natively on M1/
 - **Speculative decoding** — experimental opt-in path (0.6B drafts for 1.7B target), parity-verified
 - **Streaming** — KV-cache streaming with linear complexity, context trimming, and tail refinement
 - **Native WAV fast-path** — custom binary WAV parser bypasses ffmpeg for PCM/float WAV files
-- **666 tests** — every optimization is benchmark-gated with committed JSON artifacts
+- **675 tests** — every optimization is benchmark-gated with committed JSON artifacts
 - **Minimal dependencies** — mlx, numpy, regex, huggingface-hub
 
 ## Requirements
@@ -350,7 +350,7 @@ GPT-4o-Transcribe leads on clean English read speech (1.39 WER). Parakeet-TDT-0.
 This implementation is validated against the official PyTorch model via multiple parity gates:
 
 - **MLX vs PyTorch head-to-head** — on the current multilingual-100 artifact, MLX shows lower aggregate primary error than PyTorch (9.54% vs 10.34%)
-- **Token-level greedy parity** — v0.4.0 multilingual-100 parity artifact shows 68% exact text match and 66% exact token match across 10 languages; remaining diffs are mostly lexical/numeric surface-form differences
+- **Token-level greedy parity** — multilingual-100 parity artifacts show 67-68% exact text match and 64-66% exact token match across 10 languages (v0.4.0 and v0.4.1 runs); remaining diffs are mostly lexical/numeric surface-form differences. Encoder outputs sit within 0.003 mean absolute error of the fp32 PyTorch reference, with the last tail token halved to 0.005 by the v0.4.1 tail-padding fix
 - **Expanded parity suite** — tested across LibriSpeech test-clean, test-other, synthetic long mixes, and noise variants (SNR 10dB, 5dB)
 - **Long-form head-to-head** — on 10 multilingual clips (78-90s each) MLX scored lower error than the PyTorch reference (10.6% vs 18.0% primary error) because it chunks at pauses while the reference decodes each clip whole; full transcripts are not token-identical
 - **Mel spectrogram parity** — custom MLX mel matches HuggingFace WhisperFeatureExtractor with MAE < 3e-7
@@ -694,7 +694,7 @@ Frozen dataclass:
 This project enforces parity with the official PyTorch implementation. No optimization lands without passing quality gates and committing benchmark artifacts.
 
 ```bash
-# Unit tests (666 tests)
+# Unit tests (675 tests)
 pytest -q
 
 # Fast quality gate
@@ -775,7 +775,7 @@ mlx_qwen3_asr/
 ├── writers.py            # txt/json/srt/vtt/tsv writers, subtitle cue grouping
 └── config.py             # Dataclass configs
 
-tests/                    # 11,171 lines, 666 tests
+tests/                    # 11,298 lines, 675 tests
 scripts/                  # Benchmarks, evaluation, conversion, publishing
 docs/                     # Architecture, decisions, benchmarks, roadmap
 docs/benchmarks/          # 160+ committed artifacts for reproducibility
@@ -787,7 +787,7 @@ docs/benchmarks/          # 160+ committed artifacts for reproducibility
 git clone https://github.com/moona3k/mlx-qwen3-asr.git
 cd mlx-qwen3-asr
 pip install -e ".[dev]"
-pytest -q                 # 666 tests
+pytest -q                 # 675 tests
 ```
 
 ## Acknowledgments

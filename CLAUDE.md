@@ -18,7 +18,7 @@ output quality, every layer rewritten for Metal. Not a wrapper, not a binding.
 
 Not a multi-model toolkit (that is mlx-audio) and not a training framework.
 
-## Status (v0.4.0, September 2026)
+## Status (v0.4.1, September 2026)
 
 Published on PyPI and in use by third parties (external issues and PRs land
 regularly). Full suite is 660+ tests and runs in under 10 s. Real-model

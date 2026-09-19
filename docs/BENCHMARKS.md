@@ -317,6 +317,21 @@ and Hindi diverge earliest.
 Artifacts: `2026-09-07-reference-parity-suite-multilingual100.json`,
 `2026-09-07-reference-parity-suite-multilingual100-analysis.md`
 
+**2026-09-19 rerun (v0.4.1, after encoder tail padding, PR #21).** Same 100
+clips; reference stack now `qwen-asr` on PyTorch 2.14 / transformers 4.57.6
+(was 2.10): token match 64%, text match 67%. Six MLX outputs changed, all
+attributable to #21; two reference outputs also changed with the stack
+upgrade, and one flip is entirely due to that. Token flips on a tail-token
+change are borderline fp16 decisions and net to roughly zero, so the encoder
+was compared directly (MLX fp16 vs reference fp32, 20 clips): mean absolute
+error on the last encoder token vs the reference fell from 0.0101 to 0.0046
+(feature scale 0.016), improving on 17 of 20 clips, and overall error fell
+from 0.00291 to 0.00275. #21 brings the encoder closer to the reference.
+
+Artifacts: `2026-09-19-reference-parity-suite-multilingual100.json`,
+`2026-09-19-reference-parity-suite-multilingual100-analysis.md`,
+`2026-09-19-encoder-parity-tail-padding.json`
+
 ---
 
 ### Long-Form Speed (February 2026, superseded by the head-to-head above)
@@ -427,6 +442,8 @@ All benchmark artifacts are committed under `docs/benchmarks/`. Key files:
 | `2026-09-07-latency-*.json` | v0.4.0 idle-machine latency runs |
 | `2026-09-07-quality-head2head-mlx-vs-pytorch-*.md` | v0.4.0 MLX vs PyTorch on multilingual-100, test-other, long-form |
 | `2026-09-07-reference-parity-suite-multilingual100-analysis.md` | v0.4.0 token-level parity |
+| `2026-09-19-reference-parity-suite-multilingual100-analysis.md` | v0.4.1 token-level parity rerun after encoder tail padding |
+| `2026-09-19-encoder-parity-tail-padding.json` | v0.4.1 encoder-output error vs fp32 reference, before/after tail padding |
 | `2026-02-14-quant-matrix-speaker100.md` | Quantization quality + latency matrix |
 | `2026-02-15-quant-matrix-test-other-speaker100.md` | Quantization quality + latency on LibriSpeech test-other |
 | `2026-02-15-manifest-quality-multilingual100-0p6b-refresh.json` | 0.6B multilingual quality |
