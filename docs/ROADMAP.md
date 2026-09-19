@@ -28,16 +28,13 @@ Qwen3-ASR on Apple Silicon.
   `padding="do_not_pad"`.
 
 3. Quantized model artifacts on HuggingFace (4-bit / 8-bit)
-- Artifacts built and validated (2026-09-19); upload pending an HF write token.
-  Four `g64` artifacts (0.6B/1.7B x 4-bit/8-bit) staged under
-  `~/.cache/mlx-qwen3-asr/publish/`, with model cards in `docs/model-cards/`
-  and LibriSpeech test-clean 100-sample evals in
-  `docs/benchmarks/2026-09-19-quantized-artifacts-*.json`: 8-bit is
+- Done (2026-09-19). Published `moona3k/mlx-qwen3-asr-{0.6b,1.7b}-{4bit,8bit}`
+  with model cards (`docs/model-cards/`) and per-sample evals
+  (`docs/benchmarks/2026-09-19-quantized-artifacts-*.json`). 8-bit is
   hypothesis-identical to fp16 for both sizes; 4-bit uses an 8-bit audio
   encoder (`--encoder-bits 8`, the encoder carried most of the all-4-bit loss)
   and scores 2.37% WER (0.6B, fp16 2.33%) and 1.73% (1.7B, fp16 1.94%).
-  Mixed widths load through the per-module loader (0.4.3). Upload with
-  `scripts/publish_quantized.py --from-dir <staged> --repo-id moona3k/mlx-qwen3-asr-<size>-<bits>bit`.
+  Mixed widths need the per-module loader shipped in 0.4.3.
 - Code-level quantization utility exists (`mlx_qwen3_asr.convert.quantize_model`).
 - Added publishing script: `scripts/publish_quantized.py`.
 - Added manual CI workflow: `.github/workflows/publish-quantized.yml`.
@@ -131,8 +128,9 @@ Near-term work should remain correctness-gated and benchmark-driven:
 - Gate: word-level timing quality must be competitive with current `qwen-asr` backend.
 
 2. Quantized model publication lane
-- Goal: publish vetted `4bit-g64` and `8bit-g64` artifacts to HuggingFace.
-- Gate: published artifacts must reproduce current local WER/RTF envelope.
+- Done 2026-09-19 (see Status item 3). Remaining: re-publish when the source
+  checkpoints or the quantization recipe change; the `publish-quantized.yml`
+  workflow needs an `HF_TOKEN` secret to run from CI.
 
 3. Long-form robustness benchmark expansion
 - Goal: extend golden eval + latency coverage beyond the current short fixture and 10s clip.

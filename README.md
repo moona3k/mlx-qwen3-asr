@@ -465,22 +465,42 @@ Common errors and fixes:
 
 ## Quantization
 
-Convert and run a quantized model:
+Pre-quantized artifacts, validated with this runtime on 100 speaker-balanced
+LibriSpeech test-clean clips (`mlx-qwen3-asr >= 0.4.3`):
+
+| Model | Download | WER (fp16) | Notes |
+|---|---:|---:|---|
+| [`moona3k/mlx-qwen3-asr-0.6b-4bit`](https://huggingface.co/moona3k/mlx-qwen3-asr-0.6b-4bit) | 517 MB | 2.37% (2.33%) | 4-bit decoder, 8-bit encoder |
+| [`moona3k/mlx-qwen3-asr-0.6b-8bit`](https://huggingface.co/moona3k/mlx-qwen3-asr-0.6b-8bit) | 801 MB | 2.33% (2.33%) | identical output to fp16 |
+| [`moona3k/mlx-qwen3-asr-1.7b-4bit`](https://huggingface.co/moona3k/mlx-qwen3-asr-1.7b-4bit) | 1.2 GB | 1.73% (1.94%) | 4-bit decoder, 8-bit encoder |
+| [`moona3k/mlx-qwen3-asr-1.7b-8bit`](https://huggingface.co/moona3k/mlx-qwen3-asr-1.7b-8bit) | 2.0 GB | 1.94% (1.94%) | identical output to fp16 |
+
+```bash
+mlx-qwen3-asr audio.wav --model moona3k/mlx-qwen3-asr-0.6b-4bit
+```
+
+Each model card carries the recipe, the per-sample evaluation reference and a
+reproduce command. The `mlx-community/Qwen3-ASR-*` checkpoints also load
+(since 0.4.1 they run in float16 rather than being promoted to float32).
+
+Convert your own:
 
 ```bash
 python scripts/convert.py \
   --model Qwen/Qwen3-ASR-0.6B \
-  --quantize 4 --group-size 64 \
+  --quantize 4 --encoder-bits 8 --group-size 64 \
   --output-dir ./qwen3-asr-4bit
 
 mlx-qwen3-asr audio.wav --model ./qwen3-asr-4bit
 ```
 
-Recommended profiles:
-- **Speed-first**: 4-bit, group_size=64 — 1.71x faster on the 10 s clip; +0.26pp WER (`test-clean`), +1.43pp WER (`test-other`)
-- **Quality-first**: 8-bit, group_size=64 — 1.32x faster on the 10 s clip; identical output to fp16 on `test-clean`, -0.16pp WER (`test-other`)
+The audio encoder carries most of the 4-bit quality loss (0.6B all-4-bit:
+2.63% WER; with an 8-bit encoder: 2.37%), so `--encoder-bits 8` is the
+recommended 4-bit recipe; 8-bit throughout is lossless on this lane. Speed:
+4-bit is about 1.7x and 8-bit about 1.3x faster than fp16 on a 10 s clip.
 
-Publish quantized models to HuggingFace:
+Publish to HuggingFace (converts, load-checks and uploads; `--from-dir`
+uploads an already validated directory):
 
 ```bash
 HF_TOKEN=... python scripts/publish_quantized.py \
