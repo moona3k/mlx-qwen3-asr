@@ -298,4 +298,4 @@ def test_streaming_manifest_quality_gate_passes_and_uses_threshold_defaults(
     idx = cmd.index("--fail-partial-stability-below")
     assert cmd[idx + 1] == "0.85"
     idx = cmd.index("--fail-rewrite-rate-above")
-    assert cmd[idx + 1] == "0.30"
+    assert cmd[idx + 1] == "0.85"

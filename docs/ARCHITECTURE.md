@@ -215,6 +215,61 @@ specialized vocabulary.
 
 Output format: `language {detected_language}<asr_text>{transcription text}`
 
+## Streaming Decode
+
+`streaming.py` follows the official `qwen_asr` streaming recipe (Decision 29).
+The model is only ever prompted the way it was trained: one system turn, one
+user turn holding *all* the audio seen so far, one assistant turn.
+
+```
+chunk k arrives
+  window  = audio_accum + chunk            (bounded by max_context_sec)
+  prompt  = <system><user: audio(window)><assistant>
+  prefix  = raw generated ids from step k-1, minus the last unfixed_token_num
+            (backed off further if the cut lands inside a multi-byte character)
+  prefill(prompt + prefix)  ->  greedy decode the remainder
+  raw_ids = prefix + new ids                (kept for step k+1)
+  text    = parse(decode(raw_ids))
+```
+
+- The first `unfixed_chunk_num` chunks of a window decode with no prefix.
+- The prefix makes partial text stable by construction; only the trailing
+  `unfixed_token_num` tokens can change, which is what `rewrite_rate` counts.
+- When the next chunk would overflow `max_context_sec`, the window's text is
+  committed to `committed_text` and a new window starts with that chunk.
+  `state.text` is `committed_text` joined with the live window text. A word
+  cut at the boundary can be duplicated or dropped once per window.
+- Per-chunk cost is bounded by the window (encoder over <= 30 s plus a
+  prefill of ~12.5 audio tokens/s and the prefix), not by session length.
+
+The earlier design encoded each 2 s chunk alone and appended it to a live
+decoder KV cache as a follow-up chat turn. It is linear in cost but the model
+never saw that prompt shape in training: 56% primary error vs 9.5% offline on
+the multilingual-100 lane (`docs/benchmarks/2026-09-19-streaming-manifest-*`).
+
+## Quantization Layout
+
+`nn.quantize` (affine, group size 64) is applied to every `Linear` and
+`Embedding`. Each quantized module stores `weight` (packed `uint32`),
+`scales` and `biases`; norms, conv stem and other floats stay in the
+activation dtype (float16 by default).
+
+- **Widths are per module.** The loader reads `bits` and `group_size` from
+  each module's packed shapes (`bits = packed_cols * 32 / in_features`,
+  `group_size = in_features / scale_cols`) and calls `nn.quantize` once per
+  distinct pair; `quantization_config.json` is only the fallback. This is what
+  lets an 8-bit audio encoder sit next to a 4-bit decoder.
+- **Published recipe.** `--quantize 4 --encoder-bits 8`: on 0.6B the audio
+  encoder carried most of the all-4-bit loss (2.63% -> 2.37% WER, fp16 2.33%).
+  8-bit throughout is hypothesis-identical to fp16 on the 100-clip lane.
+- **Tied `lm_head`.** Both source models tie `lm_head` to `embed_tokens`;
+  artifacts drop `lm_head.*` and `_materialize_tied_lm_head_weights` recreates
+  it at load, including the quantized `scales`/`biases`.
+- **Activation dtype.** After loading, every floating parameter, quantized or
+  not, is cast to the requested dtype. Community checkpoints store bf16
+  floats; before this cast (0.4.1) they silently promoted the whole forward
+  pass to float32.
+
 ## Key Constants
 
 ```python

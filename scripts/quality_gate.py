@@ -231,7 +231,10 @@ def _run_streaming_quality_gate(
     rewrite_rate_max = float(
         os.environ.get(
             "STREAMING_QUALITY_FAIL_REWRITE_RATE_ABOVE",
-            "0.30" if strict_release else "1.0",
+            # The re-feed recipe regenerates the last unfixed_token_num tokens
+            # on every chunk, so ~0.65 is the designed steady state; 0.85
+            # catches a runaway rewrite loop without failing normal runs.
+            "0.85" if strict_release else "1.0",
         )
     )
     final_delta_max = int(
@@ -422,7 +425,7 @@ def _run_streaming_manifest_quality_gate(
         "--fail-partial-stability-below",
         os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PARTIAL_STABILITY_BELOW", "0.85"),
         "--fail-rewrite-rate-above",
-        os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_FAIL_REWRITE_RATE_ABOVE", "0.30"),
+        os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_FAIL_REWRITE_RATE_ABOVE", "0.85"),
         "--fail-finalization-delta-chars-above",
         os.environ.get(
             "STREAMING_MANIFEST_QUALITY_EVAL_FAIL_FINALIZATION_DELTA_CHARS_ABOVE",

@@ -58,6 +58,9 @@ Promote to distilled learnings when:
 5. Test doubles carry the real signatures of what they replace; production
    code never introspects for test compatibility.
    - refs: `MEM-2026-09-06-005`
+6. In the shared working tree, stage explicit paths; never `git commit -a`
+   (it swept an unrelated uncommitted note into a fix commit).
+   - refs: `MEM-2026-09-19-012`
 
 ## Distilled Learnings
 
@@ -73,6 +76,24 @@ Promote to distilled learnings when:
 3. For multi-agent compatibility, prefer one canonical guide plus one thin
    delegator file.
    - refs: `MEM-2026-02-16-004`
+4. Any decode path that departs from how the model was prompted in training
+   (streaming, speculative, chunking) needs a lane that scores its output
+   against references before it ships. Stability and latency metrics alone
+   passed a decoder that was 56% wrong.
+   - refs: `MEM-2026-09-19-011`
+5. Judge numerics changes by the measurement closest to the change (encoder
+   output vs the fp32 reference), not by downstream greedy token match, which
+   flips on borderline fp16 decisions in both directions. Record the reference
+   stack (torch/transformers versions) next to every parity number.
+   - refs: `MEM-2026-09-19-010`
+6. Quantization quality bar for publication: hypothesis-level diff against
+   the committed fp16 rows, named baseline file, reproduce command pinned to a
+   release tag. The audio encoder carries most of the 4-bit loss; quantize it
+   at 8 bits.
+   - refs: `MEM-2026-09-19-012`
+7. Scripts import the checkout they live in (`_repo_path`); when measuring
+   before/after from a worktree, print `mlx_qwen3_asr.__file__` first.
+   - refs: `MEM-2026-09-19-009`
 
 ## Open Risks
 

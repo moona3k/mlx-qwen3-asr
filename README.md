@@ -779,7 +779,7 @@ Key architectural details:
 mlx_qwen3_asr/
 ├── transcribe.py         # Public pipeline: transcribe, batch, async, diarization glue
 ├── session.py            # Session API: explicit model/tokenizer ownership
-├── streaming.py          # KV-cache streaming with context trimming
+├── streaming.py          # Windowed re-decode with text-prefix rollback
 ├── cli.py                # CLI (transcribe, serve, --mic, --doctor)
 ├── server.py             # HTTP server + OpenAI-compatible endpoint
 ├── audio.py              # Audio I/O, WAV fast path, mel spectrogram

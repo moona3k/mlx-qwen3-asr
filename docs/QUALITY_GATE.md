@@ -88,7 +88,9 @@ What strict profile turns on by default:
   - default endpointing modes: `fixed,energy`
   - default fail thresholds:
     - `STREAMING_QUALITY_FAIL_PARTIAL_STABILITY_BELOW=0.85`
-    - `STREAMING_QUALITY_FAIL_REWRITE_RATE_ABOVE=0.30`
+    - `STREAMING_QUALITY_FAIL_REWRITE_RATE_ABOVE=0.85` (the re-feed recipe
+      regenerates the trailing `unfixed_token_num` tokens every chunk, so
+      ~0.65 is normal; this catches runaway rewriting, not quality)
     - `STREAMING_QUALITY_FAIL_FINALIZATION_DELTA_CHARS_ABOVE=32`
 - Streaming manifest quality lane remains opt-in:
   - enable with `RUN_STREAMING_MANIFEST_QUALITY_EVAL=1`
@@ -150,7 +152,11 @@ python scripts/quality_gate.py --mode release
 ```
 
 This runs `scripts/eval_streaming_manifest.py` and enforces aggregate
-streaming thresholds over the manifest:
+streaming thresholds over the manifest. These are stability and latency
+metrics; they passed while the pre-0.4.2 streaming decoder produced 56%
+primary error (`docs/EVAL_GAPS.md`). Score `final_text` against the manifest
+references as well (the 2026-09-19 artifacts carry `quality_vs_reference`)
+until that scoring is built into the lane:
 - `partial_stability_mean >= threshold`
 - `rewrite_rate_mean <= threshold`
 - `finalization_delta_chars_max <= threshold`

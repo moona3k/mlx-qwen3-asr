@@ -38,7 +38,8 @@ python scripts/benchmark_streaming.py tests/fixtures/test_speech.wav \
   --runs 3 \
   --json-output docs/benchmarks/latest-streaming.json
 
-# Latency-first variant (skips finish-time tail refinement fallback)
+# finalization_mode is accepted for compatibility; since 0.4.2 both modes decode
+# the pending tail with the window re-decode
 python scripts/benchmark_streaming.py tests/fixtures/test_speech.wav \
   --model Qwen/Qwen3-ASR-0.6B \
   --chunk-size-sec 2.0 \

@@ -16,9 +16,9 @@ Silicon. This is an implementation-focused view, not a model-quality ranking.
 | Installation UX | `pip install mlx-qwen3-asr` | `pip install mlx-audio` | source/build workflow | `pip install qwen-asr` (CUDA-focused runtime stack) |
 | Qwen3-ASR focus | Single-model focused | Multi-model toolkit | Single-model focused | Single-model focused |
 | Core backend | MLX (Metal) | MLX (Metal) | MLX (Metal) | PyTorch |
-| Streaming status | Experimental rolling mode | Varies by revision | Streaming supported | Streaming supported |
+| Streaming status | Official re-feed recipe; within ~2pp of offline on multilingual-100 | Varies by revision | Streaming supported | Streaming supported (vLLM only) |
 | Timestamp alignment | native MLX default + `qwen_asr` optional reference backend | Not a primary surfaced lane | No public forced-aligner API in cited snapshot | Official forced aligner |
-| Quantized path | Yes (4/8-bit workflows documented) | Yes | Varies | Varies |
+| Quantized path | Published `moona3k/mlx-qwen3-asr-*` 4/8-bit artifacts, validated per release | Yes (`mlx-community`) | Varies | Varies |
 
 ## Measured Position of This Repo
 
@@ -26,6 +26,10 @@ From committed artifacts in this repo:
 
 - Quantized long-clip speedup (`0.6B`, 10s lane, v0.4.0): `4bit-g64` at `1.71x` vs fp16; 8-bit matches fp16 output
   (`docs/benchmarks/2026-09-07-quality-matrix-refresh.md`)
+- Published 4-bit artifacts keep the audio encoder at 8 bits: 0.6B 2.37% WER
+  vs fp16 2.33%, 1.7B 1.73% vs 1.94% (`docs/benchmarks/2026-09-19-quantized-artifacts-*.json`)
+- Streaming vs offline on the same 100 multilingual clips: 11.4% vs 9.5%
+  primary error (`docs/benchmarks/2026-09-19-streaming-manifest-multilingual100.json`)
 - Timestamp backend parity snapshot (`test-clean`, English, `n=50`):
   - text match rate: `1.0000`
   - timing MAE: `5.6909 ms`

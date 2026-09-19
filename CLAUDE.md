@@ -21,11 +21,17 @@ Not a multi-model toolkit (that is mlx-audio) and not a training framework.
 ## Status (v0.4.3, September 2026)
 
 Published on PyPI and in use by third parties (external issues and PRs land
-regularly). Full suite is 660+ tests and runs in under 10 s. Real-model
+regularly). Full suite is 680+ tests and runs in under 10 s. Real-model
 regressions are caught by the nightly LibriSpeech lane.
 
-Next (see `docs/ROADMAP.md`): aligner quality hardening, publishing quantized
-artifacts, long-form robustness benchmarks, streaming-manifest artifacts.
+Recent (2026-09-19): quantized checkpoints run in float16 (#20), encoder tail
+chunks padded like the official path (#21), streaming rebuilt on the official
+re-feed recipe after the manifest lane found 56% error (#26), quantized
+artifacts published as `moona3k/mlx-qwen3-asr-*` (#25, #28).
+
+Next (see `docs/ROADMAP.md`): aligner quality hardening, long-form robustness
+benchmarks, streaming encoder-output caching and a reference-scored streaming
+gate in strict release mode.
 
 ## Architecture
 
