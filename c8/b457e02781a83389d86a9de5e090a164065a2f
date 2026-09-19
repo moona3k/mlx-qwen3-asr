@@ -1,0 +1,80 @@
+scripts/benchmark_encoder_windowing.py
+  s_7b5ee2ad1f9b97::t_92af028547e368 15
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 11-14
+scripts/benchmark_speculative.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 15-18
+scripts/benchmark_streaming.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 15-18
+scripts/build_longform_manifest.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 11-14
+  s_7b5ee2ad1f9b97::t_92af028547e368 15
+scripts/eval_streaming_manifest.py
+  s_7b5ee2ad1f9b97::t_92af028547e368 21
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 17-20
+scripts/eval_streaming_metrics.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 13-16
+scripts/eval_manifest_head2head.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 15-18
+  s_7b5ee2ad1f9b97::t_92af028547e368 19
+scripts/eval_nonnear_parity_matrix.py
+  s_7b5ee2ad1f9b97::t_92af028547e368 18
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 14-17
+scripts/eval_reference_parity_suite.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 25-28
+  s_7b5ee2ad1f9b97::t_92af028547e368 29
+scripts/eval_diarization.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 24-27
+  s_7b5ee2ad1f9b97::t_92af028547e368 28
+scripts/build_diarization_manifest.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 21-24
+  s_7b5ee2ad1f9b97::t_92af028547e368 25
+scripts/eval_librispeech.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 15-18
+  s_7b5ee2ad1f9b97::t_92af028547e368 19
+scripts/build_multilingual_manifest.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 17-20
+  s_7b5ee2ad1f9b97::t_92af028547e368 21
+scripts/build_realworld_manifest.py
+  s_7b5ee2ad1f9b97::t_92af028547e368 21
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 17-20
+scripts/eval_mel_parity.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 13-16
+scripts/benchmark_asr.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 15-18
+scripts/eval/benchmark_quantization_matrix.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 15-18
+  s_7b5ee2ad1f9b97::t_92af028547e368 19
+scripts/convert.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 16-19
+  s_7b5ee2ad1f9b97::t_92af028547e368 20
+scripts/eval_aligner_parity.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 15-18
+  s_7b5ee2ad1f9b97::t_92af028547e368 19
+scripts/eval_manifest_quality.py
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 16-19
+  s_7b5ee2ad1f9b97::t_92af028547e368 20
+scripts/build_earnings22_longform_manifest.py
+  s_7b5ee2ad1f9b97::t_92af028547e368 16
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 12-15
+scripts/eval_logit_parity_probe.py
+  s_7b5ee2ad1f9b97::t_92af028547e368 21
+  s_7b5ee2ad1f9b97::t_1541f6fcf23584 17-20
+scripts/README.md
+  s_7b5ee2ad1f9b97::t_bab69bbac27d4c 5,9-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c8b457e02781a83389d86a9de5e090a164065a2f",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
