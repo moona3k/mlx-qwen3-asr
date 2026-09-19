@@ -155,7 +155,7 @@ def _load_model_with_resolved_path(
     model._resolved_model_path = str(model_path)
 
     if quantized:
-        logger.info(f"Loaded quantized model from {model_path} with dtype {dtype}")
+        logger.info(f"Loaded quantized model from {model_path} with requested dtype {dtype}")
     else:
         logger.info(f"Loaded model from {model_path} with dtype {dtype}")
     return model, config, model_path
