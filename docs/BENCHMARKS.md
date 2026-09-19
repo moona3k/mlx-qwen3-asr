@@ -325,7 +325,8 @@ upgrade, and one flip is entirely due to that. Token flips on a tail-token
 change are borderline fp16 decisions and net to roughly zero, so the encoder
 was compared directly (MLX fp16 vs reference fp32, 20 clips): mean absolute
 error on the last encoder token vs the reference fell from 0.0101 to 0.0046
-(feature scale 0.016), improving on 17 of 20 clips, and overall error fell
+(feature scale 0.016): lower on 15 clips, unchanged on 4 (no tail or an English
+clip already at parity), higher on 1 (a Japanese clip, 0.0091 -> 0.0103). Overall error fell
 from 0.00291 to 0.00275. #21 brings the encoder closer to the reference.
 
 Artifacts: `2026-09-19-reference-parity-suite-multilingual100.json`,

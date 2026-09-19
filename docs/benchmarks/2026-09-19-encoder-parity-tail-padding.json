@@ -546,5 +546,22 @@
     "ref_scale": 0.018331589177250862
    }
   }
- ]
+ ],
+ "reference_stack": {
+  "package": "qwen-asr",
+  "torch": "2.14.0",
+  "transformers": "4.57.6",
+  "device": "cpu",
+  "dtype": "float32"
+ },
+ "mlx_version": "0.32.2",
+ "host": "Apple M4 Pro",
+ "summary": {
+  "clips": 20,
+  "last_token_err_mean_pre": 0.01014,
+  "last_token_err_mean_post": 0.00461,
+  "last_token_err_decreased": 15,
+  "last_token_err_increased": 1,
+  "last_token_err_unchanged": 4
+ }
 }

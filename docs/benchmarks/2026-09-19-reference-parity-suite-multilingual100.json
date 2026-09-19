@@ -2,6 +2,16 @@
   "suite": "reference-parity-suite-v1",
   "model": "Qwen/Qwen3-ASR-0.6B",
   "dtype": "float16",
+  "reference_stack": {
+    "package": "qwen-asr",
+    "torch": "2.14.0",
+    "transformers": "4.57.6",
+    "device": "cpu",
+    "dtype": "float16"
+  },
+  "mlx_version": "0.32.2",
+  "mlx_qwen3_asr_commit": "62a8198",
+  "host": "Apple M4 Pro",
   "max_new_tokens": 128,
   "subsets": [],
   "samples_per_subset": 1,
