@@ -122,13 +122,17 @@ criterion so the next agent can tell when it is done.
    `test_reference_gate_would_have_failed_pre_fix_streaming_decoder` re-scores
    the committed pre-#26 artifact and asserts the gate rejects it (57.6% vs a
    12.5% ceiling) while the post-#26 artifact passes (11.4%).
-   Remaining: the long-form manifest is not yet under the strict ceiling
-   (`docs/EVAL_GAPS.md` follow-up).
-2. **Forced aligner audit.** Run `scripts/eval_aligner_parity.py` on the newest
-   MLX against `qwen-asr`; add an encoder-output MAE check for the aligner
-   model like the one in `MEM-2026-09-19-010`.
-   - Done when: a 2026-09 aligner parity artifact is committed and
-     `docs/BENCHMARKS.md` "Forced Aligner Parity" no longer cites only February.
+   The long-form 10 x 75 s manifest is under the same ceiling (1.2pp headroom).
+2. **Forced aligner audit.** Done 2026-09-19. Word timestamps: 100% text
+   match, 5.57 ms MAE on MLX 0.30.6 and 0.32.2 (February: 5.69 ms). New
+   `scripts/eval_aligner_encoder_parity.py` measures the aligner encoder
+   against fp32 PyTorch: 0.089% max relative error on 50 clips, both MLX
+   versions; wired into `RUN_ALIGNER_PARITY=1`. Finding: the CPU `qwen-asr`
+   reference never applies the encoder's 800-frame attention window
+   (`_prepare_attention_mask` is defined, not called), so as-shipped
+   comparisons show 5-13% error on clips over 8 s that vanish with the mask.
+   Artifact: `docs/benchmarks/2026-09-19-aligner-parity-50.md`.
+   Remaining: report the missing mask upstream to QwenLM/Qwen3-ASR.
 3. **Streaming encoder-output caching.** The conv stem is per-100-frame chunk
    and attention windows are fixed, so most of a 30 s window's encoder work
    repeats between re-decodes.
@@ -165,6 +169,9 @@ Near-term work should remain correctness-gated and benchmark-driven:
 2. Native MLX forced aligner (timestamps) quality hardening
 - Goal: continue quality hardening now that runtime PyTorch dependency is removed.
 - Gate: word-level timing quality must be competitive with current `qwen-asr` backend.
+- Status 2026-09-19: audited on MLX 0.30.6 and 0.32.2, 100% text match,
+  5.57 ms MAE, encoder output within 0.09% of fp32 reference
+  (`docs/benchmarks/2026-09-19-aligner-parity-50.md`).
 
 2. Quantized model publication lane
 - Done 2026-09-19 (see Status item 3). Remaining: re-publish when the source

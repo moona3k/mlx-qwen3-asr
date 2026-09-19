@@ -47,7 +47,17 @@ Checks:
     - `RUN_QUALITY_EVAL=0`
 - Optional aligner parity lane when explicitly enabled:
   - `RUN_ALIGNER_PARITY=1`
-  - runs `scripts/eval_aligner_parity.py` on deterministic LibriSpeech samples.
+  - runs `scripts/eval_aligner_parity.py` on deterministic LibriSpeech samples
+    (text match 1.0, timing MAE <= 60 ms), then
+    `scripts/eval_aligner_encoder_parity.py` on the same samples against the
+    fp32 reference with its attention window applied
+    (`relative_mae_max <= 0.005`, `last_token_mae_max <= 0.005`; override with
+    `ALIGNER_ENCODER_PARITY_FAIL_RELATIVE_MAE_MAX_ABOVE`,
+    `ALIGNER_ENCODER_PARITY_FAIL_LAST_TOKEN_MAE_MAX_ABOVE`).
+  - The CPU `qwen-asr` reference does not apply the encoder's `n_window_infer`
+    mask on its own; the encoder lane applies it by default
+    (`--reference-attention windowed`). See
+    `docs/benchmarks/2026-09-19-aligner-parity-50.md`.
 
 ### Strict Release Profile (recommended for highest bar)
 
@@ -93,10 +103,11 @@ What strict profile turns on by default:
       ~0.65 is normal; this catches runaway rewriting, not quality)
     - `STREAMING_QUALITY_FAIL_FINALIZATION_DELTA_CHARS_ABOVE=32`
 - Streaming manifest quality lane with the reference ceiling
-  (`RUN_STREAMING_MANIFEST_QUALITY_EVAL=1`); defaults to the committed
-  multilingual-100 manifest and offline artifact, fails if the worst
-  endpointing mode exceeds offline primary error by more than 3pp. Requires
-  the manifest's `audio_path`s locally (`scripts/build_multilingual_manifest.py`).
+  (`RUN_STREAMING_MANIFEST_QUALITY_EVAL=1`); runs the committed
+  multilingual-100 and long-form manifests against their offline artifacts,
+  failing if the worst endpointing mode exceeds offline primary error by more
+  than 3pp. Requires the manifests' `audio_path`s locally
+  (`scripts/build_multilingual_manifest.py`, `scripts/build_longform_manifest.py`).
 
 Relevant perf env overrides:
 - `PERF_BENCH_AUDIO`
@@ -180,13 +191,17 @@ what catches that class of failure;
 `tests/test_eval_streaming_manifest.py::test_reference_gate_would_have_failed_pre_fix_streaming_decoder`
 re-scores the committed pre-fix artifact through the gate and asserts it fails.
 
-In strict release mode this lane is on by default and anchors on the
-committed multilingual-100 manifest and its offline artifact:
-- `STREAMING_MANIFEST_QUALITY_EVAL_JSONL` defaults to
-  `docs/benchmarks/2026-09-07-fleurs-multilingual-100-manifest.jsonl`
-- `STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON` defaults to
-  `docs/benchmarks/2026-09-07-manifest-quality-multilingual100-0p6b.json`
-  (required in strict mode when the manifest is overridden)
+In strict release mode this lane is on by default and runs once per committed
+manifest, each anchored on its offline artifact
+(`STREAMING_MANIFEST_STRICT_DEFAULT_LANES` in `scripts/quality_gate.py`):
+- multilingual-100: `2026-09-07-fleurs-multilingual-100-manifest.jsonl` vs
+  `2026-09-07-manifest-quality-multilingual100-0p6b.json`
+- long-form 10 x 75 s: `2026-09-07-fleurs-longform-10x75-manifest.jsonl` vs
+  `2026-09-07-manifest-quality-longform10-0p6b.json`
+- Setting `STREAMING_MANIFEST_QUALITY_EVAL_JSONL` runs only that manifest;
+  in strict mode it then requires `STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON`.
+- With several lanes, `STREAMING_MANIFEST_QUALITY_EVAL_JSON_OUTPUT` gets the
+  manifest stem appended so each lane keeps its own artifact.
 - `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE_OFFLINE_PP=3.0`
   (worst endpointing mode may exceed offline primary error by at most 3pp)
 - `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE` sets an absolute

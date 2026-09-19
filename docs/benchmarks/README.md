@@ -95,6 +95,16 @@ Forced aligner parity lane run (2026-02-14):
 - `docs/benchmarks/2026-02-14-aligner-parity-10-ja-ko-tokenizer.json`
 - `docs/benchmarks/2026-02-14-aligner-parity-10-ja-ko-tokenizer.md`
 
+Forced aligner audit on MLX 0.30.6 and 0.32.2 (2026-09-19):
+
+- `docs/benchmarks/2026-09-19-aligner-parity-50.md` (summary, both lanes)
+- `docs/benchmarks/2026-09-19-aligner-parity-50-mlx0.30.6.json`
+- `docs/benchmarks/2026-09-19-aligner-parity-50-mlx0.32.2.json`
+- `docs/benchmarks/2026-09-19-aligner-encoder-parity-50-mlx0.30.6-windowed.json`
+- `docs/benchmarks/2026-09-19-aligner-encoder-parity-50-mlx0.30.6-as-shipped.json`
+- `docs/benchmarks/2026-09-19-aligner-encoder-parity-50-mlx0.32.2-windowed.json`
+- `docs/benchmarks/2026-09-19-aligner-encoder-parity-50-mlx0.32.2-as-shipped.json`
+
 Tokenizer loader path benchmark (2026-02-14):
 
 - `docs/benchmarks/2026-02-14-tokenizer-loader-path-benchmark.json`

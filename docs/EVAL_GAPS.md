@@ -108,9 +108,13 @@ make broad "production-grade across languages/conditions" quality claims.
    a ceiling of offline primary error + 3pp. A test re-scores the committed
    pre-fix artifact and asserts the gate fails it (`docs/QUALITY_GATE.md`).
 
+   Since 2026-09-19 (later the same day) the strict gate also runs the
+   long-form 10 x 75 s manifest against its offline artifact; headroom there is
+   1.2pp (12.3% vs 10.6% + 3pp), so the P2 encoder caching / window-overlap
+   work must not lose more than that.
+
 ## Follow-up Order
 
-1. Extend the strict streaming ceiling to the long-form lane
-   (`2026-09-07-fleurs-longform-10x75-manifest.jsonl` against
-   `2026-09-07-manifest-quality-longform10-0p6b.json`) once the P2 encoder
-   caching / window-overlap work lands, so boundary regressions are gated too.
+1. Long-form streaming headroom under the 3pp ceiling is 1.2pp. Before item 3
+   or 4 of the ROADMAP handoff lands, decide whether the fix should close the
+   gap (preferred) or whether the ceiling needs a per-lane value.

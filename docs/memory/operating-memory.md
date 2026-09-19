@@ -96,17 +96,26 @@ Promote to distilled learnings when:
 7. Scripts import the checkout they live in (`_repo_path`); when measuring
    before/after from a worktree, print `mlx_qwen3_asr.__file__` first.
    - refs: `MEM-2026-09-19-009`
+8. When a parity number looks wrong, bisect on input length and rerun in
+   fp32 before blaming MLX. A clean step at a structural boundary (here 800
+   mel frames) with no fp32 improvement means the two implementations differ
+   in kind; then read the reference's attention path, not the MLX one. The
+   reference can be the side that departs from training.
+   - refs: `MEM-2026-09-19-014`
 
 ## Open Risks
 
 1. Memory updates are currently social-process enforced, not CI-enforced.
    - refs: `MEM-2026-02-16-001`, `MEM-2026-02-16-002`
-2. The strict streaming ceiling covers only the multilingual-100 manifest;
-   the long-form lane (boundary duplicates/drops) is scored but not gated.
-   - refs: `MEM-2026-09-19-013`; follow-up in `docs/EVAL_GAPS.md`.
-3. The forced aligner has not been audited since February; it has its own
-   encoder path and was not checked against the newest MLX or after #21.
-   - refs: `MEM-2026-09-19-011`
+2. Long-form streaming sits 1.2pp under the strict 3pp ceiling; the ROADMAP
+   encoder-caching and window-overlap items must not spend that headroom.
+   - refs: `MEM-2026-09-19-014`; `docs/EVAL_GAPS.md` follow-up.
+3. The shipped CPU `qwen-asr` reference does not window encoder attention
+   (mask defined, never called). Every encoder-output number measured
+   against it on clips over 8 s before 2026-09-19 overstates MLX error;
+   `2026-09-19-encoder-parity-tail-padding.json` long-clip magnitudes are
+   affected. Not yet reported upstream.
+   - refs: `MEM-2026-09-19-014`
 4. Publishing (PyPI, HuggingFace) runs from one laptop with local tokens;
    `publish-quantized.yml` cannot run without an `HF_TOKEN` repo secret.
    - refs: `MEM-2026-09-19-012`

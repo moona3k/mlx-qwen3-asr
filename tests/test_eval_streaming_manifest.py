@@ -291,6 +291,45 @@ def test_reference_gate_passes_post_fix_streaming_decoder():
     assert failures == []
 
 
+_LONGFORM_MANIFEST = _BENCHMARKS / "2026-09-07-fleurs-longform-10x75-manifest.jsonl"
+_OFFLINE_LONGFORM = _BENCHMARKS / "2026-09-07-manifest-quality-longform10-0p6b.json"
+_POST_FIX_LONGFORM_ARTIFACT = _BENCHMARKS / "2026-09-19-streaming-manifest-longform10.json"
+
+
+def test_reference_gate_passes_post_fix_longform_lane():
+    """The second strict lane (10 x 75 s) must pass at offline + 3pp today."""
+    mod = _load_script_module()
+    rows = json.loads(_POST_FIX_LONGFORM_ARTIFACT.read_text(encoding="utf-8"))["rows"]
+    references = mod._load_references(_LONGFORM_MANIFEST)  # noqa: SLF001
+    quality = mod._score_rows_against_references(rows, references)  # noqa: SLF001
+    assert quality is not None and quality["scored_rows"] == len(rows) == 20
+    quality["offline"] = mod._load_offline_quality(  # noqa: SLF001
+        _OFFLINE_LONGFORM, manifest_path=_LONGFORM_MANIFEST
+    )
+    committed = json.loads(_POST_FIX_LONGFORM_ARTIFACT.read_text(encoding="utf-8"))[
+        "quality_vs_reference"
+    ]
+    for mode in ("fixed", "energy"):
+        assert quality["by_mode"][mode]["primary_error_rate"] == pytest.approx(
+            committed["by_mode"][mode]["primary_error_rate"], abs=1e-9
+        )
+    failures = mod._threshold_failures(  # noqa: SLF001
+        aggregate={},
+        fail_partial_stability_below=None,
+        fail_rewrite_rate_above=None,
+        fail_finalization_delta_chars_above=None,
+        quality=quality,
+        fail_primary_above_offline_pp=3.0,
+    )
+    assert failures == []
+    # Headroom is real but not large: record it so a drift shows up in review.
+    headroom_pp = (
+        quality["offline"]["primary_error_rate"] + 0.03
+        - quality["worst_mode_primary_error_rate"]
+    ) * 100
+    assert 1.0 < headroom_pp < 2.0
+
+
 def test_load_offline_quality_rejects_other_manifest(tmp_path: Path):
     mod = _load_script_module()
     with pytest.raises(ValueError, match="different manifest"):

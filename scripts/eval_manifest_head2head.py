@@ -5,10 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import time
-import unicodedata
 from pathlib import Path
 from typing import Optional
 
@@ -24,64 +22,15 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from eval.metrics import edit_distance  # noqa: E402
+from eval import metrics as _metrics  # noqa: E402
 
 from mlx_qwen3_asr.chunking import split_audio_into_chunks  # noqa: E402
 
-_WS_RE = re.compile(r"\s+")
-
-
-def _normalize_quality_text(text: str) -> str:
-    s = unicodedata.normalize("NFKC", str(text or "")).casefold()
-    out: list[str] = []
-    for ch in s:
-        if ch in {"’", "`"}:
-            ch = "'"
-        cat = unicodedata.category(ch)
-        if cat and cat[0] in {"L", "N", "M"}:
-            out.append(ch)
-            continue
-        if ch == "'":
-            out.append(ch)
-            continue
-        if ch.isspace() or (cat and cat[0] in {"P", "S"}):
-            out.append(" ")
-    return _WS_RE.sub(" ", "".join(out)).strip()
-
-
-def _wer_tokens(normalized: str) -> list[str]:
-    if not normalized:
-        return []
-    if any(ch.isspace() for ch in normalized):
-        return normalized.split()
-    return list(normalized)
-
-
-def _cer_tokens(normalized: str) -> list[str]:
-    return list(normalized.replace(" ", ""))
-
-
-def _is_char_primary_language(language: Optional[str]) -> bool:
-    if not language:
-        return False
-    key = str(language).strip().lower().replace("-", "_").replace(" ", "_")
-    char_primary = {
-        "chinese",
-        "japanese",
-        "korean",
-        "zh",
-        "zh_cn",
-        "cmn",
-        "cmn_hans_cn",
-        "ja",
-        "ja_jp",
-        "ko",
-        "ko_kr",
-    }
-    if key in char_primary:
-        return True
-    prefixes = ("zh_", "cmn_", "ja_", "ko_")
-    return key.startswith(prefixes)
+edit_distance = _metrics.edit_distance
+_normalize_quality_text = _metrics.normalize_quality_text
+_wer_tokens = _metrics.wer_tokens
+_cer_tokens = _metrics.cer_tokens
+_is_char_primary_language = _metrics.is_char_primary_language
 
 
 def _select_language_arg(language: Optional[str]) -> Optional[str]:

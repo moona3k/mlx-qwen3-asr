@@ -348,6 +348,13 @@ error on the last encoder token vs the reference fell from 0.0101 to 0.0046
 clip already at parity), higher on 1 (a Japanese clip, 0.0091 -> 0.0103). Overall error fell
 from 0.00291 to 0.00275. #21 brings the encoder closer to the reference.
 
+Caveat found during the 2026-09-19 aligner audit (below): the CPU `qwen-asr`
+reference does not apply the encoder's `n_window_infer` attention window, so
+the absolute errors on clips longer than 800 mel frames in this artifact are
+dominated by the reference's missing mask, not by MLX. The before/after
+direction stands (same reference on both sides); the long-clip magnitudes do
+not measure MLX error.
+
 Artifacts: `2026-09-19-reference-parity-suite-multilingual100.json`,
 `2026-09-19-reference-parity-suite-multilingual100-analysis.md`,
 `2026-09-19-encoder-parity-tail-padding.json`
@@ -368,19 +375,26 @@ Artifact: `2026-02-15-reference-parity-suite-longform10.md`
 
 ## Forced Aligner Parity (LibriSpeech, English)
 
-MLX native aligner vs official `qwen-asr` PyTorch backend, 50 samples.
+MLX native aligner vs official `qwen-asr` PyTorch backend, 50 samples
+(33 clips <= 8 s, 17 clips up to 20 s). Re-measured 2026-09-19 on two stacks.
 
-| Metric | Value |
-|---|---:|
-| Text match rate | 100% |
-| Timing MAE (all boundaries) | 5.69 ms |
-| MLX mean latency | 0.21s |
-| Official backend mean latency | 0.56s |
-| Relative speed | **2.64x faster** |
+| Metric | 2026-09-19, MLX 0.30.6 | 2026-09-19, MLX 0.32.2 | 2026-02-14 |
+|---|---:|---:|---:|
+| Text match rate | 100% | 100% | 100% |
+| Timing MAE (all boundaries) | 5.57 ms | 5.57 ms | 5.69 ms |
+| MLX mean latency | 0.12s | 0.15s | 0.21s |
+| Official backend mean latency | 0.35s | 0.40s | 0.56s |
+| Relative speed | **2.95x faster** | **2.75x faster** | 2.64x faster |
 
-The MLX aligner produces identical text and <6ms timing deviation while running 2.64x faster than the PyTorch backend.
+Aligner audio-encoder output vs the fp32 reference (new lane,
+`scripts/eval_aligner_encoder_parity.py`): 0.078% mean / 0.089% max relative
+error on all 50 clips, identical on MLX 0.30.6 and 0.32.2. The shipped CPU
+reference does not apply the encoder's 800-frame attention window
+(`_prepare_attention_mask` is defined but never called in `qwen-asr` 0.0.6);
+compared as shipped, clips over 8 s show 5-13% error that disappears when the
+reference's own mask is applied. The MLX encoder windows as trained.
 
-Artifact: `2026-02-14-aligner-parity-50.md`
+Artifact: `2026-09-19-aligner-parity-50.md` (supersedes `2026-02-14-aligner-parity-50.md`)
 
 ---
 
@@ -486,6 +500,7 @@ All benchmark artifacts are committed under `docs/benchmarks/`. Key files:
 | `2026-09-07-reference-parity-suite-multilingual100-analysis.md` | v0.4.0 token-level parity |
 | `2026-09-19-reference-parity-suite-multilingual100-analysis.md` | v0.4.1 token-level parity rerun after encoder tail padding |
 | `2026-09-19-encoder-parity-tail-padding.json` | v0.4.1 encoder-output error vs fp32 reference, before/after tail padding |
+| `2026-09-19-aligner-parity-50.md` | Forced aligner audit on MLX 0.30.6 and 0.32.2: word timestamps + aligner encoder output; reference window-mask finding |
 | `2026-09-19-streaming-manifest-*.json` | v0.4.2 streaming quality vs offline on maintained manifests (before/after re-feed) |
 | `2026-09-19-quantized-artifacts-*.json` | Quantized artifact evals (0.6B/1.7B x 4/8-bit) |
 | `2026-02-14-quant-matrix-speaker100.md` | Quantization quality + latency matrix |

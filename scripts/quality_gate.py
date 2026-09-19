@@ -342,13 +342,84 @@ def _run_streaming_quality_gate(
     )
 
 
-STREAMING_MANIFEST_STRICT_DEFAULT_MANIFEST = (
-    "docs/benchmarks/2026-09-07-fleurs-multilingual-100-manifest.jsonl"
+# Strict release anchors the streaming reference ceiling on committed manifests
+# paired with their offline eval_manifest_quality artifacts (same manifest, same
+# model). Order: multilingual-100 (10 languages, short clips), then long-form
+# (10 x 75 s, exercises the 30 s window commit).
+STREAMING_MANIFEST_STRICT_DEFAULT_LANES: tuple[tuple[str, str], ...] = (
+    (
+        "docs/benchmarks/2026-09-07-fleurs-multilingual-100-manifest.jsonl",
+        "docs/benchmarks/2026-09-07-manifest-quality-multilingual100-0p6b.json",
+    ),
+    (
+        "docs/benchmarks/2026-09-07-fleurs-longform-10x75-manifest.jsonl",
+        "docs/benchmarks/2026-09-07-manifest-quality-longform10-0p6b.json",
+    ),
 )
-STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_JSON = (
-    "docs/benchmarks/2026-09-07-manifest-quality-multilingual100-0p6b.json"
-)
+STREAMING_MANIFEST_STRICT_DEFAULT_MANIFEST = STREAMING_MANIFEST_STRICT_DEFAULT_LANES[0][0]
+STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_JSON = STREAMING_MANIFEST_STRICT_DEFAULT_LANES[0][1]
 STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_PP = "3.0"
+
+
+def _run_streaming_manifest_quality_gates(
+    *,
+    repo: Path,
+    python_bin: str,
+    strict_release: bool,
+) -> list[StepResult]:
+    """Run the streaming manifest lane once per configured manifest.
+
+    An explicit ``STREAMING_MANIFEST_QUALITY_EVAL_JSONL`` runs exactly that
+    manifest. Otherwise strict release runs every committed default lane that
+    exists in the checkout; non-strict mode reports the missing-manifest
+    failure as before.
+    """
+    manifest_jsonl = os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_JSONL")
+    offline_json = os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON")
+    if manifest_jsonl or not strict_release:
+        return [
+            _run_streaming_manifest_quality_gate(
+                repo=repo,
+                python_bin=python_bin,
+                strict_release=strict_release,
+                manifest_jsonl=manifest_jsonl,
+                offline_json=offline_json,
+            )
+        ]
+
+    lanes = [
+        (repo / manifest_rel, repo / offline_rel)
+        for manifest_rel, offline_rel in STREAMING_MANIFEST_STRICT_DEFAULT_LANES
+        if (repo / manifest_rel).exists()
+    ]
+    steps: list[StepResult] = []
+    for manifest_path, offline_path in lanes:
+        steps.append(
+            _run_streaming_manifest_quality_gate(
+                repo=repo,
+                python_bin=python_bin,
+                strict_release=True,
+                manifest_jsonl=str(manifest_path),
+                offline_json=(
+                    offline_json
+                    if offline_json is not None
+                    else (str(offline_path) if offline_path.exists() else None)
+                ),
+                # Keep one artifact per lane when a shared JSON output is set.
+                json_output_suffix=manifest_path.stem if len(lanes) > 1 else None,
+            )
+        )
+    if not steps:
+        steps.append(
+            _run_streaming_manifest_quality_gate(
+                repo=repo,
+                python_bin=python_bin,
+                strict_release=True,
+                manifest_jsonl=None,
+                offline_json=offline_json,
+            )
+        )
+    return steps
 
 
 def _run_streaming_manifest_quality_gate(
@@ -356,18 +427,10 @@ def _run_streaming_manifest_quality_gate(
     repo: Path,
     python_bin: str,
     strict_release: bool,
+    manifest_jsonl: str | None = None,
+    offline_json: str | None = None,
+    json_output_suffix: str | None = None,
 ) -> StepResult:
-    manifest_jsonl = os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_JSONL")
-    offline_json = os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON")
-    if strict_release and not manifest_jsonl:
-        # Strict release anchors on the committed multilingual-100 manifest and
-        # its offline artifact so the reference ceiling always has a baseline.
-        default_manifest = repo / STREAMING_MANIFEST_STRICT_DEFAULT_MANIFEST
-        default_offline = repo / STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_JSON
-        if default_manifest.exists():
-            manifest_jsonl = str(default_manifest)
-            if offline_json is None and default_offline.exists():
-                offline_json = str(default_offline)
     if not manifest_jsonl:
         return StepResult(
             name="streaming-manifest-quality",
@@ -490,6 +553,11 @@ def _run_streaming_manifest_quality_gate(
         cmd.extend(["--limit", limit])
     json_output = os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_JSON_OUTPUT")
     if json_output:
+        if json_output_suffix:
+            out_path = Path(json_output)
+            json_output = str(
+                out_path.with_name(f"{out_path.stem}-{json_output_suffix}{out_path.suffix}")
+            )
         cmd.extend(["--json-output", json_output])
     return _run(cmd, repo)
 
@@ -858,6 +926,35 @@ def run_gate(mode: str, repo: Path, python_bin: str) -> tuple[list[StepResult], 
                     repo,
                 )
             )
+            # Encoder-output check for the aligner's own audio tower. Measured
+            # 0.089% max relative error on 2026-09-19 (both MLX 0.30.6 and
+            # 0.32.2); the ceiling leaves ~5x headroom while staying far below
+            # the 5-13% the unwindowed CPU reference produces on clips > 8 s.
+            steps.append(
+                _run(
+                    [
+                        python_bin,
+                        str(repo / "scripts" / "eval_aligner_encoder_parity.py"),
+                        "--subset",
+                        "test-clean",
+                        "--samples",
+                        samples,
+                        "--model",
+                        "Qwen/Qwen3-ForcedAligner-0.6B",
+                        "--reference-attention",
+                        "windowed",
+                        "--fail-relative-mae-max-above",
+                        os.environ.get(
+                            "ALIGNER_ENCODER_PARITY_FAIL_RELATIVE_MAE_MAX_ABOVE", "0.005"
+                        ),
+                        "--fail-last-token-mae-max-above",
+                        os.environ.get(
+                            "ALIGNER_ENCODER_PARITY_FAIL_LAST_TOKEN_MAE_MAX_ABOVE", "0.005"
+                        ),
+                    ],
+                    repo,
+                )
+            )
 
         if os.environ.get(
             "RUN_REFERENCE_PARITY_SUITE",
@@ -961,8 +1058,8 @@ def run_gate(mode: str, repo: Path, python_bin: str) -> tuple[list[StepResult], 
             "RUN_STREAMING_MANIFEST_QUALITY_EVAL",
             "1" if strict_release else "0",
         ) == "1":
-            steps.append(
-                _run_streaming_manifest_quality_gate(
+            steps.extend(
+                _run_streaming_manifest_quality_gates(
                     repo=repo,
                     python_bin=python_bin,
                     strict_release=strict_release,
