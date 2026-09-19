@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mlx-qwen3-asr — 2026-09-19 review: what changed, why, and what to learn from it</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --ink: #1f2328; --muted: #5b6470; --line: #e2ded6;
+    --accent: #b5442b; --accent2: #2b6cb0; --good: #2f7d4f; --bad: #b5442b; --warn: #b7791f;
+    --code: #f1efe9; --card: #ffffff;
+  }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font: 16px/1.6 -apple-system, "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  main { max-width: 900px; margin: 0 auto; padding: 48px 28px 120px; }
+  h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 { font-size: 24px; margin: 64px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); letter-spacing: -0.01em; }
+  h3 { font-size: 18px; margin: 32px 0 8px; }
+  p, li { color: var(--ink); }
+  .sub { color: var(--muted); font-size: 17px; margin: 0 0 32px; }
+  .lede { font-size: 18px; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; line-height: 1.45; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; } .bad { color: var(--bad); font-weight: 600; } .warn { color: var(--warn); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin: 18px 0; }
+  .card.note { border-left: 4px solid var(--accent2); }
+  .card.lesson { border-left: 4px solid var(--accent); }
+  .card h4 { margin: 0 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .term { border-bottom: 1px dotted var(--accent2); cursor: help; }
+  figure { margin: 24px 0; }
+  figure svg { width: 100%; height: auto; display: block; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+  figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  .toc { columns: 2; column-gap: 32px; font-size: 15px; }
+  .toc a { color: var(--accent2); text-decoration: none; } .toc a:hover { text-decoration: underline; }
+  .timeline { list-style: none; padding: 0; margin: 0; }
+  .timeline li { display: grid; grid-template-columns: 90px 1fr; gap: 14px; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+  .timeline .t { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 14px; }
+  .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-left: 6px; vertical-align: middle; }
+  dl.gloss dt { font-weight: 600; margin-top: 12px; } dl.gloss dd { margin: 2px 0 0 0; color: var(--ink); }
+  a { color: var(--accent2); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .two { grid-template-columns: 1fr; } .toc { columns: 1; } }
+  .svg-t { font: 12px ui-monospace, Menlo, monospace; fill: #1f2328; }
+  .svg-l { font: 11px -apple-system, Helvetica, sans-serif; fill: #5b6470; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>What changed on 2026-09-19, and what it teaches about ASR</h1>
+<p class="sub">A review of one day's work on <code>mlx-qwen3-asr</code>, written for the maintainer who did not write the code. Three releases (0.4.1, 0.4.2, 0.4.3), eight PRs, four published model artifacts, and one finding that changed a headline feature. The point of this document is not the changelog; it is the concepts behind each change and what they mean for how the project should be run.</p>
+
+<div class="card">
+<h4>Contents</h4>
+<div class="toc">
+<a href="#tldr">1. The day in one screen</a><br>
+<a href="#model">2. Mental model: how Qwen3-ASR turns audio into text</a><br>
+<a href="#dtype">3. Silent float32 promotion (#20)</a><br>
+<a href="#tail">4. Encoder tail padding (#21)</a><br>
+<a href="#parity">5. How to judge a numerics change</a><br>
+<a href="#streaming">6. Streaming: the important finding (#26)</a><br>
+<a href="#quant">7. Quantization: what to quantize, and how much</a><br>
+<a href="#process">8. Process lessons</a><br>
+<a href="#views">9. My views: what to pay attention to next</a><br>
+<a href="#glossary">10. Glossary</a>
+</div>
+</div>
+
+<h2 id="tldr">1. The day in one screen</h2>
+<ul class="timeline">
+  <li><span class="t">09:23</span><span>Asked to review "two open issues". There were none; the two open items were external PRs <a href="https://github.com/moona3k/mlx-qwen3-asr/pull/20">#20</a> and <a href="https://github.com/moona3k/mlx-qwen3-asr/pull/21">#21</a>.</span></li>
+  <li><span class="t">09:40</span><span>Both verified independently (real quantized model on newest MLX; official encoder source; 100-clip LibriSpeech before/after) and merged. Follow-up <a href="https://github.com/moona3k/mlx-qwen3-asr/pull/22">#22</a>.</span></li>
+  <li><span class="t">10:00</span><span>Scripts made to import their own checkout (<a href="https://github.com/moona3k/mlx-qwen3-asr/pull/23">#23</a>) after a worktree measurement nearly measured the wrong code.</span></li>
+  <li><span class="t">10:30</span><span>Parity lane rerun against PyTorch; #21's effect isolated at the encoder-output level. <b>0.4.1</b> released (<a href="https://github.com/moona3k/mlx-qwen3-asr/pull/24">#24</a>).</span></li>
+  <li><span class="t">11:00</span><span>Four quantized artifacts built and validated (<a href="https://github.com/moona3k/mlx-qwen3-asr/pull/25">#25</a>).</span></li>
+  <li><span class="t">11:10</span><span>Streaming lane run on real manifests with reference scoring for the first time: <span class="bad">56% error vs 9.5% offline</span>. Streaming rebuilt on the official recipe (<a href="https://github.com/moona3k/mlx-qwen3-asr/pull/26">#26</a>). <b>0.4.2</b>.</span></li>
+  <li><span class="t">12:00</span><span>4-bit recipe sweep: audio encoder at 8 bits closes the quality gap. Per-module loader (<a href="https://github.com/moona3k/mlx-qwen3-asr/pull/28">#28</a>). <b>0.4.3</b>. Artifacts published to HuggingFace.</span></li>
+  <li><span class="t">13:00</span><span>Docs, ADRs, gates and memory aligned. This document.</span></li>
+</ul>
+
+<div class="card lesson">
+<h4>If you read only one paragraph</h4>
+<p>Every metric this project tracked for streaming (partial stability, rewrite rate, finalization delta, latency) was green while the streaming decoder was producing text that was 56% wrong. The metrics measured whether the output was <em>stable</em>, not whether it was <em>right</em>. The single most valuable habit to take from today: for any decode path that departs from how the model was prompted in training, there must be a lane that scores its output against references before it ships. Everything else in this document is detail.</p>
+</div>
+
+<h2 id="model">2. Mental model: how Qwen3-ASR turns audio into text</h2>
+<p class="lede">Qwen3-ASR is an <span class="term" title="A model with two halves: an encoder that reads the input into vectors, and a decoder that writes the output one token at a time while attending to those vectors.">encoder-decoder</span> model. Audio goes in one side as a spectrogram, text comes out the other as tokens. Everything that happened today lives somewhere on this diagram.</p>
+
+<figure>
+<svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5b6470"/></marker></defs>
+  <g class="svg-t">
+    <!-- boxes -->
+    <rect x="20" y="110" width="110" height="60" rx="8" fill="#eef4fb" stroke="#2b6cb0"/><text x="75" y="136" text-anchor="middle">16 kHz PCM</text><text x="75" y="154" text-anchor="middle" class="svg-l">waveform</text>
+    <rect x="160" y="110" width="120" height="60" rx="8" fill="#eef4fb" stroke="#2b6cb0"/><text x="220" y="136" text-anchor="middle">log-mel</text><text x="220" y="154" text-anchor="middle" class="svg-l">128 bins, 100 frames/s</text>
+    <rect x="310" y="90" width="150" height="100" rx="8" fill="#fdf1ec" stroke="#b5442b"/><text x="385" y="116" text-anchor="middle">Conv2d stem</text><text x="385" y="134" text-anchor="middle" class="svg-l">3 layers, stride 2</text><text x="385" y="150" text-anchor="middle" class="svg-l">per 100-frame chunk</text><text x="385" y="170" text-anchor="middle" class="svg-l">8x downsample: 13 tok/s</text>
+    <rect x="490" y="90" width="150" height="100" rx="8" fill="#fdf1ec" stroke="#b5442b"/><text x="565" y="116" text-anchor="middle">Audio encoder</text><text x="565" y="134" text-anchor="middle" class="svg-l">transformer, LayerNorm</text><text x="565" y="150" text-anchor="middle" class="svg-l">windowed attention</text><text x="565" y="170" text-anchor="middle" class="svg-l">proj -> decoder width</text>
+    <rect x="670" y="90" width="210" height="100" rx="8" fill="#eefaf2" stroke="#2f7d4f"/><text x="775" y="116" text-anchor="middle">Text decoder (Qwen3)</text><text x="775" y="134" text-anchor="middle" class="svg-l">RMSNorm, GQA, SwiGLU</text><text x="775" y="150" text-anchor="middle" class="svg-l">interleaved MRoPE</text><text x="775" y="170" text-anchor="middle" class="svg-l">greedy, one token per step</text>
+    <!-- arrows -->
+    <line x1="130" y1="140" x2="160" y2="140" stroke="#5b6470" marker-end="url(#arr)"/>
+    <line x1="280" y1="140" x2="310" y2="140" stroke="#5b6470" marker-end="url(#arr)"/>
+    <line x1="460" y1="140" x2="490" y2="140" stroke="#5b6470" marker-end="url(#arr)"/>
+    <line x1="640" y1="140" x2="670" y2="140" stroke="#5b6470" marker-end="url(#arr)"/>
+    <!-- prompt -->
+    <rect x="490" y="220" width="390" height="56" rx="8" fill="#fff" stroke="#e2ded6"/>
+    <text x="500" y="242" class="svg-l">prompt:</text>
+    <text x="500" y="262">&lt;system&gt; &lt;user&gt; &lt;audio_start&gt; [pad x N] &lt;audio_end&gt; &lt;assistant&gt; language English&lt;asr_text&gt; ...</text>
+    <path d="M565 190 L565 205 L685 205 L685 220" fill="none" stroke="#5b6470" stroke-dasharray="4 3"/>
+    <text x="600" y="203" class="svg-l">audio vectors replace the N pad tokens</text>
+    <!-- labels of today's changes -->
+    <text x="385" y="60" text-anchor="middle" fill="#b5442b">#21 tail padding</text>
+    <text x="775" y="60" text-anchor="middle" fill="#b5442b">#20 dtype   #26 streaming   #28 quant</text>
+    <line x1="385" y1="66" x2="385" y2="86" stroke="#b5442b" marker-end="url(#arr)"/>
+    <line x1="775" y1="66" x2="775" y2="86" stroke="#b5442b" marker-end="url(#arr)"/>
+  </g>
+</svg>
+<figcaption>The pipeline, with today's changes pinned to the stage they touched. Two rates to internalise: mel frames arrive at 100 per second (10 ms hop), and after the conv stem the encoder emits 13 tokens per 100-frame chunk, i.e. roughly 12.5 tokens per second of audio.</figcaption>
+</figure>
+
+<h3>Terms you need for the rest of this document</h3>
+<dl class="gloss">
+  <dt>Mel spectrogram, frame, hop</dt><dd>Audio is sliced into overlapping 25 ms windows every 10 ms (the hop). Each window becomes 128 numbers (mel bins) describing energy per frequency band on a perceptual scale. One column is a <em>frame</em>; 100 frames is one second.</dd>
+  <dt>Chunk (encoder sense)</dt><dd>Qwen3-ASR's encoder processes mel in 100-frame (1 s) chunks independently through the conv stem, then attends across chunks in windows. A 253-frame clip is two full chunks plus a 53-frame <em>tail</em>. Do not confuse with the 30 s <em>chunks</em> the pipeline uses to split long files, or the 2 s <em>chunks</em> in streaming.</dd>
+  <dt>Conv stem, stride, receptive field</dt><dd>Three convolutions with kernel 3 and stride 2 each halve the time axis: 100 frames become 13 tokens. Each output token "sees" a receptive field of input frames wider than its own position, which is why padding decisions at the edge change the last token (section 4).</dd>
+  <dt>Decoder, prompt, greedy decoding</dt><dd>The decoder is a Qwen3 language model. It is given a chat-style prompt in which the audio vectors are spliced in where <code>&lt;|audio_pad|&gt;</code> tokens sit, and it writes <code>language English&lt;asr_text&gt;the transcript</code> one token at a time, always taking the most probable next token (greedy). It stops at an end-of-sequence token.</dd>
+  <dt>KV cache</dt><dd>Attention recomputes over every earlier token. The cache stores each earlier token's key and value vectors so generating token 200 costs one step, not 200. <em>Prefill</em> is the batch pass that fills the cache from the prompt.</dd>
+  <dt>WER, CER, primary error</dt><dd>Word error rate: (substitutions + insertions + deletions) / reference words, after normalising case and punctuation. Character error rate is the same on characters. For languages without spaces (Chinese, Japanese) WER on whitespace tokens is meaningless, so this project reports a <em>primary</em> error: WER for spaced languages, CER for the others.</dd>
+  <dt>RTF</dt><dd>Real-time factor: processing time divided by audio duration. 0.1 means one second of audio takes 100 ms. Below 1.0 is the bar for anything called real-time.</dd>
+  <dt>fp16, bf16, fp32</dt><dd>Three float formats. fp32 is 32 bits. fp16 and bf16 are both 16 bits but split them differently: fp16 has more precision and a small range (max 65504), bf16 has fp32's range and less precision. Apple's Metal path is fastest in fp16. Mixing them has a rule you need to know (section 3).</dd>
+  <dt>Quantization, group size, scales</dt><dd>Storing weights as 4- or 8-bit integers plus a small float <em>scale</em> and <em>bias</em> per <em>group</em> of 64 weights, so the original value is approximately <code>int * scale + bias</code>. Smaller groups: more accurate, more overhead. Section 7.</dd>
+</dl>
+
+<h2 id="dtype">3. Silent float32 promotion (#20)</h2>
+<p><b>What the contributor found.</b> The <code>mlx-community</code> quantized checkpoints store their non-integer tensors (scales, biases, norm weights, the unquantized audio tower) as <b>bf16</b>. The loader skipped its dtype cast for quantized checkpoints, so those tensors stayed bf16 while every activation entering the model was <b>fp16</b>.</p>
+<p><b>The concept: type promotion.</b> When an array library multiplies an fp16 tensor by a bf16 tensor it has to pick an output type, and neither can represent the other (fp16 lacks bf16's range, bf16 lacks fp16's precision), so MLX promotes to the common supertype: fp32. That one promotion propagates: the encoder output is fp32, so the decoder runs in fp32, so the KV cache is fp32. Nothing errors. Output text is identical. You pay twice the memory bandwidth and lose the fp16 fast paths.</p>
+
+<figure>
+<svg viewBox="0 0 900 190" xmlns="http://www.w3.org/2000/svg"><g class="svg-t">
+  <text x="20" y="30" font-weight="600">fp16</text>
+  <rect x="80" y="16" width="20" height="22" fill="#fdf1ec" stroke="#b5442b"/><text x="90" y="32" text-anchor="middle" class="svg-l">s</text>
+  <rect x="100" y="16" width="100" height="22" fill="#eef4fb" stroke="#2b6cb0"/><text x="150" y="32" text-anchor="middle" class="svg-l">exponent 5</text>
+  <rect x="200" y="16" width="200" height="22" fill="#eefaf2" stroke="#2f7d4f"/><text x="300" y="32" text-anchor="middle" class="svg-l">mantissa 10</text>
+  <text x="420" y="32" class="svg-l">range to 65,504; ~3.3 decimal digits</text>
+  <text x="20" y="80" font-weight="600">bf16</text>
+  <rect x="80" y="66" width="20" height="22" fill="#fdf1ec" stroke="#b5442b"/><text x="90" y="82" text-anchor="middle" class="svg-l">s</text>
+  <rect x="100" y="66" width="160" height="22" fill="#eef4fb" stroke="#2b6cb0"/><text x="180" y="82" text-anchor="middle" class="svg-l">exponent 8</text>
+  <rect x="260" y="66" width="140" height="22" fill="#eefaf2" stroke="#2f7d4f"/><text x="330" y="82" text-anchor="middle" class="svg-l">mantissa 7</text>
+  <text x="420" y="82" class="svg-l">range like fp32 (~3e38); ~2.4 decimal digits</text>
+  <text x="20" y="130" font-weight="600">fp32</text>
+  <rect x="80" y="116" width="20" height="22" fill="#fdf1ec" stroke="#b5442b"/><text x="90" y="132" text-anchor="middle" class="svg-l">s</text>
+  <rect x="100" y="116" width="160" height="22" fill="#eef4fb" stroke="#2b6cb0"/><text x="180" y="132" text-anchor="middle" class="svg-l">exponent 8</text>
+  <rect x="260" y="116" width="460" height="22" fill="#eefaf2" stroke="#2f7d4f"/><text x="490" y="132" text-anchor="middle" class="svg-l">mantissa 23</text>
+  <text x="20" y="172" fill="#b5442b">fp16 x bf16 -> fp32: neither 16-bit type contains the other, so the result is promoted to the one that contains both.</text>
+</g></svg>
+<figcaption>Why the mix promotes. Same width, different split. The fix is trivial once seen: cast every floating tensor in the checkpoint to the requested activation dtype, quantized or not; the packed integer weights are untouched.</figcaption>
+</figure>
+
+<p><b>How I verified it</b> rather than trusting the PR: loaded <code>mlx-community/Qwen3-ASR-0.6B-4bit</code> on the newest MLX (0.32.2) with and without the fix. Parameter dtypes: 810 bf16 tensors became fp16, 198 <code>uint32</code> packed weights unchanged. Same transcript. Warm latency 0.226 s to 0.154 s. Peak allocation 1.99 GiB to 1.47 GiB. The contributor's 1.7B numbers (15-30% faster, ~0.74 GiB) are consistent with that.</p>
+<div class="card note"><h4>What to pay attention to</h4><p>"Silently" is the dangerous word. This bug produced correct text for months. The only symptoms were latency and memory, which vary with machine load and are easy to attribute to something else. Two defences now exist: the regression test asserts the dtype of the encoder output, logits and cache after loading a bf16 quantized fixture; and <code>ARCHITECTURE.md</code> now names the rule. A third, worth adding, is a one-line <code>--verbose</code> print of the activation dtype at load.</p></div>
+
+<h2 id="tail">4. Encoder tail padding (#21)</h2>
+<p><b>What the contributor found.</b> When a clip is, say, 253 frames (2 full 100-frame chunks and a 53-frame tail), the official PyTorch encoder pads the tail to 100 frames <em>before</em> the conv stem and then keeps only the first <code>ceil(53/8) = 7</code> output tokens. The MLX port convolved the 53-frame tail at its own width. Those are not the same computation.</p>
+<p><b>The concept: convolutions with bias are not padding-invariant.</b> Each conv layer has kernel 3, stride 2, padding 1. At the right edge, the last output of layer 1 reads frames 51, 52 and one padded zero either way. But layer 1 also has a <em>bias</em> and a GELU. In the padded version there are extra layer-1 outputs beyond the valid region whose value is <code>GELU(bias)</code>, not zero, because the input to them is zero but the bias is not. Layer 2's last valid output then reads those non-zero positions. In the unpadded version they do not exist, so layer 2 sees zeros there. The last valid token of layer 3 inherits the difference.</p>
+
+<figure>
+<svg viewBox="0 0 900 250" xmlns="http://www.w3.org/2000/svg"><g class="svg-t">
+  <text x="20" y="24" font-weight="600">Unpadded tail (MLX before #21)</text>
+  <text x="470" y="24" font-weight="600">Padded to 100 then cropped (official, MLX after #21)</text>
+  <!-- left: input frames -->
+  <g>
+    <rect x="20" y="40" width="300" height="18" fill="#eef4fb" stroke="#2b6cb0"/><text x="170" y="53" text-anchor="middle" class="svg-l">53 valid frames</text>
+    <rect x="320" y="40" width="10" height="18" fill="#fff" stroke="#e2ded6" stroke-dasharray="2 2"/>
+    <text x="340" y="53" class="svg-l">conv padding = 0</text>
+    <!-- layer1 -->
+    <rect x="20" y="80" width="150" height="18" fill="#eef4fb" stroke="#2b6cb0"/><text x="95" y="93" text-anchor="middle" class="svg-l">27 outputs</text>
+    <rect x="170" y="80" width="10" height="18" fill="#fff" stroke="#e2ded6" stroke-dasharray="2 2"/><text x="190" y="93" class="svg-l">nothing here: layer 2 reads zeros</text>
+    <rect x="20" y="120" width="76" height="18" fill="#eef4fb" stroke="#2b6cb0"/><text x="58" y="133" text-anchor="middle" class="svg-l">14</text>
+    <rect x="20" y="160" width="40" height="18" fill="#eef4fb" stroke="#2b6cb0"/><text x="40" y="173" text-anchor="middle" class="svg-l">7</text>
+    <text x="70" y="173" class="svg-l">last token computed from zeros at its right edge</text>
+  </g>
+  <!-- right -->
+  <g transform="translate(450 0)">
+    <rect x="20" y="40" width="300" height="18" fill="#eef4fb" stroke="#2b6cb0"/><text x="170" y="53" text-anchor="middle" class="svg-l">53 valid frames</text>
+    <rect x="320" y="40" width="110" height="18" fill="#fdf1ec" stroke="#b5442b"/><text x="375" y="53" text-anchor="middle" class="svg-l">47 zero frames</text>
+    <rect x="20" y="80" width="150" height="18" fill="#eef4fb" stroke="#2b6cb0"/><text x="95" y="93" text-anchor="middle" class="svg-l">27 outputs</text>
+    <rect x="170" y="80" width="130" height="18" fill="#fdf1ec" stroke="#b5442b"/><text x="235" y="93" text-anchor="middle" class="svg-l">GELU(bias) != 0</text>
+    <text x="310" y="93" class="svg-l">layer 2 reads these</text>
+    <rect x="20" y="120" width="76" height="18" fill="#eef4fb" stroke="#2b6cb0"/><text x="58" y="133" text-anchor="middle" class="svg-l">14</text>
+    <rect x="96" y="120" width="70" height="18" fill="#fdf1ec" stroke="#b5442b"/>
+    <rect x="20" y="160" width="40" height="18" fill="#eef4fb" stroke="#2b6cb0"/><text x="40" y="173" text-anchor="middle" class="svg-l">7</text>
+    <rect x="60" y="160" width="36" height="18" fill="#fdf1ec" stroke="#b5442b"/><text x="105" y="173" class="svg-l">cropped: keep 7, drop 6</text>
+  </g>
+  <text x="20" y="215" class="svg-l">Real 0.6B weights: conv biases up to 0.5-0.7 in magnitude. Measured delta on the fixture's last tail token after the full encoder: max abs 0.0068 (feature scale ~0.016).</text>
+  <text x="20" y="235" class="svg-l">Inputs shorter than one chunk are not padded in either implementation (pad_sequence over a single element is a no-op), so #21 leaves them alone.</text>
+</g></svg>
+<figcaption>Same 53 frames, two different last tokens. The right side is what the model was trained with.</figcaption>
+</figure>
+
+<p><b>A subtlety worth knowing.</b> There are two "official" implementations and they disagree on sub-chunk inputs. The <code>qwen_asr</code> package (which this project's parity lane uses) applies <code>pad_sequence</code> across a sample's chunks, so a clip shorter than 100 frames is not padded. The HuggingFace <code>transformers</code> port always pads the mel axis to a multiple of 100 in the feature extractor. #21 follows <code>qwen_asr</code>. If a future parity run is done against <code>transformers</code> instead, sub-second clips will differ and it will not be a bug.</p>
+
+<h2 id="parity">5. How to judge a numerics change</h2>
+<p>#21 changes numbers, so "does the transcript still match?" is the natural question, and it is the wrong one to ask first. Here is what the layers of evidence looked like and why the order matters.</p>
+<table>
+<tr><th>Measurement</th><th>Result</th><th>What it can and cannot tell you</th></tr>
+<tr><td>LibriSpeech test-clean, 100 clips, WER before/after</td><td class="num">2.331% to 2.331%, 0/100 hypotheses changed</td><td>Good: no regression. Cannot say whether the change helped, because greedy decoding is robust to small perturbations most of the time.</td></tr>
+<tr><td>Multilingual-100 token match vs PyTorch</td><td class="num">66% to 64%</td><td class="warn">Looks like a regression. Isn't: 6 MLX outputs changed (2 diverged, 1 converged, 3 mismatched either way) and 2 <em>reference</em> outputs changed because the PyTorch stack itself moved from torch 2.10 to 2.14. Greedy token match flips on borderline fp16 decisions in both directions.</td></tr>
+<tr><td>Encoder output MAE vs fp32 PyTorch, last tail token, 20 clips</td><td class="num">0.0101 to 0.0046</td><td class="good">Decisive. Lower on 15 clips, unchanged on 4 (no tail or already at parity), higher on 1. This is the measurement closest to the change, before greedy decoding gets a chance to hide or amplify it.</td></tr>
+</table>
+<div class="card lesson"><h4>Lesson</h4><p>Measure as close to the change as you can. Downstream metrics answer "did it break anything?"; only the local measurement answers "did it do what it claims?". And always write down the reference stack (package, torch and transformers versions) next to parity numbers: two of the hundred references changed under us today with no code change on our side.</p></div>
+<p><b>How the isolation was done</b>, because the technique is reusable: a git worktree at the pre-#21 commit, the same MLX version, the same six clips, run with <code>PYTHONPATH</code> pointing at the worktree. All six changes reproduced, so they were #21's and not the MLX upgrade's. That experiment is what exposed the script import trap in section 8.</p>
+
+<h2 id="streaming">6. Streaming: the important finding (#26)</h2>
+<p class="lede">The roadmap's oldest open item was "run the streaming lane on real manifests and commit the artifacts". Doing that, and scoring the final text against references rather than only reporting stability metrics, showed that streaming was producing text that was more than half wrong.</p>
+
+<table>
+<tr><th>Lane</th><th class="num">Offline</th><th class="num">Streaming before (#26)</th><th class="num">Streaming after</th><th class="num">After RTF</th></tr>
+<tr><td>Multilingual-100 (5-20 s clips), primary error</td><td class="num">9.5%</td><td class="num bad">56.0%</td><td class="num good">11.4%</td><td class="num">0.08</td></tr>
+<tr><td>Long-form 10 x 75 s, primary error</td><td class="num">10.6%</td><td class="num bad">34.7%</td><td class="num good">12.3%</td><td class="num">0.18</td></tr>
+</table>
+
+<p>What the failures looked like, from one 13-second English clip:</p>
+<pre><code>REF : Four skiers in the women's sitting group failed to finish their runs, and 45 of the 117 total
+      skiers in the Giant Slalom failed to rank in the race.
+OLD : Force gears. In the woman's sitting group, failed to finish the. Runs and forty-five of the one
+      hundred. In the woman's sitting group, failed to finish the. Failed to rank in the race.
+NEW : Four skiers in the women's sitting group failed to finish their runs, and 45 of the 117 total
+      skiers in the Giant Slalom failed to rank in the race.</code></pre>
+<p>Duplicated segments, dropped content, and a full stop at every 2 s chunk boundary. Chunk size 2, 4 and 8 s gave 49%, 28% and 24% on the same 30 clips. The floor stayed far above offline, so the loss was structural, not a granularity setting.</p>
+
+<h3>The concept: prompt shape must match training</h3>
+<p>The previous design was clever and fast. Each 2 s chunk was encoded on its own and appended to the decoder as a <em>new chat turn</em>, reusing the KV cache from earlier turns so cost stayed linear in session length. The problem is that the model was trained on exactly one prompt shape: one user turn containing all of the audio, one assistant turn containing all of the text. It has never seen "here is two more seconds, continue". It does its best, which is to treat each chunk as a fresh utterance, hence the full stops and the repeats.</p>
+
+<figure>
+<svg viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg"><g class="svg-t">
+  <text x="20" y="26" font-weight="600" fill="#b5442b">Before: incremental KV cache (linear cost, wrong prompt shape)</text>
+  <g transform="translate(20 40)">
+    <rect x="0" y="0" width="110" height="34" rx="6" fill="#eefaf2" stroke="#2f7d4f"/><text x="55" y="21" text-anchor="middle" class="svg-l">system + user(audio 0-2s)</text>
+    <rect x="115" y="0" width="80" height="34" rx="6" fill="#fff" stroke="#e2ded6"/><text x="155" y="21" text-anchor="middle" class="svg-l">assistant: text1</text>
+    <rect x="200" y="0" width="110" height="34" rx="6" fill="#fdf1ec" stroke="#b5442b"/><text x="255" y="21" text-anchor="middle" class="svg-l">user(audio 2-4s)</text>
+    <rect x="315" y="0" width="80" height="34" rx="6" fill="#fff" stroke="#e2ded6"/><text x="355" y="21" text-anchor="middle" class="svg-l">assistant: text2</text>
+    <rect x="400" y="0" width="110" height="34" rx="6" fill="#fdf1ec" stroke="#b5442b"/><text x="455" y="21" text-anchor="middle" class="svg-l">user(audio 4-6s)</text>
+    <rect x="515" y="0" width="80" height="34" rx="6" fill="#fff" stroke="#e2ded6"/><text x="555" y="21" text-anchor="middle" class="svg-l">assistant: text3</text>
+    <text x="610" y="21" class="svg-l">... KV cache grows, never re-encoded</text>
+    <text x="0" y="60" class="svg-l">Each 2 s chunk encoded alone (no acoustic context). Multi-turn shape never seen in training. Text joined by overlap heuristics.</text>
+  </g>
+  <line x1="20" y1="120" x2="880" y2="120" stroke="#e2ded6"/>
+  <text x="20" y="150" font-weight="600" fill="#2f7d4f">After: re-feed the window, force the previous text as a prefix (official recipe)</text>
+  <g transform="translate(20 165)">
+    <text x="0" y="14" class="svg-l">step 1</text>
+    <rect x="60" y="0" width="140" height="30" rx="6" fill="#eefaf2" stroke="#2f7d4f"/><text x="130" y="19" text-anchor="middle" class="svg-l">user(audio 0-2s)</text>
+    <rect x="205" y="0" width="120" height="30" rx="6" fill="#fff" stroke="#e2ded6"/><text x="265" y="19" text-anchor="middle" class="svg-l">assistant: A B C D E</text>
+    <text x="0" y="58" class="svg-l">step 2</text>
+    <rect x="60" y="44" width="200" height="30" rx="6" fill="#eefaf2" stroke="#2f7d4f"/><text x="160" y="63" text-anchor="middle" class="svg-l">user(audio 0-4s)  re-encoded</text>
+    <rect x="265" y="44" width="70" height="30" rx="6" fill="#eef4fb" stroke="#2b6cb0"/><text x="300" y="63" text-anchor="middle" class="svg-l">A B C</text>
+    <rect x="340" y="44" width="150" height="30" rx="6" fill="#fff" stroke="#e2ded6"/><text x="415" y="63" text-anchor="middle" class="svg-l">D E F G H  generated</text>
+    <text x="500" y="63" class="svg-l">prefix = previous text minus last K=5 tokens... (here K=2 for the picture)</text>
+    <text x="0" y="102" class="svg-l">step 3</text>
+    <rect x="60" y="88" width="260" height="30" rx="6" fill="#eefaf2" stroke="#2f7d4f"/><text x="190" y="107" text-anchor="middle" class="svg-l">user(audio 0-6s)  re-encoded</text>
+    <rect x="325" y="88" width="120" height="30" rx="6" fill="#eef4fb" stroke="#2b6cb0"/><text x="385" y="107" text-anchor="middle" class="svg-l">A B C D E F</text>
+    <rect x="450" y="88" width="150" height="30" rx="6" fill="#fff" stroke="#e2ded6"/><text x="525" y="107" text-anchor="middle" class="svg-l">G H I J  generated</text>
+    <text x="0" y="146" class="svg-l">Always the trained prompt shape: one user turn with all audio, one assistant turn. The model only writes the tail; the prefix pins everything before it.</text>
+    <text x="0" y="166" class="svg-l">Cost per step is bounded by the window (max_context_sec = 30 s): encoder over &lt;= 30 s, prefill of ~375 audio tokens + prefix, a few new tokens.</text>
+    <text x="0" y="186" class="svg-l">When the window would overflow, its text is committed and a new window starts. One word at that boundary may repeat or drop, once per 30 s.</text>
+  </g>
+</g></svg>
+<figcaption>The old and new streaming designs. The new one is what <code>qwen_asr.streaming_transcribe</code> does, bounded by a window so per-chunk cost does not grow with session length.</figcaption>
+</figure>
+
+<h3>Why the "prefix rollback" matters</h3>
+<p>If you simply re-transcribed the growing window each time, the text could change anywhere on every step, and a live caption would flicker. Forcing the previous output (minus its last K tokens) into the prompt as if the model had already written it does two things: the model continues from it rather than restarting, and only the last K tokens can legitimately change. That is where the project's <code>stable_text</code> comes from. One detail the official code handles and the port now does too: if cutting K tokens lands inside a multi-byte character (common in CJK), the decoded prefix contains U+FFFD, and you back off one more token until it does not.</p>
+
+<h3>Why the metrics did not catch it</h3>
+<p><code>partial_stability</code> measures how much of the text is marked stable. <code>rewrite_rate</code> measures how often a new partial fails to extend the previous one. <code>finalization_delta_chars</code> measures how much text the final pass adds. All three describe the <em>shape</em> of the output over time. None compares it to what was said. A decoder that emits confident, stable, wrong sentences scores perfectly. The lane now stores a <code>quality_vs_reference</code> block (WER, CER, primary error of <code>final_text</code>), and the strict gate's <code>rewrite_rate</code> default moved from 0.30 to 0.85 because the new recipe regenerates its tail tokens every chunk by design (~0.65) and that is not a defect.</p>
+
+<div class="card note"><h4>Cost and what remains</h4><p>RTF went from 0.07 to 0.08 on short clips and 0.06 to 0.18 on 75 s clips, since a full 30 s window is re-encoded every 2 s. Still well under real time on an M4 Pro. The encoder processes each 100-frame chunk independently through the conv stem, so caching those per-chunk conv outputs across re-decodes is a clean optimisation that would take the encoder cost back to near-linear; it is the top streaming follow-up in <code>EVAL_GAPS.md</code>. The remaining ~2pp gap to offline is expected: the model decodes the first chunks with almost no right context, and the official implementation has the same gap.</p></div>
+
+<h2 id="quant">7. Quantization: what to quantize, and how much</h2>
+<p><b>The concept.</b> A 4-bit affine quantization stores each weight as an integer 0-15 and, per group of 64 weights, one fp16 <em>scale</em> and one fp16 <em>bias</em>: <code>w ~ q * scale + bias</code>. The storage cost is 4 bits per weight plus 32 bits per 64 weights of overhead (0.5 bit/weight), so about 4.5 bits per weight against 16 for fp16. 8-bit is the same scheme with 256 levels and about 8.5 bits per weight. Matrix multiplies run directly on the packed integers, which is where the speedup comes from: less memory to move.</p>
+<p><b>The question is never "4 or 8".</b> It is "which layers tolerate 4". The first build quantized everything at 4 bits and lost 0.3pp WER on 0.6B with 28 of 100 hypotheses changing, mostly proper nouns. Not a disaster, not a "high yes" either. So I swept:</p>
+<table>
+<tr><th>0.6B recipe</th><th class="num">WER</th><th class="num">CER</th><th class="num">Size</th><th class="num">Hyps changed vs fp16</th></tr>
+<tr><td>fp16 (reference)</td><td class="num">2.33%</td><td class="num">0.59%</td><td class="num">1.8 GB</td><td class="num">0</td></tr>
+<tr><td>all 4-bit, group 64</td><td class="num bad">2.63%</td><td class="num">0.93%</td><td class="num">430 MB</td><td class="num">28</td></tr>
+<tr><td>all 4-bit, group 32</td><td class="num">2.55%</td><td class="num">0.79%</td><td class="num">477 MB</td><td class="num">22</td></tr>
+<tr><td>decoder 4-bit, encoder fp16</td><td class="num good">2.37%</td><td class="num">0.71%</td><td class="num">680 MB</td><td class="num">17</td></tr>
+<tr><td><b>decoder 4-bit, encoder 8-bit</b> (published)</td><td class="num good">2.37%</td><td class="num">0.71%</td><td class="num">517 MB</td><td class="num">17</td></tr>
+<tr><td>decoder 4-bit, encoder 8-bit, embeddings 8-bit</td><td class="num">2.37%</td><td class="num">0.75%</td><td class="num">591 MB</td><td class="num">17</td></tr>
+<tr><td>all 8-bit, group 64</td><td class="num good">2.33%</td><td class="num">0.59%</td><td class="num">801 MB</td><td class="num">0</td></tr>
+</table>
+<p><b>Reading the table.</b> Almost all of the 4-bit loss came from the audio encoder. That is not surprising in hindsight: the encoder is a small stack of dense layers whose outputs feed everything downstream, and ASR encoders are known to be more quantization-sensitive than language-model decoders, which have redundancy across many layers and a softmax that forgives small logit errors. Halving the group size (a common first instinct) bought less than moving the encoder to 8 bits, and the encoder move costs only 90 MB because the encoder is a small fraction of the parameters. Quantizing the embedding table at 8 bits, another common intuition, changed nothing here.</p>
+<p><b>What it needed in code.</b> The loader had applied one <code>(bits, group_size)</code> to every quantized module. Now it reads each module's width from the shapes of its packed tensors (<code>bits = packed_cols * 32 / in_features</code>, <code>group = in_features / scale_cols</code>) and quantizes each group of modules separately. That also makes the loader robust to mixed-precision community checkpoints, which exist. Artifacts also drop the tied <code>lm_head</code> (a copy of the embedding matrix) and the loader rebuilds it.</p>
+<div class="card note"><h4>The publication bar that ended up mattering</h4><p>Not the WER number alone. Three things made these artifacts defensible: a hypothesis-level diff against the committed fp16 rows (so "28 differ" is a fact, not an impression), the baseline file named in the artifact (I initially compared the 0.6B 4-bit build against the previous 4-bit run instead of fp16, which a review bot caught), and a reproduce command pinned to a release tag on the model card.</p></div>
+
+<h2 id="process">8. Process lessons</h2>
+<div class="two">
+<div class="card"><h4>Scripts imported the wrong checkout</h4><p>With an editable install, <code>python scripts/foo.py</code> resolves <code>mlx_qwen3_asr</code> through the install's path hook, i.e. the checkout that was <code>pip install -e</code>'d, not the one the script sits in. Run from a git worktree, an "after" measurement was silently measuring "before". Caught because the delta was exactly zero, which was implausible. Every script now starts with a guarded <code>import _repo_path</code>. Habit: print <code>mlx_qwen3_asr.__file__</code> before trusting any before/after number.</p></div>
+<div class="card"><h4>Review bots earned their keep</h4><p>Every PR today drew Greptile or CodeRabbit findings, and every one was valid: a log line that misreported dtype, a clip count I had wrong (17 vs 15), a model card comparing against the wrong baseline, stale README bullets, an explicit <code>max_new_tokens</code> being treated as a floor, tensors not released per streaming step, unsupported bit widths silently accepted. None were deep; all were the kind of thing a tired author misses. Keep them on.</p></div>
+<div class="card"><h4><code>git commit -a</code> in a shared tree</h4><p>One fix commit used <code>-a</code> and swept your uncommitted memory note into a PR. Recovered by committing the research doc it cited, but the rule is now in operating memory: stage explicit paths.</p></div>
+<div class="card"><h4>The hung upload</h4><p>A 1.2 GB HuggingFace upload sat at 0% CPU for an hour. It had already pushed the LFS blob; only the commit had not landed. Killing and re-running finished in seconds. Check the process before assuming a transfer must restart.</p></div>
+</div>
+
+<h2 id="views">9. My views: what to pay attention to next</h2>
+<ol>
+  <li><b>Build the reference-scored streaming gate before anything else in streaming.</b> Fold <code>quality_vs_reference</code> into <code>eval_streaming_manifest.py</code> and give the strict release gate a ceiling relative to the offline artifact (say, offline primary error + 3pp). This is the guard that was missing. It is a day of work and it prevents the class of failure that was live for months.</li>
+  <li><b>Encoder-output caching in streaming.</b> The conv stem is per-100-frame-chunk and the attention windows are fixed, so most of a 30 s window's encoder work is identical between consecutive re-decodes. Caching it would take long-form streaming RTF from 0.18 back toward 0.06 without touching correctness. Worth doing, but only after item 1 exists, because it is exactly the kind of optimisation that can subtly break parity.</li>
+  <li><b>Treat the audio encoder as the sensitive component.</b> Today it was the source of the tail-padding divergence and of the 4-bit quality loss. When a future change touches it, the encoder-output MAE against fp32 PyTorch (the script pattern from section 5) is the cheapest decisive test you have.</li>
+  <li><b>The aligner is the next un-audited surface.</b> The forced aligner has its own encoder path and its own parity numbers from February. Nothing today touched it, which also means nothing today verified it against the newest MLX or the tail-padding fix. The same "run the real lane and score against references" exercise is due there.</li>
+  <li><b>Publish from CI, not a laptop.</b> The quantized artifacts went up from this machine. Add <code>HF_TOKEN</code> to the repo secrets so <code>publish-quantized.yml</code> can run, and re-publish whenever the recipe or the loader changes. The cards pin <code>v0.4.3</code>; keep that honest.</li>
+  <li><b>Watch the reference stack.</b> Two of one hundred PyTorch reference outputs changed between torch 2.10 and 2.14 with no change on our side. Parity numbers are only comparable when the stack is recorded, which the artifacts now do. Consider pinning the parity venv.</li>
+  <li><b>Be skeptical of clever.</b> The incremental KV streaming design was the most technically interesting thing in the repo and the least correct. The official recipe is dull and right. When a port departs from the reference algorithm for speed, the burden of proof is a reference-scored lane, not a stability metric.</li>
+</ol>
+
+<h2 id="glossary">10. Glossary</h2>
+<dl class="gloss">
+  <dt>Affine quantization</dt><dd>Representing a weight as <code>q * scale + bias</code> with a small integer <code>q</code>; "affine" because of the additive bias term (symmetric schemes omit it).</dd>
+  <dt>Autoregressive decoding</dt><dd>Generating one token at a time, feeding each back in as input for the next.</dd>
+  <dt>bf16 / fp16 / fp32</dt><dd>See section 3. Mixing bf16 and fp16 promotes to fp32.</dd>
+  <dt>CER / WER / primary error</dt><dd>Character / word error rate; primary picks the appropriate one per language.</dd>
+  <dt>Chunk</dt><dd>Overloaded: 100-frame encoder chunk (1 s), 30 s long-audio chunk, 2 s streaming chunk. Always ask which.</dd>
+  <dt>Endpointing</dt><dd>Choosing where to cut audio for a decode step. <code>fixed</code> cuts every N seconds; <code>energy</code> looks for a low-energy (silence-like) point near the boundary.</dd>
+  <dt>EOS</dt><dd>End-of-sequence token; the decoder emits it to stop. Runaway decodes that never emit it are bounded by <code>max_new_tokens</code> and a repetition detector.</dd>
+  <dt>GELU</dt><dd>A smooth activation function used after each conv layer here. GELU(0) = 0 but GELU(bias) is not, which is the crux of section 4.</dd>
+  <dt>GQA</dt><dd>Grouped-query attention: several query heads share one key/value head, shrinking the KV cache.</dd>
+  <dt>Greedy</dt><dd>Always pick the highest-probability next token. Deterministic, which is what makes token-level parity comparisons possible at all.</dd>
+  <dt>Group size</dt><dd>How many weights share one scale/bias pair in quantization. 64 here.</dd>
+  <dt>Hypothesis</dt><dd>The model's output transcript for a clip, as opposed to the <em>reference</em> (ground truth).</dd>
+  <dt>KV cache / prefill</dt><dd>Stored attention keys and values for earlier tokens; prefill fills it from the prompt in one pass.</dd>
+  <dt>LibriSpeech test-clean / test-other, FLEURS</dt><dd>Standard evaluation sets. LibriSpeech is English audiobooks (clean = easy speakers, other = harder). FLEURS is read speech in 100+ languages; the multilingual-100 manifest samples 10 clips from each of 10 languages.</dd>
+  <dt>Mel filterbank</dt><dd>The set of triangular filters that map FFT bins to perceptual mel bins. Loaded from <code>assets/mel_filters.npz</code>.</dd>
+  <dt>MRoPE</dt><dd>Multi-dimensional rotary position embedding; Qwen3-ASR interleaves three position streams (sections 24/20/20). One of the "silently wrong if broken" invariants in <code>CLAUDE.md</code>.</dd>
+  <dt>pad_sequence</dt><dd>PyTorch utility that right-pads a list of tensors to the longest one. In the official encoder it pads a sample's chunks to 100 frames.</dd>
+  <dt>Parity</dt><dd>Agreement between this implementation and the official PyTorch one, measured at the token level (exact match) or at the tensor level (mean absolute error).</dd>
+  <dt>Prefix rollback</dt><dd>Streaming technique: force the previous output minus its last K tokens into the prompt so the model continues rather than restarts. K = <code>unfixed_token_num</code>.</dd>
+  <dt>Receptive field</dt><dd>The span of input positions that influence one output position of a convolution stack.</dd>
+  <dt>RTF</dt><dd>Real-time factor; processing time / audio duration.</dd>
+  <dt>Speaker round-robin</dt><dd>The sampling used for the 100-clip LibriSpeech lane: cycle through speakers so no one voice dominates. Deterministic, so runs are comparable.</dd>
+  <dt>Tied embeddings</dt><dd>The output projection (<code>lm_head</code>) reuses the input embedding matrix. Both Qwen3-ASR sizes do this.</dd>
+  <dt>Windowed attention</dt><dd>The audio encoder attends only within fixed-size windows of tokens (block-diagonal mask), which is why chunks can be processed and cached independently.</dd>
+</dl>
+
+<p class="sub" style="margin-top:64px">Artifacts referenced: <code>docs/benchmarks/2026-09-19-*</code>. Decisions: <code>docs/DECISIONS.md</code> #29. Memory events: <code>MEM-2026-09-19-009</code> through <code>-012</code>. Releases: <a href="https://github.com/moona3k/mlx-qwen3-asr/releases/tag/v0.4.1">0.4.1</a>, <a href="https://github.com/moona3k/mlx-qwen3-asr/releases/tag/v0.4.2">0.4.2</a>, <a href="https://github.com/moona3k/mlx-qwen3-asr/releases/tag/v0.4.3">0.4.3</a>. Models: <a href="https://huggingface.co/moona3k">huggingface.co/moona3k</a>.</p>
+
+</main>
+</body>
+</html>

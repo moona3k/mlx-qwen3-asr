@@ -184,6 +184,8 @@ PyPI account moona3k@gmail.com, token scoped to the project. Pure Python wheel. 
 | `docs/COMPARISON.md`, `docs/RESEARCH.md`, `docs/MODEL_WATCH.md` | Alternatives, sources, model watchlist |
 | `docs/server/` | Server README, API spec, ADR, deployment |
 | `docs/memory/operating-memory.md` | Agent memory front door; events in `docs/memory/events/` |
+| `docs/reviews/` | Dated maintainer-facing reviews of a body of work (self-contained HTML) |
+| `docs/research/` | Dated research notes on models and repos; supplements `MODEL_WATCH.md` |
 | `docs/archive/` | Dated notes kept for provenance, not maintained |
 
 `.github/workflows/` is the source of truth for CI: `ci.yml` (lint + fast
