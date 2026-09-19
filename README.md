@@ -29,7 +29,7 @@ This project rewrites every layer for MLX so the same model runs natively on M1/
 - **Speculative decoding** — experimental opt-in path (0.6B drafts for 1.7B target), parity-verified
 - **Streaming** — windowed re-decode with text-prefix rollback (the official Qwen3-ASR recipe); final text within ~2pp of offline quality on the multilingual-100 and long-form lanes
 - **Native WAV fast-path** — custom binary WAV parser bypasses ffmpeg for PCM/float WAV files
-- **683 tests** — every optimization is benchmark-gated with committed JSON artifacts
+- **688 tests** — every optimization is benchmark-gated with committed JSON artifacts
 - **Minimal dependencies** — mlx, numpy, regex, huggingface-hub
 
 ## Requirements
@@ -697,7 +697,7 @@ Frozen dataclass:
 This project enforces parity with the official PyTorch implementation. No optimization lands without passing quality gates and committing benchmark artifacts.
 
 ```bash
-# Unit tests (683 tests)
+# Unit tests (688 tests)
 pytest -q
 
 # Fast quality gate
@@ -778,7 +778,7 @@ mlx_qwen3_asr/
 ├── writers.py            # txt/json/srt/vtt/tsv writers, subtitle cue grouping
 └── config.py             # Dataclass configs
 
-tests/                    # 11,381 lines, 683 tests
+tests/                    # 11,477 lines, 688 tests
 scripts/                  # Benchmarks, evaluation, conversion, publishing
 docs/                     # Architecture, decisions, benchmarks, roadmap
 docs/benchmarks/          # 160+ committed artifacts for reproducibility
@@ -790,7 +790,7 @@ docs/benchmarks/          # 160+ committed artifacts for reproducibility
 git clone https://github.com/moona3k/mlx-qwen3-asr.git
 cd mlx-qwen3-asr
 pip install -e ".[dev]"
-pytest -q                 # 683 tests
+pytest -q                 # 688 tests
 ```
 
 ## Acknowledgments
