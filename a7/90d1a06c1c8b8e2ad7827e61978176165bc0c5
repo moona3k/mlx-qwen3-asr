@@ -1,0 +1,21 @@
+docs/ROADMAP.md
+  s_7b5ee2ad1f9b97::t_4489578dc8c137 112-150
+docs/memory/operating-memory.md
+  s_7b5ee2ad1f9b97::t_f7f21f02323a34 102-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a790d1a06c1c8b8e2ad7827e61978176165bc0c5",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
