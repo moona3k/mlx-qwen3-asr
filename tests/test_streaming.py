@@ -611,15 +611,20 @@ class TestWindowDecode:
             "_ensure_stream_runtime",
             lambda _state, _model: (fake_model, fake_tokenizer, mx.float16),
         )
-        monkeypatch.setattr(
-            smod,
-            "compute_features",
-            lambda _audio: (
-                mx.zeros((1, 128, 10), dtype=mx.float32),
-                mx.array([10], dtype=mx.int32),
-            ),
-        )
-        monkeypatch.setattr(smod, "_decode_tokens_incremental", lambda **_kwargs: list(generated))
+        self.feature_calls = []
+
+        def fake_compute_features(audio, sr=16000, padding="do_not_pad"):  # noqa: ANN001
+            self.feature_calls.append((len(audio), sr))
+            return mx.zeros((1, 128, 10), dtype=mx.float32), mx.array([10], dtype=mx.int32)
+
+        monkeypatch.setattr(smod, "compute_features", fake_compute_features)
+        self.budgets = []
+
+        def fake_decode_tokens(**kwargs):  # noqa: ANN001
+            self.budgets.append(kwargs["max_new_tokens"])
+            return list(generated)
+
+        monkeypatch.setattr(smod, "_decode_tokens_incremental", fake_decode_tokens)
         monkeypatch.setattr(
             smod,
             "parse_asr_output",
@@ -673,6 +678,32 @@ class TestWindowDecode:
 
         smod._decode_window(np.ones(10, dtype=np.float32), state)
         assert fake_tokenizer.prompt_calls == [(2, "Chinese", "ctx")]
+
+    def test_decode_window_forwards_sample_rate_to_feature_extraction(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=48000)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+
+        smod._decode_window(np.ones(48000, dtype=np.float32), state)
+        assert self.feature_calls == [(48000, 48000)]
+
+    def test_decode_window_explicit_max_new_tokens_is_a_hard_cap(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=16000, max_new_tokens=7)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+
+        smod._decode_window(np.ones(16000 * 30, dtype=np.float32), state)
+        assert self.budgets == [7]
+
+    def test_decode_window_adaptive_budget_grows_with_window(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=16000)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+
+        smod._decode_window(np.ones(16000, dtype=np.float32), state)
+        smod._decode_window(np.ones(16000 * 30, dtype=np.float32), state)
+        assert self.budgets[0] == state.max_new_tokens
+        assert self.budgets[1] > self.budgets[0]
 
 
 class TestRollbackPrefix:

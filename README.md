@@ -624,16 +624,19 @@ mlx-qwen3-asr --mic --language Japanese
 Optional microphone flags: `--mic-device`, `--mic-duration-sec`, `--mic-sample-rate`.
 
 - Ingests small PCM chunks (default 2s)
-- Incremental decoder KV-cache reuse across chunk turns (avoids O(n²) re-transcription)
-- Bounded context window (default 30s) for stable memory/runtime
+- Each chunk re-encodes the accumulated window and decodes from the previous text
+  minus the last `unfixed_token_num` tokens, so per-chunk cost is bounded by the
+  window, not by session length (RTF 0.08 on 5-20 s clips, 0.18 on 75 s clips)
+- Bounded context window (default 30s): when it fills, its text is committed and a
+  new window starts
 - Prefix rollback controls (`unfixed_chunk_num`, `unfixed_token_num`)
 - `stable_text` is monotonic by design: corrections that would shorten already-stable
   prefix text are intentionally not applied to the stable prefix (favoring stability
   over maximal editability in partial output)
 - Optional speech-aware endpointing (`endpointing_mode="energy"`) that selects
   low-energy boundaries near chunk edges
-- Configurable finalization policy: `finalization_mode="accuracy"` (default) or `"latency"`
-- Backward-compatible override: `enable_tail_refine=True|False`
+- `finalization_mode` and `enable_tail_refine` are accepted for compatibility; the
+  window re-decode at finish covers what the former tail-refine pass did
 - Input validation: handles int16 PCM normalization, non-1D arrays, empty input
 
 ## API reference

@@ -77,8 +77,9 @@ class StreamingState:
         max_context_samples: Max samples retained in ``audio_accum``.
         sample_rate: Sample rate of the incoming PCM.
         stable_text: Text considered stable (won't change).
-        max_new_tokens: Lower bound on the per-decode token budget; the
-            effective budget also scales with the window duration.
+        max_new_tokens: Per-decode token budget. When the caller left it
+            unset, this is the adaptive floor and the effective budget scales
+            with the window duration; an explicit value is a hard cap.
         finalization_mode: Retained for API compatibility (`accuracy` or
             `latency`); both modes decode the pending tail at finish.
         enable_tail_refine: Retained for API compatibility; the window
@@ -108,6 +109,7 @@ class StreamingState:
     endpoint_frame_samples: int = 320  # 20ms at 16kHz
     endpoint_min_chunk_samples: int = 8000  # 500ms at 16kHz
     _model_path: str = DEFAULT_MODEL_ID
+    _adaptive_token_budget: bool = True
     _window_raw_ids: list[int] = field(default_factory=list)
     _window_chunk_id: int = 0
     _model_obj: Optional[Qwen3ASRModel] = None
@@ -195,6 +197,7 @@ def init_streaming(
         _model_path=model,
         _dtype=dtype,
         max_new_tokens=int(effective_max_new_tokens),
+        _adaptive_token_budget=max_new_tokens is None,
         finalization_mode=mode,
         enable_tail_refine=tail_refine,
         endpointing_mode=ep_mode,
@@ -430,7 +433,10 @@ def _decode_window(
     """
     model_obj, tokenizer, dtype = _ensure_stream_runtime(state, model)
 
-    mel, feature_lens = compute_features(np.asarray(window_audio, dtype=np.float32))
+    mel, feature_lens = compute_features(
+        np.asarray(window_audio, dtype=np.float32),
+        sr=state.sample_rate,
+    )
     audio_features, _ = model_obj.audio_tower(mel.astype(dtype), feature_lens)
     n_audio_tokens = int(audio_features.shape[1])
 
@@ -456,11 +462,10 @@ def _decode_window(
         cache=cache,
     )
 
-    window_sec = float(len(window_audio)) / float(max(1, state.sample_rate))
-    budget = max(
-        int(state.max_new_tokens),
-        int(resolve_max_new_tokens(None, audio_duration_sec=window_sec)),
-    )
+    budget = int(state.max_new_tokens)
+    if state._adaptive_token_budget:
+        window_sec = float(len(window_audio)) / float(max(1, state.sample_rate))
+        budget = max(budget, int(resolve_max_new_tokens(None, audio_duration_sec=window_sec)))
     eos_token_ids = tuple(getattr(tokenizer, "EOS_TOKEN_IDS", _DEFAULT_EOS_TOKEN_IDS))
     generated = _decode_tokens_incremental(
         model=model_obj,
@@ -471,7 +476,10 @@ def _decode_window(
         eos_token_ids=eos_token_ids,
         pos_dtype=position_ids.dtype,
     )
-    del cache
+    # Release the window-sized tensors before the next chunk; long sessions
+    # otherwise accumulate Metal allocations (see the offline chunk loop).
+    del cache, logits, audio_features, mel
+    mx.clear_cache()
 
     raw_ids = prefix_ids + generated
     state._window_raw_ids = raw_ids
