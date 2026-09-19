@@ -109,6 +109,45 @@ Performance progress:
 - Default model for `transcribe()`/CLI is now `Qwen/Qwen3-ASR-0.6B` to keep
   one-line install/run fast and reliable on typical Apple Silicon machines.
 
+## Handoff (2026-09-19): what separates "fixed" from "won't regress"
+
+Ordered by how much a regression would cost. Each item has an acceptance
+criterion so the next agent can tell when it is done.
+
+1. **Reference-scored streaming gate.** Fold the `quality_vs_reference` block
+   (primary error of `final_text` against manifest references, using
+   `eval_manifest_quality` normalisation) into `scripts/eval_streaming_manifest.py`,
+   and give the strict release gate a ceiling relative to the offline artifact
+   for the same manifest.
+   - Done when: `RUN_STRICT_RELEASE=1 ... --mode release` fails if streaming
+     primary error exceeds offline + 3pp on the multilingual-100 manifest, and
+     a test proves the pre-#26 artifact
+     (`2026-09-19-streaming-manifest-multilingual100-incremental-kv.json`)
+     would have failed it.
+2. **Forced aligner audit.** Run `scripts/eval_aligner_parity.py` on the newest
+   MLX against `qwen-asr`; add an encoder-output MAE check for the aligner
+   model like the one in `MEM-2026-09-19-010`.
+   - Done when: a 2026-09 aligner parity artifact is committed and
+     `docs/BENCHMARKS.md` "Forced Aligner Parity" no longer cites only February.
+3. **Streaming encoder-output caching.** The conv stem is per-100-frame chunk
+   and attention windows are fixed, so most of a 30 s window's encoder work
+   repeats between re-decodes.
+   - Done when: long-form streaming RTF drops from 0.18 toward the offline
+     0.06 with the multilingual-100 and long-form `quality_vs_reference`
+     numbers unchanged to the hypothesis, and item 1 is in place first.
+4. **Window-commit overlap.** A word cut at the 30 s boundary can duplicate or
+   drop once per window.
+   - Done when: the long-form lane shows no boundary duplicates in
+     `final_text` on the 10 clips and primary error does not rise.
+5. **Publish from CI.** Add `HF_TOKEN` to repo secrets; run
+   `publish-quantized.yml` for one artifact end to end.
+   - Done when: a workflow run has produced a commit on a
+     `moona3k/mlx-qwen3-asr-*` repo.
+6. **Broaden the hardware/MLX matrix.** Everything on 2026-09-19 was measured
+   on one M4 Pro with MLX 0.30.6 (repo venv) and 0.32.2 (temp venvs).
+   - Done when: the nightly lane records machine and MLX version, and at least
+     one 8-16 GB machine result is committed.
+
 ## Next Exploration Queue
 
 Near-term work should remain correctness-gated and benchmark-driven:

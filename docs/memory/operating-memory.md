@@ -99,6 +99,24 @@ Promote to distilled learnings when:
 
 1. Memory updates are currently social-process enforced, not CI-enforced.
    - refs: `MEM-2026-02-16-001`, `MEM-2026-02-16-002`
+2. The streaming gate still cannot catch a repeat of the 2026-09-19 failure:
+   reference scoring lives in an ad-hoc script and in artifacts, not in
+   `eval_streaming_manifest.py` or the strict release gate.
+   - refs: `MEM-2026-09-19-011`; work item in `docs/ROADMAP.md` "Handoff".
+3. The forced aligner has not been audited since February; it has its own
+   encoder path and was not checked against the newest MLX or after #21.
+   - refs: `MEM-2026-09-19-011`
+4. Publishing (PyPI, HuggingFace) runs from one laptop with local tokens;
+   `publish-quantized.yml` cannot run without an `HF_TOKEN` repo secret.
+   - refs: `MEM-2026-09-19-012`
+
+## Handoff (2026-09-19)
+
+Start with `docs/reviews/2026-09-19-day-review.html` for the concepts, then
+the "Handoff" section of `docs/ROADMAP.md` for the ordered work items with
+acceptance criteria. Reproduce the three headline lanes before changing code:
+`scripts/eval_librispeech.py --samples 100`, the multilingual-100 streaming
+lane, and the encoder-output MAE script pattern in `MEM-2026-09-19-010`.
 
 ## Revisit Triggers
 
