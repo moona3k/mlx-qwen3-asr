@@ -1,0 +1,21 @@
+docs/reviews/2026-09-19-day-review.html
+  s_7b5ee2ad1f9b97::t_23ac6068746b08 1-351
+CLAUDE.md
+  s_7b5ee2ad1f9b97::t_7c944c3dae484d 187-188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1f2fcc5dc05c7f03bc2f9837098242edb8c50b36",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
