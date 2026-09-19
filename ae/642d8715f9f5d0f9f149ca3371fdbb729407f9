@@ -1,0 +1,40 @@
+scripts/convert.py
+  s_7b5ee2ad1f9b97::t_12a3ee53d254e7 108-116
+  s_7b5ee2ad1f9b97::t_53a954f641cd89 26-30
+scripts/publish_quantized.py
+  s_7b5ee2ad1f9b97::t_845b38ec61df20 4-8,12-21,29,33,41-101,116-117,125-132,134-136,139-141,143,146-164,168-172
+docs/model-cards/mlx-qwen3-asr-0.6b-4bit.md
+  s_7b5ee2ad1f9b97::t_7a3ace5a53a198 1-88
+docs/ROADMAP.md
+  s_7b5ee2ad1f9b97::t_0416183fa59168 31-38
+docs/benchmarks/2026-09-19-quantized-artifacts-librispeech-test-clean-100-1.7B_4bit.json
+  s_7b5ee2ad1f9b97::t_7a3ace5a53a198 1-960
+docs/model-cards/mlx-qwen3-asr-0.6b-8bit.md
+  s_7b5ee2ad1f9b97::t_7a3ace5a53a198 1-88
+docs/model-cards/mlx-qwen3-asr-1.7b-8bit.md
+  s_7b5ee2ad1f9b97::t_7a3ace5a53a198 1-88
+docs/benchmarks/2026-09-19-quantized-artifacts-librispeech-test-clean-100-0.6B_4bit.json
+  s_7b5ee2ad1f9b97::t_7a3ace5a53a198 1-960
+docs/model-cards/mlx-qwen3-asr-1.7b-4bit.md
+  s_7b5ee2ad1f9b97::t_7a3ace5a53a198 1-88
+docs/benchmarks/2026-09-19-quantized-artifacts-librispeech-test-clean-100-1.7B_8bit.json
+  s_7b5ee2ad1f9b97::t_7a3ace5a53a198 1-960
+docs/benchmarks/2026-09-19-quantized-artifacts-librispeech-test-clean-100-0.6B_8bit.json
+  s_7b5ee2ad1f9b97::t_7a3ace5a53a198 1-960
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ae642d8715f9f5d0f9f149ca3371fdbb729407f9",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
