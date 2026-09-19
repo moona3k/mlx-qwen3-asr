@@ -23,7 +23,11 @@ import mlx.utils as mlx_utils
 
 from mlx_qwen3_asr.config import Qwen3ASRConfig
 from mlx_qwen3_asr.convert import quantize_model, remap_weights
-from mlx_qwen3_asr.load_models import _load_safetensors, _resolve_path
+from mlx_qwen3_asr.load_models import (
+    _load_safetensors,
+    _model_uses_tied_lm_head,
+    _resolve_path,
+)
 from mlx_qwen3_asr.model import Qwen3ASRModel
 
 
@@ -101,6 +105,15 @@ def main():
     # Save weights (tree_flatten produces flat key-value pairs from nested params)
     weight_path = output_dir / "weights.safetensors"
     flat_weights = dict(mlx_utils.tree_flatten(model.parameters()))
+    # With tied embeddings, lm_head.* is a copy of model.embed_tokens.*; the
+    # loader re-materializes it (`_materialize_tied_lm_head_weights`), so drop
+    # it from the artifact rather than shipping ~vocab x hidden twice.
+    if _model_uses_tied_lm_head(config):
+        dropped = [k for k in flat_weights if k.startswith("lm_head.")]
+        for k in dropped:
+            del flat_weights[k]
+        if dropped:
+            print(f"Dropped tied lm_head tensors: {', '.join(dropped)}")
     mx.save_safetensors(str(weight_path), flat_weights)
     print(f"Saved weights to {weight_path}")
 
