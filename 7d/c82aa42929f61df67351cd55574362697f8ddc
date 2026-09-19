@@ -1,0 +1,28 @@
+tests/test_model.py
+  s_7b5ee2ad1f9b97::t_51d577ab9101d8 300-305,307-309
+  s_7b5ee2ad1f9b97::t_ba6e54f76b834c 364,368-370
+docs/ARCHITECTURE.md
+  s_7b5ee2ad1f9b97::t_471d205598e5f9 54-63
+mlx_qwen3_asr/load_models.py
+  s_7b5ee2ad1f9b97::t_cd9554a6caad2e 158
+mlx_qwen3_asr/encoder.py
+  s_7b5ee2ad1f9b97::t_bd3dd4a782136b 395-399,404-406
+docs/memory/events/2026-09.md
+  s_7b5ee2ad1f9b97::t_2ffb6624f51daf 183-212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7dc82aa42929f61df67351cd55574362697f8ddc",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
