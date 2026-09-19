@@ -17,3 +17,4 @@ venv/
 *.npz
 !mlx_qwen3_asr/assets/mel_filters.npz
 uv.lock
+.secrets/

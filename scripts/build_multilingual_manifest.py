@@ -14,6 +14,11 @@ import json
 import tarfile
 from pathlib import Path
 
+try:
+    import _repo_path  # noqa: F401
+except ModuleNotFoundError:  # invoked as ``python -m scripts.<name>``
+    from scripts import _repo_path  # noqa: F401
+
 import numpy as np
 from huggingface_hub import HfApi, hf_hub_download
 

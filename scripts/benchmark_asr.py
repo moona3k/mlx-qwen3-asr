@@ -12,6 +12,11 @@ import sys
 import time
 from pathlib import Path
 
+try:
+    import _repo_path  # noqa: F401
+except ModuleNotFoundError:  # invoked as ``python -m scripts.<name>``
+    from scripts import _repo_path  # noqa: F401
+
 
 def _maybe_reexec_venv() -> None:
     repo = Path(__file__).resolve().parents[1]

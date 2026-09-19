@@ -13,6 +13,11 @@ import json
 import shutil
 from pathlib import Path
 
+try:
+    import _repo_path  # noqa: F401
+except ModuleNotFoundError:  # invoked as ``python -m scripts.<name>``
+    from scripts import _repo_path  # noqa: F401
+
 import mlx.core as mx
 import mlx.utils as mlx_utils
 
