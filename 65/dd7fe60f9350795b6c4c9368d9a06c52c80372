@@ -1,0 +1,23 @@
+docs/memory/events/2026-09.md
+  s_7b5ee2ad1f9b97::t_ea8a9c4b535ece 267-280
+mlx_qwen3_asr/convert.py
+  s_7b5ee2ad1f9b97::t_451b82f98056bf 74-75,93
+tests/test_convert.py
+  s_7b5ee2ad1f9b97::t_96f6bdfce4cc3e 158-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "65dd7fe60f9350795b6c4c9368d9a06c52c80372",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
