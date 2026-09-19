@@ -1,0 +1,78 @@
+docs/benchmarks/README.md
+  s_7b5ee2ad1f9b97::t_1e7c1b1f65ff00 98-107
+docs/benchmarks/2026-09-19-aligner-encoder-parity-50-mlx0.32.2-as-shipped.json
+  s_7b5ee2ad1f9b97::t_0e59a362639d83 1-632
+docs/QUALITY_GATE.md
+  s_7b5ee2ad1f9b97::t_f0810596237a11 194-204
+  s_7b5ee2ad1f9b97::t_b45c7495f0be3e 106-110
+  s_7b5ee2ad1f9b97::t_c1da79ed694806 50-60
+docs/EVAL_GAPS.md
+  s_7b5ee2ad1f9b97::t_969b2666c794b9 111-115,118-120
+docs/benchmarks/2026-09-19-aligner-parity-50.md
+  s_7b5ee2ad1f9b97::t_41051a6f6e4a2d 1-86
+scripts/quality_gate.py
+  s_7b5ee2ad1f9b97::t_f4a50a5e8415c8 1061-1062
+  s_7b5ee2ad1f9b97::t_b6bd3229eea077 556-557
+  s_7b5ee2ad1f9b97::t_fdd62c43765a6d 345-357,359-360,364,369-376,379-389,395,397-407,410-431,433
+  s_7b5ee2ad1f9b97::t_5f625b023057ed 432
+  s_7b5ee2ad1f9b97::t_fb2c7f6208ae3f 929-946,950,954-957
+  s_7b5ee2ad1f9b97::t_575e58bca158c9 390-394,396,408-409
+  s_7b5ee2ad1f9b97::t_f59d4f3fca26ad 947-949,951-953
+  s_7b5ee2ad1f9b97::t_54bb31b450c445 558-560
+docs/ROADMAP.md
+  s_7b5ee2ad1f9b97::t_bbc314814b3250 125-135
+  s_7b5ee2ad1f9b97::t_0a9a402b8954ab 172-174
+docs/benchmarks/2026-09-19-aligner-encoder-parity-50-mlx0.30.6-windowed.json
+  s_7b5ee2ad1f9b97::t_0e59a362639d83 1-632
+docs/memory/operating-memory.md
+  s_7b5ee2ad1f9b97::t_1398975fc5b43c 99-104
+  s_7b5ee2ad1f9b97::t_8f83b6d53ecb01 110-118
+docs/memory/events/2026-09.md
+  s_7b5ee2ad1f9b97::t_97c2b5449bfaed 350-394
+docs/benchmarks/2026-09-19-aligner-parity-50-mlx0.32.2.json
+  s_7b5ee2ad1f9b97::t_0e59a362639d83 1-567
+docs/benchmarks/2026-09-19-aligner-parity-50-mlx0.30.6.json
+  s_7b5ee2ad1f9b97::t_0e59a362639d83 1-567
+docs/benchmarks/2026-09-19-aligner-encoder-parity-50-mlx0.32.2-windowed.json
+  s_7b5ee2ad1f9b97::t_0e59a362639d83 1-632
+tests/test_eval_streaming_manifest.py
+  s_7b5ee2ad1f9b97::t_66c81382571c7a 294-332
+scripts/eval_manifest_head2head.py
+  s_7b5ee2ad1f9b97::t_3ea48e732debae 25,29-33
+tests/test_eval_metrics.py
+  s_7b5ee2ad1f9b97::t_ebf09c7a6dc87f 46-75
+tests/test_eval_aligner_encoder_parity.py
+  s_7b5ee2ad1f9b97::t_79701f814216c9 1-107
+docs/BENCHMARKS.md
+  s_7b5ee2ad1f9b97::t_c4e99cda6d39e6 351-357
+  s_7b5ee2ad1f9b97::t_cd7a7e2cad1150 378-379,381-397
+  s_7b5ee2ad1f9b97::t_b52fad9bffac1a 503
+scripts/eval_aligner_encoder_parity.py
+  s_7b5ee2ad1f9b97::t_726e0a1b02ead2 154-178
+  s_7b5ee2ad1f9b97::t_470582b7ad753b 13-22
+  s_7b5ee2ad1f9b97::t_67731c81a61fd5 244-245
+  s_7b5ee2ad1f9b97::t_9ba1c698927f19 217-226
+  s_7b5ee2ad1f9b97::t_bd88ab804f8713 282-285
+  s_7b5ee2ad1f9b97::t_fd71532b5e5fa4 1-12,23-153,179-216,227-243,246-281,286-312
+tests/test_quality_gate.py
+  s_7b5ee2ad1f9b97::t_ab3c10192ec8b2 379-467
+  s_7b5ee2ad1f9b97::t_d729f451a45a33 226,248,292,326,365,493
+docs/benchmarks/2026-09-19-aligner-encoder-parity-50-mlx0.30.6-as-shipped.json
+  s_7b5ee2ad1f9b97::t_0e59a362639d83 1-632
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "752d8577f8d2a894dea1eb83aca0c78dba76b947",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
