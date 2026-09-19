@@ -10,6 +10,8 @@ import os
 import sys
 from pathlib import Path
 
+import _repo_path  # noqa: F401
+
 
 def _maybe_reexec_venv() -> None:
     repo = Path(__file__).resolve().parents[1]

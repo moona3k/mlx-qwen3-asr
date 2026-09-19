@@ -13,6 +13,7 @@ import json
 import shutil
 from pathlib import Path
 
+import _repo_path  # noqa: F401
 import mlx.core as mx
 import mlx.utils as mlx_utils
 

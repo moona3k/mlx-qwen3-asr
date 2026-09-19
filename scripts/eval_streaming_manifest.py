@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import _repo_path  # noqa: F401
 import mlx.core as mx
 import numpy as np
 

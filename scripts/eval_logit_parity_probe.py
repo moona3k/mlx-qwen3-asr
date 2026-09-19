@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+import _repo_path  # noqa: F401
 import mlx.core as mx
 import numpy as np
 

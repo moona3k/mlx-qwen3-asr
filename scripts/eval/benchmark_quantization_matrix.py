@@ -12,6 +12,7 @@ import wave
 from dataclasses import dataclass
 from pathlib import Path
 
+import _repo_path  # noqa: F401
 import numpy as np
 
 from mlx_qwen3_asr import load_audio

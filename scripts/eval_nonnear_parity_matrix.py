@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+import _repo_path  # noqa: F401
 import mlx.core as mx
 import numpy as np
 

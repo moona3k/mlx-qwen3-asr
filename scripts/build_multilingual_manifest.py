@@ -14,6 +14,7 @@ import json
 import tarfile
 from pathlib import Path
 
+import _repo_path  # noqa: F401
 import numpy as np
 from huggingface_hub import HfApi, hf_hub_download
 
