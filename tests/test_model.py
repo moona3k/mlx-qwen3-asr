@@ -297,10 +297,16 @@ def _encode_single_reference_loop(
     chunk_size: int,
     n_window_infer: int,
 ) -> mx.array:
-    """按 Qwen 官方 pad_sequence 语义构造独立逐块基准，不能把旧循环当真值。"""
+    """Independent chunk-by-chunk reference following official ``pad_sequence`` semantics.
+
+    This deliberately mirrors ``Qwen3ASRAudioEncoder.forward`` rather than the
+    previous MLX loop so the optimized path is checked against the reference,
+    not against itself.
+    """
     total_frames = mel.shape[1]
-    # 官方先把本条音频所有块补到最长块，再卷积，最后用有效长度 mask 裁剪。
-    # 不足一整块的短音频只补到自身长度；超过一块时最长块为 chunk_size。
+    # Official: pad every chunk of the sample to the longest chunk, convolve,
+    # then mask by valid length. A sample shorter than one chunk pads to its
+    # own width; otherwise the longest chunk is ``chunk_size``.
     padded_width = min(total_frames, chunk_size)
     chunk_token_lens: list[int] = []
     chunk_conv_outputs: list[mx.array] = []
@@ -355,12 +361,13 @@ def _encode_single_reference_loop(
 class TestAudioEncoderEncodeSingleOptimized:
     @pytest.mark.parametrize("frames", [37, 100, 101, 107, 108, 137, 199, 200, 337])
     def test_matches_reference_loop_with_tail_chunk(self, frames):
-        """覆盖短句、整块及不同模 8 尾长，确保补齐不多出有效音频 token。"""
+        """Cover sub-chunk, exact-chunk and tails of every length mod 8; no extra tokens."""
         mx.random.seed(20260918)
         cfg = _tiny_audio_config()
         encoder = AudioEncoder(cfg)
-        # 小模型默认 bias 为 0 会掩盖尾部补齐差异；真实训练权重包含非零 bias。
-        # 不同层使用确定的非零值，验证虚拟位置激活是否正确进入后续卷积。
+        # Zero-initialised conv biases would hide the tail-padding difference;
+        # real checkpoints have non-zero biases. Use distinct deterministic
+        # values per layer so padded-position activations reach the next conv.
         for index, conv in enumerate([encoder.conv2d1, encoder.conv2d2, encoder.conv2d3]):
             conv.bias = mx.full(conv.bias.shape, 0.1 * (index + 1))
         chunk_size = cfg.n_window * 2
