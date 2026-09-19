@@ -1,0 +1,50 @@
+docs/benchmarks/2026-09-19-reference-parity-suite-multilingual100-analysis.json
+  s_7b5ee2ad1f9b97::t_fc3b0c416a25a0 1-268
+docs/benchmarks/2026-09-19-reference-parity-suite-multilingual100-analysis.md
+  s_7b5ee2ad1f9b97::t_fc3b0c416a25a0 1-2,4-50
+  s_7b5ee2ad1f9b97::t_406c9f7ff1a7b6 3
+mlx_qwen3_asr/_version.py
+  s_7b5ee2ad1f9b97::t_8530e622fc7280 1
+docs/benchmarks/2026-09-19-encoder-parity-tail-padding.json
+  s_7b5ee2ad1f9b97::t_fc3b0c416a25a0 1-550
+docs/memory/events/2026-09.md
+  s_7b5ee2ad1f9b97::t_1a069bdc7e4487 213
+  s_ecfbb93c4da731::t_9088f1878620c0 214-226
+  s_7b5ee2ad1f9b97::t_1cfb0bb837f873 227-240
+README.md
+  s_7b5ee2ad1f9b97::t_8530e622fc7280 32,697,778,790
+  s_7b5ee2ad1f9b97::t_061add1e569f1f 353
+docs/BENCHMARKS.md
+  s_7b5ee2ad1f9b97::t_5ec49ebeb10c47 320-334
+  s_7b5ee2ad1f9b97::t_9d98c17e2b90fc 445-446
+docs/benchmarks/2026-09-19-reference-parity-suite-multilingual100.json
+  s_7b5ee2ad1f9b97::t_fc3b0c416a25a0 1-2317
+CLAUDE.md
+  s_7b5ee2ad1f9b97::t_8530e622fc7280 21
+pyproject.toml
+  s_7b5ee2ad1f9b97::t_8530e622fc7280 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a8a85603158e493d47169c9e1b7c0c7dc573c2ab",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    },
+    "s_ecfbb93c4da731": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d80-cf9e-7fa2-92d7-8c4469cffd0c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
