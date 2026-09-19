@@ -33,8 +33,10 @@ Qwen3-ASR on Apple Silicon.
   `~/.cache/mlx-qwen3-asr/publish/`, with model cards in `docs/model-cards/`
   and LibriSpeech test-clean 100-sample evals in
   `docs/benchmarks/2026-09-19-quantized-artifacts-*.json`: 8-bit is
-  hypothesis-identical to fp16 for both sizes; 4-bit is 2.63% WER (0.6B, fp16
-  2.33%) and 1.90% (1.7B, fp16 1.94%). Upload with
+  hypothesis-identical to fp16 for both sizes; 4-bit uses an 8-bit audio
+  encoder (`--encoder-bits 8`, the encoder carried most of the all-4-bit loss)
+  and scores 2.37% WER (0.6B, fp16 2.33%) and 1.73% (1.7B, fp16 1.94%).
+  Mixed widths load through the per-module loader (0.4.3). Upload with
   `scripts/publish_quantized.py --from-dir <staged> --repo-id moona3k/mlx-qwen3-asr-<size>-<bits>bit`.
 - Code-level quantization utility exists (`mlx_qwen3_asr.convert.quantize_model`).
 - Added publishing script: `scripts/publish_quantized.py`.

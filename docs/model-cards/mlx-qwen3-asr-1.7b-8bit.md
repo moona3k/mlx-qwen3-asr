@@ -71,15 +71,16 @@ Hypotheses: identical to fp16 on all 100 clips.
 Latency envelope from the committed quantization matrix
 (`docs/benchmarks/2026-09-07-quant-matrix-test-clean-speaker100.md`, 0.6B):
 8-bit runs about 2.4x and 4-bit about 2.7x faster than fp16 on a 10 s clip.
-Per-sample JSON for this artifact's evaluation is in the mlx-qwen3-asr
-repository under `docs/benchmarks/2026-09-19-quantized-artifacts-*.json`.
+Per-sample JSON for this artifact's evaluation is committed in the
+mlx-qwen3-asr repository as
+`docs/benchmarks/2026-09-19-quantized-artifacts-librispeech-test-clean-100-1.7B_8bit.json`.
 
 ## Reproduce
 
 ```bash
-git clone https://github.com/moona3k/mlx-qwen3-asr && cd mlx-qwen3-asr  # commit ae642d8
-python scripts/convert.py --model Qwen/Qwen3-ASR-1.7B --quantize 8 --group-size 64 \
-  --dtype float16 --output-dir Qwen3-ASR-1.7B-8bit-g64
+git clone https://github.com/moona3k/mlx-qwen3-asr && cd mlx-qwen3-asr && git checkout v0.4.3
+python scripts/convert.py --model Qwen/Qwen3-ASR-1.7B --quantize 8 --encoder-bits 8 \
+  --group-size 64 --dtype float16 --output-dir Qwen3-ASR-1.7B-8bit-g64
 python scripts/eval_librispeech.py --model Qwen3-ASR-1.7B-8bit-g64 --samples 100 --sampling speaker_round_robin
 ```
 

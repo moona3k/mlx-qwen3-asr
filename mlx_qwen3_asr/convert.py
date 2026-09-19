@@ -52,16 +52,47 @@ def quantize_model(
     model: nn.Module,
     bits: int = 4,
     group_size: int = 64,
+    encoder_bits: int | None = None,
 ) -> nn.Module:
     """Quantize model Linear and Embedding layers.
 
     Args:
         model: The model to quantize
-        bits: Quantization bits (4 or 8)
+        bits: Quantization bits for the text decoder (4 or 8)
         group_size: Quantization group size
+        encoder_bits: Bits for the audio encoder (``audio_tower.*``). ``None``
+            uses ``bits``; ``16`` leaves the encoder unquantized. On the 0.6B
+            model the encoder accounts for most of the 4-bit quality loss
+            (LibriSpeech WER 2.63% all-4-bit vs 2.37% with an 8-bit encoder,
+            fp16 2.33%), so ``bits=4, encoder_bits=8`` is the recommended
+            4-bit recipe.
 
     Returns:
         Quantized model (in-place modification)
     """
-    nn.quantize(model, bits=bits, group_size=group_size)
+    enc_bits = bits if encoder_bits is None else int(encoder_bits)
+
+    def _is_encoder(path: str) -> bool:
+        return path.startswith("audio_tower")
+
+    def _quantizable(module: nn.Module) -> bool:
+        return isinstance(module, (nn.Linear, nn.Embedding))
+
+    if enc_bits == bits:
+        nn.quantize(model, bits=bits, group_size=group_size)
+        return model
+
+    nn.quantize(
+        model,
+        bits=bits,
+        group_size=group_size,
+        class_predicate=lambda path, m: _quantizable(m) and not _is_encoder(path),
+    )
+    if enc_bits < 16:
+        nn.quantize(
+            model,
+            bits=enc_bits,
+            group_size=group_size,
+            class_predicate=lambda path, m: _quantizable(m) and _is_encoder(path),
+        )
     return model

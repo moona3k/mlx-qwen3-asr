@@ -80,6 +80,25 @@ Artifact: `2026-09-07-quant-matrix-test-clean-speaker100.md`
 
 ---
 
+### Published artifact recipe (2026-09-19)
+
+The `moona3k/mlx-qwen3-asr-*` artifacts use `--encoder-bits 8` for the 4-bit
+variants. On 0.6B the audio encoder carried most of the all-4-bit loss:
+
+| 0.6B recipe | WER | CER | Size | Hyps differing from fp16 |
+|---|---:|---:|---:|---:|
+| fp16 | 2.33% | 0.59% | 1.8 GB | 0 |
+| all 4-bit g64 | 2.63% | 0.93% | 430 MB | 28 |
+| all 4-bit g32 | 2.55% | 0.79% | 477 MB | 22 |
+| decoder 4-bit, encoder fp16 | 2.37% | 0.71% | 680 MB | 17 |
+| **decoder 4-bit, encoder 8-bit** (published) | **2.37%** | **0.71%** | **517 MB** | 17 |
+| decoder 4-bit, encoder 8-bit, embeddings 8-bit | 2.37% | 0.75% | 591 MB | 17 |
+| all 8-bit g64 | 2.33% | 0.59% | 801 MB | 0 |
+
+1.7B with the same 4-bit recipe: 1.73% WER (fp16 1.94%), 12/100 hypotheses
+differ; 8-bit is identical to fp16 on 100/100.
+Artifacts: `2026-09-19-quantized-artifacts-librispeech-test-clean-100-*.json`.
+
 ## Quantization Quality (0.6B, LibriSpeech test-other)
 
 | Configuration | WER | CER | WER vs fp16 | Speed vs fp16 (10s clip) |

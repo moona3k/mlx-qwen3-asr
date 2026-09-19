@@ -570,7 +570,9 @@ class TestQuantizationHelpers:
             "lm_head.scales": mx.zeros((1, 1)),
         }
 
-        _quantize_model_for_loaded_weights(model, weights, bits=4, group_size=64)
+        _quantize_model_for_loaded_weights(
+            model, weights, default_bits=4, default_group_size=64
+        )
         params = dict(mlx_utils.tree_flatten(model.parameters()))
 
         assert "model.embed_tokens.scales" in params
@@ -581,3 +583,46 @@ class TestQuantizationHelpers:
             for key in params
         )
         assert "model.layers.0.self_attn.k_proj.scales" not in params
+
+    def test_mixed_precision_checkpoint_loads_each_module_at_its_own_width(self, tmp_path: Path):
+        """An 8-bit audio encoder with a 4-bit decoder must load with both widths intact."""
+        model_dir = tmp_path / "mixed"
+        model_dir.mkdir()
+        _write_tiny_config(model_dir)
+        (model_dir / "quantization_config.json").write_text(
+            '{"bits": 4, "group_size": 64}', encoding="utf-8"
+        )
+
+        source = Qwen3ASRModel(_tiny_config())
+        # The tiny encoder is 32 wide, so its group size must be 32; this also
+        # checks that group size is read per module rather than from the config.
+        nn.quantize(
+            source,
+            bits=8,
+            group_size=32,
+            class_predicate=lambda path, m: isinstance(m, nn.Linear)
+            and path.startswith("audio_tower.layers.0.self_attn"),
+        )
+        nn.quantize(
+            source,
+            bits=4,
+            group_size=64,
+            class_predicate=lambda path, m: isinstance(m, nn.Linear)
+            and path == "model.layers.0.self_attn.q_proj",
+        )
+        weights = dict(mlx_utils.tree_flatten(source.parameters()))
+        mx.save_safetensors(str(model_dir / "model.safetensors"), weights)
+        expected = {k: v for k, v in weights.items() if k.endswith((".scales", ".weight"))}
+
+        loaded, _, _ = _load_model_with_resolved_path(str(model_dir), dtype=mx.float16)
+        enc = loaded.audio_tower.layers[0].self_attn.q_proj
+        dec = loaded.model.layers[0].self_attn.q_proj
+        assert isinstance(enc, nn.QuantizedLinear) and (enc.bits, enc.group_size) == (8, 32)
+        assert isinstance(dec, nn.QuantizedLinear) and (dec.bits, dec.group_size) == (4, 64)
+        params = dict(mlx_utils.tree_flatten(loaded.parameters()))
+        for key in (
+            "audio_tower.layers.0.self_attn.q_proj.weight",
+            "model.layers.0.self_attn.q_proj.weight",
+        ):
+            assert params[key].shape == expected[key].shape
+            assert mx.array_equal(params[key], expected[key])

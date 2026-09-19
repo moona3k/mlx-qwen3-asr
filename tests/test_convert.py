@@ -113,3 +113,45 @@ class TestRemapWeightsMixed:
         # 2D weights unchanged
         assert remapped["model.layers.0.self_attn.q_proj.weight"].shape == (64, 64)
         assert remapped["lm_head.weight"].shape == (100, 64)
+
+
+class TestQuantizeModelEncoderBits:
+    def _model(self):
+        import mlx.nn as nn
+
+        class _Tiny(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.audio_tower = nn.Sequential(nn.Linear(64, 64))
+                self.model = nn.Sequential(nn.Linear(64, 64))
+                self.embed = nn.Embedding(16, 64)
+
+        return _Tiny(), nn
+
+    def test_default_quantizes_encoder_and_decoder_at_same_width(self):
+        from mlx_qwen3_asr.convert import quantize_model
+
+        model, nn = self._model()
+        quantize_model(model, bits=4, group_size=64)
+        assert isinstance(model.audio_tower.layers[0], nn.QuantizedLinear)
+        assert model.audio_tower.layers[0].bits == 4
+        assert model.model.layers[0].bits == 4
+        assert isinstance(model.embed, nn.QuantizedEmbedding)
+
+    def test_encoder_bits_sets_a_separate_width(self):
+        from mlx_qwen3_asr.convert import quantize_model
+
+        model, nn = self._model()
+        quantize_model(model, bits=4, group_size=64, encoder_bits=8)
+        assert model.audio_tower.layers[0].bits == 8
+        assert model.model.layers[0].bits == 4
+        assert model.embed.bits == 4
+
+    def test_encoder_bits_16_leaves_encoder_in_float(self):
+        from mlx_qwen3_asr.convert import quantize_model
+
+        model, nn = self._model()
+        quantize_model(model, bits=4, group_size=64, encoder_bits=16)
+        assert isinstance(model.audio_tower.layers[0], nn.Linear)
+        assert not isinstance(model.audio_tower.layers[0], nn.QuantizedLinear)
+        assert model.model.layers[0].bits == 4
