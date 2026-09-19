@@ -1,0 +1,268 @@
+{
+  "suite": "reference-parity-suite-v1",
+  "model": "Qwen/Qwen3-ASR-0.6B",
+  "samples": 100,
+  "token_match_rate": 0.64,
+  "text_match_rate": 0.67,
+  "category_counts": {
+    "exact_match": 64,
+    "punctuation_or_tokenization": 3,
+    "numeric_surface_form": 5,
+    "content_shift": 3,
+    "minor_lexical_shift": 25
+  },
+  "by_language": {
+    "English": {
+      "samples": 10,
+      "token_matches": 8,
+      "text_matches": 9,
+      "categories": {
+        "exact_match": 8,
+        "punctuation_or_tokenization": 1,
+        "numeric_surface_form": 1
+      },
+      "token_match_rate": 0.8,
+      "text_match_rate": 0.9
+    },
+    "Chinese": {
+      "samples": 10,
+      "token_matches": 8,
+      "text_matches": 9,
+      "categories": {
+        "exact_match": 8,
+        "punctuation_or_tokenization": 1,
+        "numeric_surface_form": 1
+      },
+      "token_match_rate": 0.8,
+      "text_match_rate": 0.9
+    },
+    "Japanese": {
+      "samples": 10,
+      "token_matches": 6,
+      "text_matches": 6,
+      "categories": {
+        "exact_match": 6,
+        "numeric_surface_form": 1,
+        "content_shift": 1,
+        "minor_lexical_shift": 2
+      },
+      "token_match_rate": 0.6,
+      "text_match_rate": 0.6
+    },
+    "German": {
+      "samples": 10,
+      "token_matches": 6,
+      "text_matches": 6,
+      "categories": {
+        "numeric_surface_form": 1,
+        "exact_match": 6,
+        "minor_lexical_shift": 3
+      },
+      "token_match_rate": 0.6,
+      "text_match_rate": 0.6
+    },
+    "French": {
+      "samples": 10,
+      "token_matches": 4,
+      "text_matches": 4,
+      "categories": {
+        "exact_match": 4,
+        "minor_lexical_shift": 5,
+        "numeric_surface_form": 1
+      },
+      "token_match_rate": 0.4,
+      "text_match_rate": 0.4
+    },
+    "Spanish": {
+      "samples": 10,
+      "token_matches": 7,
+      "text_matches": 7,
+      "categories": {
+        "exact_match": 7,
+        "minor_lexical_shift": 3
+      },
+      "token_match_rate": 0.7,
+      "text_match_rate": 0.7
+    },
+    "Russian": {
+      "samples": 10,
+      "token_matches": 8,
+      "text_matches": 8,
+      "categories": {
+        "minor_lexical_shift": 2,
+        "exact_match": 8
+      },
+      "token_match_rate": 0.8,
+      "text_match_rate": 0.8
+    },
+    "Arabic": {
+      "samples": 10,
+      "token_matches": 4,
+      "text_matches": 5,
+      "categories": {
+        "punctuation_or_tokenization": 1,
+        "minor_lexical_shift": 5,
+        "exact_match": 4
+      },
+      "token_match_rate": 0.4,
+      "text_match_rate": 0.5
+    },
+    "Hindi": {
+      "samples": 10,
+      "token_matches": 4,
+      "text_matches": 4,
+      "categories": {
+        "exact_match": 4,
+        "minor_lexical_shift": 4,
+        "content_shift": 2
+      },
+      "token_match_rate": 0.4,
+      "text_match_rate": 0.4
+    },
+    "Korean": {
+      "samples": 10,
+      "token_matches": 9,
+      "text_matches": 9,
+      "categories": {
+        "exact_match": 9,
+        "minor_lexical_shift": 1
+      },
+      "token_match_rate": 0.9,
+      "text_match_rate": 0.9
+    }
+  },
+  "top_mismatches": [
+    {
+      "sample_id": "hi_in-12919174378536885221",
+      "subset": "fleurs-test-hi_in",
+      "language": "Hindi",
+      "category": "content_shift",
+      "first_mismatch_index": 7,
+      "edit_distance": 42,
+      "edit_ratio": 0.3088235294117647,
+      "ref_text_normalized": "यह संबंध कितना लेकिन आम तक परिश्रम अल्पाइंस लिकिस की टूरिंग या मार्केंट मेलिंग समय रहेंगे जिसे खड़ी लाखों में किया जाता है तो जिसके लिए",
+      "mlx_text_normalized": "यह संबंधित है लेकिन आम तौर पर इसमें अल्पाइंस लिकिस की ट्विंग या मार्केंट मरिंग सम्मेलन होती है जिसे कड़ी लक्ष्यों में किया जाता है जिसके"
+    },
+    {
+      "sample_id": "fr_fr-691450202103973076",
+      "subset": "fleurs-test-fr_fr",
+      "language": "French",
+      "category": "numeric_surface_form",
+      "first_mismatch_index": 12,
+      "edit_distance": 41,
+      "edit_ratio": 0.25153374233128833,
+      "ref_text_normalized": "la présence d'une réelle équipe invisible larson et la faceau 1989 page 109 est également un élément unique d'une équipe virtuelle",
+      "mlx_text_normalized": "la présence d'une réelle équipe invisible larson et la faso mille neuf cent quatre vingt neuf page cent neuf est également un élément unique d'une équipe virtuelle"
+    },
+    {
+      "sample_id": "ja_jp-8922261396806111795",
+      "subset": "fleurs-test-ja_jp",
+      "language": "Japanese",
+      "category": "content_shift",
+      "first_mismatch_index": 5,
+      "edit_distance": 17,
+      "edit_ratio": 0.18085106382978725,
+      "ref_text_normalized": "米国大統領米usa ジブナスティックスは米国オリンピック委員会の書官を支持し 選手全員のための安全な環境づくりを促進するためにオリンピックファミリーの絶対的な必要性を受け入れます",
+      "mlx_text_normalized": "米国大統領連盟 usa gymnastics は 米国オリンピック委員会の所管を支持し 選手全員のための安全な環境づくりを促進するためにオリンピックファミリーの絶対的な必要性を受け入れます"
+    },
+    {
+      "sample_id": "en_us-394135166243682296",
+      "subset": "fleurs-test-en_us",
+      "language": "English",
+      "category": "numeric_surface_form",
+      "first_mismatch_index": 17,
+      "edit_distance": 18,
+      "edit_ratio": 0.13846153846153847,
+      "ref_text_normalized": "asus epc earlier launched worldwide for cost saving functionality factors became a hot topic in two thousand seven taipei it month",
+      "mlx_text_normalized": "asus epc earlier launched worldwide for cost saving functionality factors became a hot topic in 2007 taipei it month"
+    },
+    {
+      "sample_id": "hi_in-16674359696770797961",
+      "subset": "fleurs-test-hi_in",
+      "language": "Hindi",
+      "category": "content_shift",
+      "first_mismatch_index": 66,
+      "edit_distance": 17,
+      "edit_ratio": 0.1223021582733813,
+      "ref_text_normalized": "रणनीति महत्वपूर्ण सैन और असैन ने आपूर्ति को काटते हुए प्रभावी साबित हुई हालांकि इस नाकावंती स्थिति में पिछले दो शताब्दियों के कई अंतर्राष्ट",
+      "mlx_text_normalized": "रणनीति महत्वपूर्ण सैन और असैन ने आपूर्ति को काटते हुए प्रभावी साबित हुई हालांकि इस नाकावंती ने पिछले दो शताब्दियों के कई अंतर्राष्ट्रीय समझ"
+    },
+    {
+      "sample_id": "cmn_hans_cn-15052299507121145030",
+      "subset": "fleurs-test-cmn_hans_cn",
+      "language": "Chinese",
+      "category": "numeric_surface_form",
+      "first_mismatch_index": 1,
+      "edit_distance": 4,
+      "edit_ratio": 0.11428571428571428,
+      "ref_text_normalized": "天使二零零六将连续体方案解释为可以帮助组组织达到更高绩效水平的一种方法",
+      "mlx_text_normalized": "天使2006将连续体方案解释为可以帮助组组织达到更高绩效水平的一种方法"
+    },
+    {
+      "sample_id": "de_de-4963712857525084701",
+      "subset": "fleurs-test-de_de",
+      "language": "German",
+      "category": "numeric_surface_form",
+      "first_mismatch_index": 12,
+      "edit_distance": 11,
+      "edit_ratio": 0.10679611650485436,
+      "ref_text_normalized": "ziegen wurden anscheinend bereits vor ungefähr 10 000 jahren in zagrosgebirge im iran domestiziert",
+      "mlx_text_normalized": "ziegen wurden anscheinend bereits vor ungefähr zehntausend jahren in zagrosgebirge im iran domestiziert"
+    },
+    {
+      "sample_id": "fr_fr-10143749263702132703",
+      "subset": "fleurs-test-fr_fr",
+      "language": "French",
+      "category": "minor_lexical_shift",
+      "first_mismatch_index": 9,
+      "edit_distance": 12,
+      "edit_ratio": 0.08759124087591241,
+      "ref_text_normalized": "rougement du ting ne ressemble pas rougement en plus du rien mais plutôt à une phrase dans les mots serait des cris et des grondements",
+      "mlx_text_normalized": "rougement du ting ne ressemble pas à un rougement ampli du lion mais plutôt à une phrase dans les mots serait des cris et des grondements"
+    },
+    {
+      "sample_id": "ar_eg-16702308927396950177",
+      "subset": "fleurs-test-ar_eg",
+      "language": "Arabic",
+      "category": "minor_lexical_shift",
+      "first_mismatch_index": 19,
+      "edit_distance": 11,
+      "edit_ratio": 0.06962025316455696,
+      "ref_text_normalized": "قام المعهد الهيتي للعدالة والديمقراطية بالإشارة إلى دراسات مستقلة تقترح أنه قد جلب كتابة حفظ السلام نبليا التابعة للأمم المتحدة المرة بدون علم منها إلى هايتى",
+      "mlx_text_normalized": "قام المعهد الهيتي للعدالة والديمقراطية بالإشارة إلى دراسة مستقلة تقترح أنه قد جلبت كتيبة حفظ السلام النبيلية التابعة للأمن المتحد المرة بدون علم منها إلى هايت"
+    },
+    {
+      "sample_id": "de_de-11906634980733046933",
+      "subset": "fleurs-test-de_de",
+      "language": "German",
+      "category": "minor_lexical_shift",
+      "first_mismatch_index": 29,
+      "edit_distance": 12,
+      "edit_ratio": 0.0670391061452514,
+      "ref_text_normalized": "er fügte hinzu dass jedoch nicht dazu aufgefordert werden sollten verpflichtungen einzugehen die über ihren entwicklungszustand ihre verantwortung und ihre fähigkeiten hinausgehen",
+      "mlx_text_normalized": "er fügte hinzu dass jedoch nicht dazu aufgefordert werden sollten verpflichtungen einzugehen die über ihren weggestand ihre verantwortung und ihre fähigkeiten hinausgehen"
+    },
+    {
+      "sample_id": "ar_eg-6322491731206225587",
+      "subset": "fleurs-test-ar_eg",
+      "language": "Arabic",
+      "category": "minor_lexical_shift",
+      "first_mismatch_index": 0,
+      "edit_distance": 10,
+      "edit_ratio": 0.05263157894736842,
+      "ref_text_normalized": "إنه مرتبط بجولات التزلق على جبال القلب أو تسلق الجبال ولكنه لا ينطوي عادة على جولات التزلق على الجليد أو تسلق الجبال يميزان في تضاريس منحدرة بشدة ويتطلبان جلاجات أكثر صلابة وأحذية طويلة",
+      "mlx_text_normalized": "إنها مرتبط بجولات التزلج على جبال القلب أو تسلق الجبال ولكنها لا ينطوي عادة على جولات التزلج على الجليد أو تسلق الجبال إزيمارسان في تضاريس منحدرة بشدة ويتطلبان جلادات أكثر صلابة وأحذية طويلة"
+    },
+    {
+      "sample_id": "fr_fr-10929892609691631011",
+      "subset": "fleurs-test-fr_fr",
+      "language": "French",
+      "category": "minor_lexical_shift",
+      "first_mismatch_index": 5,
+      "edit_distance": 8,
+      "edit_ratio": 0.043010752688172046,
+      "ref_text_normalized": "bien que goma soit réservement sûr toute visite à l'extérieur de goma doit faire l'objet de recherches pour comprendre l'état des combats qui persistent dans la province du nord kivu",
+      "mlx_text_normalized": "bien que goma soit raisonnablement sûr toute visite à l'extérieur de goma doit faire l'objet de recherches pour comprendre l'état des combats qui persistent dans la province du nord kivu"
+    }
+  ]
+}
