@@ -1,6 +1,5 @@
 """Tests for mlx_qwen3_asr/streaming.py."""
 
-from types import SimpleNamespace
 
 import mlx.core as mx
 import numpy as np
@@ -219,7 +218,7 @@ class TestFeedAudio:
             calls.append((len(audio), model))
             return "hello world", "English"
 
-        monkeypatch.setattr(smod, "_decode_chunk_incremental", fake_decode)
+        monkeypatch.setattr(smod, "_decode_window", fake_decode)
 
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10)
         out = feed_audio(np.ones(10, dtype=np.float32), state)
@@ -227,21 +226,41 @@ class TestFeedAudio:
         assert state.chunk_id == 1
         assert calls[0][0] == 10
 
-    def test_feed_audio_decodes_only_new_chunk(self, monkeypatch):
+    def test_feed_audio_redecodes_growing_window_and_commits_on_overflow(self, monkeypatch):
         call_lengths = []
+        outputs = iter(["alpha", "alpha beta", "gamma"])
 
         def fake_decode(audio, state, model=None):  # noqa: ANN001
             call_lengths.append(len(audio))
-            return "a b c d e f g", "English"
+            return next(outputs), "English"
 
-        monkeypatch.setattr(smod, "_decode_chunk_incremental", fake_decode)
+        monkeypatch.setattr(smod, "_decode_window", fake_decode)
 
         state = init_streaming(chunk_size_sec=1.0, max_context_sec=2.0, sample_rate=10)
         feed_audio(np.ones(10, dtype=np.float32), state)
         feed_audio(np.ones(10, dtype=np.float32), state)
+        assert state.text == "alpha beta"
+        assert state.committed_text == ""
+
+        # Third chunk would overflow the 2 s window: the window text is
+        # committed and a fresh window starts with just this chunk.
         feed_audio(np.ones(10, dtype=np.float32), state)
 
-        assert call_lengths == [10, 10, 10]
+        assert call_lengths == [10, 20, 10]
+        assert state.committed_text == "alpha beta"
+        assert state.window_text == "gamma"
+        assert state.text == "alpha beta gamma"
+
+    def test_commit_window_joins_without_spaces_for_cjk(self):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=10)
+        state.language = "Chinese"
+        state.committed_text = "你好"
+        state.window_text = "世界"
+        smod._commit_window(state)
+        assert state.committed_text == "你好世界"
+        assert state.window_text == ""
+        assert len(state.audio_accum) == 0
+        assert state._window_raw_ids == []
 
     def test_feed_audio_energy_endpointing_prefers_silence_boundary(self, monkeypatch):
         call_lengths = []
@@ -250,7 +269,7 @@ class TestFeedAudio:
             call_lengths.append(len(audio))
             return "ok", "English"
 
-        monkeypatch.setattr(smod, "_decode_chunk_incremental", fake_decode)
+        monkeypatch.setattr(smod, "_decode_window", fake_decode)
 
         state = init_streaming(
             chunk_size_sec=1.0,
@@ -273,7 +292,7 @@ class TestFeedAudio:
             call_lengths.append(len(audio))
             return "ok", "English"
 
-        monkeypatch.setattr(smod, "_decode_chunk_incremental", fake_decode)
+        monkeypatch.setattr(smod, "_decode_window", fake_decode)
 
         state = init_streaming(
             chunk_size_sec=1.0,
@@ -295,29 +314,31 @@ class TestFeedAudio:
             call_lengths.append(len(audio))
             return "chunk", "English"
 
-        monkeypatch.setattr(smod, "_decode_chunk_incremental", fake_decode)
+        monkeypatch.setattr(smod, "_decode_window", fake_decode)
 
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10)
         feed_audio(np.ones(25, dtype=np.float32), state)
 
-        assert call_lengths == [10, 10]
+        assert call_lengths == [10, 20]
         assert state.chunk_id == 2
         assert len(state.buffer) == 5
 
     def test_feed_audio_caps_audio_accum_memory(self, monkeypatch):
-        monkeypatch.setattr(smod, "_decode_chunk_incremental", lambda *_a, **_k: ("ok", "English"))
+        monkeypatch.setattr(smod, "_decode_window", lambda *_a, **_k: ("ok", "English"))
 
         state = init_streaming(chunk_size_sec=1.0, max_context_sec=2.0, sample_rate=10)
         feed_audio(np.ones(10, dtype=np.float32), state)
         feed_audio(np.ones(10, dtype=np.float32), state)
+        assert len(state.audio_accum) == 20
         feed_audio(np.ones(10, dtype=np.float32), state)
 
-        assert len(state.audio_accum) == 20
+        # The window never exceeds max_context; overflow starts a new window.
+        assert len(state.audio_accum) == 10
 
     def test_feed_audio_honors_unfixed_chunk_warmup(self, monkeypatch):
         monkeypatch.setattr(
             smod,
-            "_decode_chunk_incremental",
+            "_decode_window",
             lambda *_a, **_k: ("one two three four", "English"),
         )
 
@@ -343,7 +364,7 @@ class TestFeedAudio:
             captured["max_abs"] = float(np.max(np.abs(arr)))
             return "hello", "English"
 
-        monkeypatch.setattr(smod, "_decode_chunk_incremental", fake_decode)
+        monkeypatch.setattr(smod, "_decode_window", fake_decode)
 
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10)
         feed_audio(np.full((10,), 16384, dtype=np.int16), state)
@@ -358,7 +379,7 @@ class TestFeedAudio:
             call_lengths.append(len(audio))
             return "hello", "English"
 
-        monkeypatch.setattr(smod, "_decode_chunk_incremental", fake_decode)
+        monkeypatch.setattr(smod, "_decode_window", fake_decode)
 
         state = init_streaming(chunk_size_sec=0.5, sample_rate=10)
         feed_audio(np.ones((2, 5), dtype=np.float32), state)
@@ -374,7 +395,7 @@ class TestFeedAudio:
         calls = []
         monkeypatch.setattr(
             smod,
-            "_decode_chunk_incremental",
+            "_decode_window",
             lambda *_a, **_k: (calls.append(1), "English"),  # type: ignore[misc]
         )
 
@@ -391,7 +412,7 @@ class TestFinishStreaming:
         def fail_decode(*_args, **_kwargs):  # noqa: ANN001
             raise AssertionError("finish_streaming should not decode without pending buffer")
 
-        monkeypatch.setattr(smod, "_decode_chunk_incremental", fail_decode)
+        monkeypatch.setattr(smod, "_decode_window", fail_decode)
 
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10)
         state.audio_accum = np.ones(10, dtype=np.float32)
@@ -411,7 +432,7 @@ class TestFinishStreaming:
             calls.append(len(audio))
             return "tail text", "English"
 
-        monkeypatch.setattr(smod, "_decode_chunk_incremental", fake_decode)
+        monkeypatch.setattr(smod, "_decode_window", fake_decode)
 
         state = init_streaming(
             chunk_size_sec=1.0,
@@ -425,82 +446,45 @@ class TestFinishStreaming:
 
         out = finish_streaming(state)
         assert out is state
-        assert calls == [5]
+        assert calls == [10]  # window (5) + pending tail (5) decoded together
         assert len(state.buffer) == 0
+        assert len(state.audio_accum) == 10
+        assert state.text == "tail text"
         assert state.language == "English"
         assert state.stable_text == state.text
 
-    def test_finish_streaming_falls_back_when_tail_makes_no_progress(self, monkeypatch):
+    def test_finish_streaming_replaces_window_text_and_keeps_committed_text(self, monkeypatch):
         monkeypatch.setattr(
             smod,
-            "_decode_chunk_incremental",
-            lambda *_a, **_k: ("same text", "English"),
+            "_decode_window",
+            lambda *_a, **_k: ("same text plus tail", "English"),
         )
 
-        calls = {"full": 0}
-
-        def fake_transcribe(audio, model, max_new_tokens, verbose, context=""):  # noqa: ANN001
-            calls["full"] += 1
-            return SimpleNamespace(text="same text plus tail", language="English")
-
-        transcribe_module = __import__("mlx_qwen3_asr.transcribe", fromlist=["transcribe"])
-        monkeypatch.setattr(transcribe_module, "transcribe", fake_transcribe)
-
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10)
-        state.text = "same text"
+        state.committed_text = "earlier window"
+        state.window_text = "same text"
+        state.text = "earlier window same text"
         state.language = "English"
         state.buffer = np.ones(3, dtype=np.float32)
         state.audio_accum = np.ones(13, dtype=np.float32)
 
         out = finish_streaming(state)
         assert out is state
-        assert calls["full"] == 1
-        assert state.text == "same text plus tail"
+        assert state.text == "earlier window same text plus tail"
         assert len(state.buffer) == 0
         assert state.stable_text == state.text
 
-    def test_finish_streaming_fallback_uses_bounded_refine_window(self, monkeypatch):
-        monkeypatch.setattr(
-            smod,
-            "_decode_chunk_incremental",
-            lambda *_a, **_k: ("prefix", "English"),
-        )
+    def test_finish_streaming_decodes_tail_regardless_of_tail_refine_flag(self, monkeypatch):
+        calls = []
 
-        seen = {}
+        def fake_decode(audio, state, model=None):  # noqa: ANN001
+            calls.append(len(audio))
+            return "same text", "English"
 
-        def fake_transcribe(audio, model, max_new_tokens, verbose, context=""):  # noqa: ANN001
-            seen["len"] = len(np.asarray(audio))
-            return SimpleNamespace(text="tail", language="English")
-
-        transcribe_module = __import__("mlx_qwen3_asr.transcribe", fromlist=["transcribe"])
-        monkeypatch.setattr(transcribe_module, "transcribe", fake_transcribe)
-
-        state = init_streaming(chunk_size_sec=1.0, sample_rate=10)
-        state.text = "prefix"
-        state.language = "English"
-        state.buffer = np.ones(3, dtype=np.float32)
-        state.audio_accum = np.ones(25, dtype=np.float32)
-
-        out = finish_streaming(state)
-        assert out is state
-        assert seen["len"] == 13  # chunk_size_samples (10) + tail (3)
-        assert state.text == "prefix tail"
-        assert len(state.buffer) == 0
-
-    def test_finish_streaming_skip_fallback_when_disabled(self, monkeypatch):
-        monkeypatch.setattr(
-            smod,
-            "_decode_chunk_incremental",
-            lambda *_a, **_k: ("same text", "English"),
-        )
-
-        def fail_transcribe(*_a, **_k):  # noqa: ANN001
-            raise AssertionError("fallback transcribe should be disabled")
-
-        transcribe_module = __import__("mlx_qwen3_asr.transcribe", fromlist=["transcribe"])
-        monkeypatch.setattr(transcribe_module, "transcribe", fail_transcribe)
+        monkeypatch.setattr(smod, "_decode_window", fake_decode)
 
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10, enable_tail_refine=False)
+        state.window_text = "same text"
         state.text = "same text"
         state.language = "English"
         state.buffer = np.ones(3, dtype=np.float32)
@@ -508,8 +492,24 @@ class TestFinishStreaming:
 
         out = finish_streaming(state)
         assert out is state
+        assert calls == [16]
         assert state.text == "same text"
         assert len(state.buffer) == 0
+
+    def test_finish_streaming_commits_window_when_tail_overflows(self, monkeypatch):
+        monkeypatch.setattr(smod, "_decode_window", lambda *_a, **_k: ("tail", "English"))
+
+        state = init_streaming(chunk_size_sec=1.0, max_context_sec=2.0, sample_rate=10)
+        state.window_text = "body"
+        state.text = "body"
+        state.language = "English"
+        state.audio_accum = np.ones(20, dtype=np.float32)
+        state.buffer = np.ones(3, dtype=np.float32)
+
+        finish_streaming(state)
+        assert state.committed_text == "body"
+        assert state.text == "body tail"
+        assert len(state.audio_accum) == 3
 
 
 class TestStreamingMetrics:
@@ -533,7 +533,7 @@ class TestStreamingMetrics:
         )
         monkeypatch.setattr(
             smod,
-            "_decode_chunk_incremental",
+            "_decode_window",
             lambda *_a, **_k: next(outputs),
         )
 
@@ -550,11 +550,12 @@ class TestStreamingMetrics:
     def test_finish_streaming_tracks_finalization_delta_chars(self, monkeypatch):
         monkeypatch.setattr(
             smod,
-            "_decode_chunk_incremental",
+            "_decode_window",
             lambda *_a, **_k: ("world", "English"),
         )
 
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10)
+        state.committed_text = "hello"
         state.text = "hello"
         state.language = "English"
         state.buffer = np.ones(3, dtype=np.float32)
@@ -567,16 +568,14 @@ class TestStreamingMetrics:
         assert metrics["finalization_delta_chars"] == 6
 
 
-class TestIncrementalDecode:
-    def test_decode_chunk_reuses_single_cache_instance(self, monkeypatch):
-        state = init_streaming(chunk_size_sec=1.0, sample_rate=10, max_new_tokens=4)
-
+class TestWindowDecode:
+    def _fakes(self, decode_text="language English<asr_text>hello"):
         class _FakeModel:
             audio_token_id = 151676
 
             def __init__(self):
                 self.create_cache_calls = 0
-                self.prefill_cache_ids = []
+                self.prefill_lengths = []
                 self.prefill_starts = []
 
             def create_cache(self):
@@ -587,56 +586,140 @@ class TestIncrementalDecode:
                 return mx.zeros((1, 2, 8), dtype=mx.float16), mx.array([2], dtype=mx.int32)
 
             def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
-                self.prefill_cache_ids.append(id(cache))
+                self.prefill_lengths.append(int(input_ids.shape[1]))
                 self.prefill_starts.append(int(np.array(position_ids)[0, 0, 0]))
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
         class _FakeTokenizer:
             EOS_TOKEN_IDS = [2]
 
+            def __init__(self):
+                self.prompt_calls = []
+
             def build_prompt_tokens(self, n_audio_tokens, language=None, context=""):  # noqa: ANN001
+                self.prompt_calls.append((n_audio_tokens, language, context))
                 return [11, 12]
 
-            def build_followup_prompt_tokens(self, n_audio_tokens, language=None, context=""):  # noqa: ANN001
-                return [13]
-
             def decode(self, ids):  # noqa: ANN001
-                return "language English<asr_text>hello"
+                return decode_text
 
-        fake_model = _FakeModel()
-        fake_tokenizer = _FakeTokenizer()
+        return _FakeModel(), _FakeTokenizer()
 
+    def _patch_runtime(self, monkeypatch, fake_model, fake_tokenizer, generated):
         monkeypatch.setattr(
             smod,
             "_ensure_stream_runtime",
             lambda _state, _model: (fake_model, fake_tokenizer, mx.float16),
         )
-        monkeypatch.setattr(
-            smod,
-            "compute_features",
-            lambda _audio: (
-                mx.zeros((1, 128, 10), dtype=mx.float32),
-                mx.array([10], dtype=mx.int32),
-            ),
-        )
-        monkeypatch.setattr(
-            smod,
-            "_decode_tokens_incremental",
-            lambda **_kwargs: [1],
-        )
+        self.feature_calls = []
+
+        def fake_compute_features(audio, sr=16000, padding="do_not_pad"):  # noqa: ANN001
+            self.feature_calls.append((len(audio), sr))
+            return mx.zeros((1, 128, 10), dtype=mx.float32), mx.array([10], dtype=mx.int32)
+
+        monkeypatch.setattr(smod, "compute_features", fake_compute_features)
+        self.budgets = []
+
+        def fake_decode_tokens(**kwargs):  # noqa: ANN001
+            self.budgets.append(kwargs["max_new_tokens"])
+            return list(generated)
+
+        monkeypatch.setattr(smod, "_decode_tokens_incremental", fake_decode_tokens)
         monkeypatch.setattr(
             smod,
             "parse_asr_output",
             lambda _raw, user_language=None: ("English", "hello"),
         )
 
-        text_1, lang_1 = smod._decode_chunk_incremental(np.ones(10, dtype=np.float32), state)
-        text_2, lang_2 = smod._decode_chunk_incremental(np.ones(10, dtype=np.float32), state)
+    def test_decode_window_uses_fresh_cache_and_rolled_back_prefix(self, monkeypatch):
+        state = init_streaming(
+            chunk_size_sec=1.0,
+            sample_rate=10,
+            max_new_tokens=4,
+            unfixed_chunk_num=0,
+            unfixed_token_num=1,
+        )
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1, 2, 3])
 
+        text_1, lang_1 = smod._decode_window(np.ones(10, dtype=np.float32), state)
         assert (text_1, lang_1) == ("hello", "English")
-        assert (text_2, lang_2) == ("hello", "English")
-        assert fake_model.create_cache_calls == 1
-        assert len(fake_model.prefill_cache_ids) == 2
-        assert fake_model.prefill_cache_ids[0] == fake_model.prefill_cache_ids[1]
-        assert fake_model.prefill_starts == [0, 3]
-        assert state._next_position == 5
+        assert state._window_raw_ids == [1, 2, 3]
+
+        text_2, _ = smod._decode_window(np.ones(20, dtype=np.float32), state)
+        assert text_2 == "hello"
+        # Second decode: prompt [11, 12] + prefix [1, 2] (last token rolled back).
+        assert fake_model.prefill_lengths == [2, 4]
+        assert fake_model.prefill_starts == [0, 0]
+        assert fake_model.create_cache_calls == 2
+        assert state._window_raw_ids == [1, 2, 1, 2, 3]
+        assert state._window_chunk_id == 2
+        # The whole window is re-encoded and the prompt rebuilt each time.
+        assert [c[0] for c in fake_tokenizer.prompt_calls] == [2, 2]
+
+    def test_decode_window_skips_prefix_during_warmup(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=10, unfixed_chunk_num=2)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[7, 8])
+
+        smod._decode_window(np.ones(10, dtype=np.float32), state)
+        smod._decode_window(np.ones(20, dtype=np.float32), state)
+        smod._decode_window(np.ones(30, dtype=np.float32), state)
+
+        # Chunks 0 and 1 decode without a prefix; chunk 2 rolls back 5 tokens
+        # from the 2 available, leaving an empty prefix.
+        assert fake_model.prefill_lengths == [2, 2, 2]
+        assert state._window_chunk_id == 3
+
+    def test_decode_window_forwards_forced_language_to_prompt(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=10, language="zh", context="ctx")
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+
+        smod._decode_window(np.ones(10, dtype=np.float32), state)
+        assert fake_tokenizer.prompt_calls == [(2, "Chinese", "ctx")]
+
+    def test_decode_window_forwards_sample_rate_to_feature_extraction(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=48000)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+
+        smod._decode_window(np.ones(48000, dtype=np.float32), state)
+        assert self.feature_calls == [(48000, 48000)]
+
+    def test_decode_window_explicit_max_new_tokens_is_a_hard_cap(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=16000, max_new_tokens=7)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+
+        smod._decode_window(np.ones(16000 * 30, dtype=np.float32), state)
+        assert self.budgets == [7]
+
+    def test_decode_window_adaptive_budget_grows_with_window(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=16000)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+
+        smod._decode_window(np.ones(16000, dtype=np.float32), state)
+        smod._decode_window(np.ones(16000 * 30, dtype=np.float32), state)
+        assert self.budgets[0] == state.max_new_tokens
+        assert self.budgets[1] > self.budgets[0]
+
+
+class TestRollbackPrefix:
+    def test_rollback_drops_trailing_tokens(self):
+        class _Tok:
+            def decode(self, ids):  # noqa: ANN001
+                return "ok"
+
+        assert smod._rollback_prefix_ids([1, 2, 3, 4, 5], 2, _Tok()) == [1, 2, 3]
+        assert smod._rollback_prefix_ids([1, 2], 5, _Tok()) == []
+        assert smod._rollback_prefix_ids([], 5, _Tok()) == []
+
+    def test_rollback_backs_off_when_cut_splits_a_character(self):
+        class _Tok:
+            def decode(self, ids):  # noqa: ANN001
+                # ids[:3] ends mid-character (e.g. a split multi-byte token).
+                return "bad\ufffd" if len(ids) == 3 else "ok"
+
+        assert smod._rollback_prefix_ids([1, 2, 3, 4, 5], 2, _Tok()) == [1, 2]

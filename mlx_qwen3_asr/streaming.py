@@ -1,4 +1,24 @@
-"""Experimental incremental streaming ASR with KV-cache reuse."""
+"""Streaming ASR: windowed re-decode with text-prefix rollback.
+
+This follows the official Qwen3-ASR streaming recipe
+(``qwen_asr.inference.qwen3_asr.streaming_transcribe``): every time a chunk
+arrives, the *whole* accumulated audio window is encoded again and decoded
+with the previously generated text, minus its last ``unfixed_token_num``
+tokens, forced into the prompt as a prefix. The model therefore always sees
+the full acoustic context it was trained on and only has to generate the new
+tail, so partial results are stable and the final text matches offline
+quality.
+
+The window is bounded by ``max_context_sec``. When the next chunk would
+overflow it, the current window's text is committed and a fresh window starts
+with that chunk; the committed text and the live window text are joined into
+``state.text``.
+
+An earlier design fed each chunk through the encoder on its own and appended
+it to a live KV cache as a follow-up chat turn. That is linear in cost but the
+model was never trained on it: the multilingual-100 lane measured 56% primary
+error against 9.5% offline (``docs/benchmarks/2026-09-19-streaming-manifest-*``).
+"""
 
 from __future__ import annotations
 
@@ -27,11 +47,13 @@ from .tokenizer import (
 )
 
 # Streaming constants (from official repo)
-UNFIXED_CHUNK_NUM = 2     # Trailing chunks considered unfixed
-UNFIXED_TOKEN_NUM = 5     # Trailing tokens considered unfixed
+UNFIXED_CHUNK_NUM = 2     # Chunks decoded without a text prefix at window start
+UNFIXED_TOKEN_NUM = 5     # Trailing tokens rolled back before each re-decode
 
 _DEFAULT_EOS_TOKEN_IDS = (151643, 151645)
 _ENDPOINTING_MODES = {"fixed", "energy"}
+_REPLACEMENT_CHAR = "\ufffd"
+
 
 @dataclass
 class StreamingState:
@@ -39,23 +61,36 @@ class StreamingState:
 
     Attributes:
         buffer: Pending audio samples not yet processed.
-        audio_accum: Accumulated samples tracked for memory bound accounting.
-        text: Current best transcription.
+        audio_accum: Audio of the current decode window (bounded by
+            ``max_context_samples``); re-encoded on every chunk.
+        text: Current best transcription (committed windows + live window).
+        committed_text: Text of windows that have already been flushed out of
+            ``audio_accum``; never re-decoded.
+        window_text: Parsed text of the live window.
         language: Detected language.
-        chunk_id: Number of chunks processed.
-        unfixed_chunk_num: Number of initial chunks to keep fully unstable.
-        unfixed_token_num: Number of trailing units to keep unstable.
+        chunk_id: Number of chunks processed over the whole stream.
+        unfixed_chunk_num: Chunks at the start of each window decoded without
+            a text prefix.
+        unfixed_token_num: Trailing generated tokens rolled back before each
+            re-decode; also the number of trailing units reported unstable.
         chunk_size_samples: Samples per chunk.
-        max_context_samples: Max samples retained in `audio_accum`.
+        max_context_samples: Max samples retained in ``audio_accum``.
+        sample_rate: Sample rate of the incoming PCM.
         stable_text: Text considered stable (won't change).
-        max_new_tokens: Max tokens generated per chunk decode turn.
-        finalization_mode: Tail finalization policy (`accuracy` or `latency`).
-        enable_tail_refine: Whether finish-time no-progress fallback runs.
+        max_new_tokens: Per-decode token budget. When the caller left it
+            unset, this is the adaptive floor and the effective budget scales
+            with the window duration; an explicit value is a hard cap.
+        finalization_mode: Retained for API compatibility (`accuracy` or
+            `latency`); both modes decode the pending tail at finish.
+        enable_tail_refine: Retained for API compatibility; the window
+            re-decode at finish subsumes the former tail refinement pass.
     """
 
     buffer: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float32))
     audio_accum: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float32))
     text: str = ""
+    committed_text: str = ""
+    window_text: str = ""
     context: str = ""
     language: str = "unknown"
     forced_language: Optional[str] = None
@@ -64,6 +99,7 @@ class StreamingState:
     unfixed_token_num: int = UNFIXED_TOKEN_NUM
     chunk_size_samples: int = 32000  # 2 seconds at 16kHz
     max_context_samples: int = 480000  # 30 seconds at 16kHz
+    sample_rate: int = 16000
     stable_text: str = ""
     max_new_tokens: int = AUTO_MAX_NEW_TOKENS_FLOOR
     finalization_mode: str = "accuracy"
@@ -73,8 +109,9 @@ class StreamingState:
     endpoint_frame_samples: int = 320  # 20ms at 16kHz
     endpoint_min_chunk_samples: int = 8000  # 500ms at 16kHz
     _model_path: str = DEFAULT_MODEL_ID
-    _cache: object | None = None
-    _next_position: int = 0
+    _adaptive_token_budget: bool = True
+    _window_raw_ids: list[int] = field(default_factory=list)
+    _window_chunk_id: int = 0
     _model_obj: Optional[Qwen3ASRModel] = None
     _tokenizer: Optional[Tokenizer] = None
     _dtype: mx.Dtype = mx.float16
@@ -156,9 +193,11 @@ def init_streaming(
         unfixed_token_num=int(unfixed_token_num),
         chunk_size_samples=int(chunk_size_sec * sample_rate),
         max_context_samples=int(max_context_sec * sample_rate),
+        sample_rate=int(sample_rate),
         _model_path=model,
         _dtype=dtype,
         max_new_tokens=int(effective_max_new_tokens),
+        _adaptive_token_budget=max_new_tokens is None,
         finalization_mode=mode,
         enable_tail_refine=tail_refine,
         endpointing_mode=ep_mode,
@@ -174,7 +213,7 @@ def feed_audio(
     state: StreamingState,
     model: Optional[Qwen3ASRModel] = None,
 ) -> StreamingState:
-    """Feed audio chunk to streaming ASR with decoder-cache reuse."""
+    """Feed audio to the streaming session, re-decoding the window per chunk."""
     if pcm is None:
         raise ValueError("pcm must not be None")
 
@@ -182,42 +221,23 @@ def feed_audio(
     if x.size == 0:
         return state
 
-    # Accumulate audio and keep bounded accounting buffers.
     state.buffer = np.concatenate([state.buffer, x])
-    prev_len = int(len(state.audio_accum))
-    state.audio_accum = np.concatenate([state.audio_accum, x])
-    trimmed = False
-    if len(state.audio_accum) > state.max_context_samples:
-        state.audio_accum = state.audio_accum[-state.max_context_samples:]
-        trimmed = int(prev_len + len(x)) > state.max_context_samples
-
-    # If old context was dropped, reset incremental decoder state to avoid
-    # unbounded cache growth and stale-context drift.
-    if trimmed:
-        _reset_incremental_decoder_state(state)
 
     while len(state.buffer) >= state.chunk_size_samples:
         decode_samples = _select_decode_samples(state)
         if decode_samples <= 0:
             break
-        decode_audio = state.buffer[:decode_samples]
-        leftover = state.buffer[decode_samples:]
-        new_text, new_language = _decode_chunk_incremental(
-            decode_audio,
-            state,
-            model=model,
-        )
+        chunk_audio = state.buffer[:decode_samples]
+        state.buffer = state.buffer[decode_samples:]
 
-        if new_language and new_language != "unknown" and state.language == "unknown":
-            state.language = new_language
-        lang_for_join = state.language if state.language != "unknown" else new_language
+        _extend_window(state, chunk_audio)
         prev_text = state.text
-        merged_text = _append_chunk_text(prev_text, new_text, lang_for_join)
-        if merged_text != prev_text:
+        _decode_and_update(state, model)
+
+        if state.text != prev_text:
             state._text_updates += 1
-        if prev_text and merged_text and not merged_text.startswith(prev_text):
+        if prev_text and state.text and not state.text.startswith(prev_text):
             state._rewrite_events += 1
-        state.text = merged_text
 
         if state.chunk_id < state.unfixed_chunk_num:
             stable = state.stable_text
@@ -227,8 +247,6 @@ def feed_audio(
                 state.text,
                 unfixed_tokens=state.unfixed_token_num,
             )
-
-        state.buffer = leftover
         state.chunk_id += 1
         state.stable_text = stable
 
@@ -239,56 +257,20 @@ def finish_streaming(
     state: StreamingState,
     model: Optional[Qwen3ASRModel] = None,
 ) -> StreamingState:
-    """Finalize streaming session, processing any remaining tail audio."""
-    if len(state.audio_accum) == 0:
-        state._pre_finalize_text = state.text
-        state._finalization_delta_chars = 0
-        return state
-    if len(state.buffer) == 0:
-        state._pre_finalize_text = state.text
-        state._finalization_delta_chars = 0
-        state.stable_text = state.text
-        return state
-
+    """Finalize the session by decoding the window with any pending tail audio."""
     state._pre_finalize_text = state.text
-    tail_text, tail_language = _decode_chunk_incremental(state.buffer, state, model=model)
-    prev_text = state.text
-    if tail_language and tail_language != "unknown" and state.language == "unknown":
-        state.language = tail_language
-    lang_for_join = state.language if state.language != "unknown" else tail_language
-    merged = _append_chunk_text(state.text, tail_text, lang_for_join)
+    if len(state.buffer) == 0:
+        state._finalization_delta_chars = 0
+        if len(state.audio_accum) > 0:
+            state.stable_text = state.text
+        return state
 
-    # If the tail decode produced no textual progress, run one final bounded
-    # refinement decode on the trailing window (last full chunk + pending tail)
-    # to recover missed words without re-decoding the entire stream.
-    if merged == prev_text and state.enable_tail_refine:
-        from .transcribe import transcribe
-
-        decode_model = model if model is not None else (state._model_obj or state._model_path)
-        pending_tail = int(len(state.buffer))
-        refine_window = min(
-            int(len(state.audio_accum)),
-            int(state.chunk_size_samples + pending_tail),
-        )
-        if refine_window > 0:
-            refine_audio = state.audio_accum[-refine_window:]
-        else:
-            refine_audio = state.audio_accum
-        refined = transcribe(
-            audio=refine_audio,
-            model=decode_model,
-            context=state.context,
-            max_new_tokens=state.max_new_tokens,
-            verbose=False,
-        )
-        refine_lang = state.language if state.language != "unknown" else refined.language
-        state.text = _append_chunk_text(prev_text, refined.text, refine_lang)
-        if state.language == "unknown" and refined.language:
-            state.language = refined.language
-    else:
-        state.text = merged
-
+    tail = state.buffer
     state.buffer = np.array([], dtype=np.float32)
+    _extend_window(state, tail)
+    _decode_and_update(state, model)
+    state.chunk_id += 1
+
     state.stable_text = state.text
     state._finalization_delta_chars = len(state.text) - len(state._pre_finalize_text)
     return state
@@ -310,6 +292,43 @@ def streaming_metrics(state: StreamingState) -> dict[str, float | int]:
         "rewrite_rate": float(rewrite_events / text_updates) if text_updates > 0 else 0.0,
         "finalization_delta_chars": int(state._finalization_delta_chars),
     }
+
+
+def _extend_window(state: StreamingState, audio: np.ndarray) -> None:
+    """Append audio to the live window, committing the window first if it would overflow."""
+    overflow = len(state.audio_accum) + len(audio) > state.max_context_samples
+    if len(state.audio_accum) > 0 and overflow:
+        _commit_window(state)
+    state.audio_accum = np.concatenate([state.audio_accum, audio])
+
+
+def _commit_window(state: StreamingState) -> None:
+    """Freeze the live window's text and start an empty window."""
+    state.committed_text = _join_texts(state.committed_text, state.window_text, state.language)
+    state.window_text = ""
+    state.audio_accum = np.array([], dtype=np.float32)
+    state._window_raw_ids = []
+    state._window_chunk_id = 0
+
+
+def _decode_and_update(state: StreamingState, model: Optional[Qwen3ASRModel]) -> None:
+    """Re-decode the live window and refresh ``text``/``language``."""
+    window_text, window_language = _decode_window(state.audio_accum, state, model=model)
+    if window_language and window_language != "unknown" and state.language == "unknown":
+        state.language = window_language
+    state.window_text = window_text
+    state.text = _join_texts(state.committed_text, window_text, state.language)
+
+
+def _join_texts(committed: str, window: str, language: str) -> str:
+    left = str(committed or "").strip()
+    right = str(window or "").strip()
+    if not left:
+        return right
+    if not right:
+        return left
+    joiner = "" if is_no_space_language(language) else " "
+    return f"{left}{joiner}{right}"
 
 
 def _infer_model_dtype(model: Qwen3ASRModel) -> mx.Dtype:
@@ -389,66 +408,86 @@ def _decode_tokens_incremental(
     return generated
 
 
-def _decode_chunk_incremental(
-    chunk_audio: np.ndarray,
+def _rollback_prefix_ids(
+    raw_ids: list[int],
+    unfixed_tokens: int,
+    tokenizer: Tokenizer,
+) -> list[int]:
+    """Drop the last ``unfixed_tokens`` ids, backing off further if the cut splits a character."""
+    end = max(0, len(raw_ids) - max(0, int(unfixed_tokens)))
+    while end > 0 and _REPLACEMENT_CHAR in tokenizer.decode(raw_ids[:end]):
+        end -= 1
+    return list(raw_ids[:end])
+
+
+def _decode_window(
+    window_audio: np.ndarray,
     state: StreamingState,
     model: Optional[Qwen3ASRModel] = None,
 ) -> tuple[str, str]:
+    """Encode the whole window and decode it with the rolled-back text prefix.
+
+    Returns ``(text, language)`` for the window. Updates
+    ``state._window_raw_ids`` with the raw generated ids (prefix + new) so the
+    next call can roll back from them.
+    """
     model_obj, tokenizer, dtype = _ensure_stream_runtime(state, model)
 
-    mel, feature_lens = compute_features(np.asarray(chunk_audio, dtype=np.float32))
+    mel, feature_lens = compute_features(
+        np.asarray(window_audio, dtype=np.float32),
+        sr=state.sample_rate,
+    )
     audio_features, _ = model_obj.audio_tower(mel.astype(dtype), feature_lens)
     n_audio_tokens = int(audio_features.shape[1])
 
-    if state._cache is None:
-        state._cache = model_obj.create_cache()
-
-    if state._next_position == 0:
-        initial_language = state.forced_language
-        prompt_tokens = tokenizer.build_prompt_tokens(
-            n_audio_tokens=n_audio_tokens,
-            language=initial_language,
-            context=state.context,
-        )
+    prompt_tokens = tokenizer.build_prompt_tokens(
+        n_audio_tokens=n_audio_tokens,
+        language=state.forced_language,
+        context=state.context,
+    )
+    if state._window_chunk_id < state.unfixed_chunk_num:
+        prefix_ids: list[int] = []
     else:
-        follow_lang = state.forced_language or (
-            state.language if state.language != "unknown" else None
-        )
-        prompt_tokens = tokenizer.build_followup_prompt_tokens(
-            n_audio_tokens=n_audio_tokens,
-            language=follow_lang,
-            context=state.context,
+        prefix_ids = _rollback_prefix_ids(
+            state._window_raw_ids, state.unfixed_token_num, tokenizer
         )
 
-    input_ids = mx.array([prompt_tokens])
-    position_ids = _build_position_ids(state._next_position, int(input_ids.shape[1]))
+    input_ids = mx.array([list(prompt_tokens) + prefix_ids])
+    position_ids = _build_position_ids(0, int(input_ids.shape[1]))
+    cache = model_obj.create_cache()
     logits = model_obj.prefill(
         input_ids=input_ids,
         audio_features=audio_features,
         position_ids=position_ids,
-        cache=state._cache,
+        cache=cache,
     )
 
+    budget = int(state.max_new_tokens)
+    if state._adaptive_token_budget:
+        window_sec = float(len(window_audio)) / float(max(1, state.sample_rate))
+        budget = max(budget, int(resolve_max_new_tokens(None, audio_duration_sec=window_sec)))
     eos_token_ids = tuple(getattr(tokenizer, "EOS_TOKEN_IDS", _DEFAULT_EOS_TOKEN_IDS))
     generated = _decode_tokens_incremental(
         model=model_obj,
-        cache=state._cache,
+        cache=cache,
         initial_logits=logits,
-        start_pos=state._next_position + int(input_ids.shape[1]),
-        max_new_tokens=state.max_new_tokens,
+        start_pos=int(input_ids.shape[1]),
+        max_new_tokens=budget,
         eos_token_ids=eos_token_ids,
         pos_dtype=position_ids.dtype,
     )
-    state._next_position += int(input_ids.shape[1]) + len(generated)
+    # Release the window-sized tensors before the next chunk; long sessions
+    # otherwise accumulate Metal allocations (see the offline chunk loop).
+    del cache, logits, audio_features, mel
+    mx.clear_cache()
 
-    raw_text = tokenizer.decode(generated)
+    raw_ids = prefix_ids + generated
+    state._window_raw_ids = raw_ids
+    state._window_chunk_id += 1
+
+    raw_text = tokenizer.decode(raw_ids)
     lang, text = parse_asr_output(raw_text, user_language=state.forced_language)
     return text, lang
-
-
-def _reset_incremental_decoder_state(state: StreamingState) -> None:
-    state._cache = None
-    state._next_position = 0
 
 
 def _select_decode_samples(state: StreamingState) -> int:

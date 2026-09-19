@@ -68,7 +68,7 @@ mlx_qwen3_asr/
 ├── __init__.py        Public API: transcribe*, Session, load_model, load_audio, ForcedAligner
 ├── transcribe.py      Pipeline: TranscribeOptions, chunk loop, timestamps, diarization glue
 ├── session.py         Session: explicit model/tokenizer ownership, async with executor
-├── streaming.py       KV-cache streaming, context trimming, tail refinement
+├── streaming.py       Windowed re-decode with text-prefix rollback, window commit at max context
 ├── cli.py             CLI: transcribe (default), serve, --mic, --doctor
 ├── server.py          FastAPI server: async jobs, OpenAI-compatible endpoint, limits
 ├── audio.py           Audio I/O, native WAV fast path, MLX mel spectrogram

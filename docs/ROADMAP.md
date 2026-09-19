@@ -155,11 +155,14 @@ Near-term work should remain correctness-gated and benchmark-driven:
   - https://arxiv.org/abs/2507.18181
   - https://arxiv.org/abs/2507.21522
 
-7. Streaming policy (deprioritized)
-- Keep streaming explicitly experimental and avoid major roadmap allocation
-  until the core offline quality/speed/timestamp track is fully production-grade.
-- Current lane status: multi-file streaming evaluator and optional gate hook are
-  implemented; remaining work is artifact publication cadence.
+7. Streaming
+- 2026-09-19: rebuilt on the official re-feed + prefix-rollback recipe after
+  the maintained-manifest lane measured 56% primary error for the incremental
+  KV-cache design (offline 9.5%). Now 11.4% (multilingual-100) and 12.3%
+  (long-form 10x75 s) at RTF 0.08 / 0.18. See Decision 29 and
+  `docs/benchmarks/2026-09-19-streaming-manifest-*.json`.
+- Next: encoder-output caching across re-decodes; overlap at window commit;
+  gate the manifest lane in strict release mode.
 
 8. Speaker diarization (optional extra)
 - Status: shipped as optional offline integration in API/CLI runtime.
