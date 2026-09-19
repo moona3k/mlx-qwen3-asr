@@ -54,7 +54,8 @@ make broad "production-grade across languages/conditions" quality claims.
 - Streaming diagnostics lane:
   - Per-session quality metrics exposed from runtime state:
     `partial_stability`, `rewrite_rate`, `finalization_delta_chars`.
-  - KV-cache streaming with linear complexity (not O(n^2) re-transcription).
+  - Windowed re-decode with text-prefix rollback (official recipe); window
+    bounded by `max_context_sec`, so per-chunk cost is bounded, not linear.
   - Tooling:
     - `scripts/eval_streaming_metrics.py` (single-run diagnostics probe),
     - `scripts/benchmark_streaming.py` (`streaming_quality` summary payload).
@@ -82,20 +83,33 @@ make broad "production-grade across languages/conditions" quality claims.
    (+0.19pp WER delta) with substantial MLX latency advantage.
 
 4. **Streaming quality instrumentation** — CLOSED. Full instrumentation with
-   `partial_stability`, `rewrite_rate`, `finalization_delta_chars`. KV-cache
-   streaming shipped with linear complexity.
+   `partial_stability`, `rewrite_rate`, `finalization_delta_chars`.
+
+5. **Streaming quality dataset artifacts** — CLOSED (2026-09-19). The
+   streaming-manifest lane ran on the maintained multilingual-100 and
+   long-form-10 manifests and the final text was scored against the
+   references. It exposed that the incremental KV-cache design scored 56%
+   primary error vs 9.5% offline; streaming was rebuilt on the official
+   re-feed recipe (Decision 29) and now scores 11.4% / 12.3%. Artifacts:
+   `docs/benchmarks/2026-09-19-streaming-manifest-*.json` (with
+   `-incremental-kv` before/after pairs).
 
 ## Remaining Gaps (prioritized)
 
-1. `P1` Streaming quality dataset artifact publication
-   - Why: the lane is now command-complete, but we still need regularly
-     published/versioned benchmark artifacts from maintained manifests.
-   - Status:
-     - implemented multi-file evaluator: `scripts/eval_streaming_manifest.py`,
-     - quality-gate hook available: `RUN_STREAMING_MANIFEST_QUALITY_EVAL=1`,
-     - strict release still gates single-fixture streaming by default.
+1. `P2` Streaming residual gap and cost
+   - Why: streaming trails offline by ~2pp on both lanes and re-encodes the
+     window every chunk (RTF 0.18 on 75 s clips with a 30 s window).
+   - Candidates: cache encoder output per 100-frame chunk across re-decodes;
+     overlap windows at commit so boundary words are not cut.
+2. `P2` Streaming lane in the release gate
+   - Why: the strict release gate still checks a single fixture; the
+     manifest lane with reference scoring is what caught the regression.
+   - Candidate: `RUN_STREAMING_MANIFEST_QUALITY_EVAL=1` with a primary-error
+     ceiling relative to the offline artifact.
 
 ## Follow-up Order
 
-1. Run the streaming-manifest lane on maintained manifests and commit the
-   resulting benchmark artifacts under `docs/benchmarks/`.
+1. Add reference scoring (`quality_vs_reference`) to
+   `scripts/eval_streaming_manifest.py` itself so the lane reports quality
+   without a separate script.
+2. Gate the streaming manifest lane in strict release mode.

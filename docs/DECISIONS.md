@@ -392,3 +392,27 @@ conversion helpers.
 - A test enumerating `TranscribeOptions` fields against the three explicit
   signatures replaces hand-written call-site audits.
 - Public keyword arguments are unchanged for every entry point.
+
+## Decision 29: Streaming Re-Decodes the Audio Window with a Text-Prefix Rollback
+
+**Choice:** On every chunk, re-encode the whole accumulated window (bounded by
+`max_context_sec`) and decode it with the previously generated text, minus the
+last `unfixed_token_num` tokens, forced into the prompt as a prefix; when the
+window would overflow, commit its text and start a new window. This is the
+official `qwen_asr` streaming recipe.
+**Alternative (previous):** Encode each chunk alone and append it to a live
+decoder KV cache as a follow-up chat turn (linear cost, no re-encoding).
+
+**Rationale:**
+- The model was never trained on follow-up-turn audio. On the maintained
+  multilingual-100 lane the incremental design scored 56% primary error vs
+  9.5% offline, with duplicated and dropped segments; on the long-form lane
+  35-40% vs 10.6% (`docs/benchmarks/2026-09-19-streaming-manifest-*-incremental-kv.json`).
+- The re-feed design scores 11.4% / 12.3% on the same lanes at RTF 0.08 /
+  0.18, still well under real time on an M4 Pro.
+- The prefix rollback makes partial text stable by construction, as upstream
+  documents; the trade-off is that the last few tokens are regenerated every
+  chunk, which the `rewrite_rate` metric now reports honestly (~0.65).
+- Window commit at `max_context_sec` bounds per-chunk cost; a word cut at the
+  boundary can be duplicated or dropped once per window. Re-using encoder
+  output across chunks is a future optimisation, not a correctness need.

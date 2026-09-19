@@ -406,7 +406,29 @@ Biggest impact on quantized short clips where audio loading is a larger fraction
 
 Artifact: `2026-02-14-wav-fastpath.md`
 
-### Streaming (Rolling Decode)
+### Streaming Quality vs Offline (2026-09-19, v0.4.2)
+
+`scripts/eval_streaming_manifest.py` on the maintained manifests, 2 s chunks,
+30 s window, final text scored against the manifest references with the
+`eval_manifest_quality` normalisation (`quality_vs_reference` in each artifact).
+"Incremental KV" is the design shipped through v0.4.1; "window re-feed" is the
+official recipe adopted in v0.4.2 (Decision 29).
+
+| Lane | Offline primary | Incremental KV (fixed / energy) | Window re-feed (fixed / energy) | Re-feed RTF mean / p95 |
+|---|---:|---:|---:|---:|
+| Multilingual-100 (5-20 s clips) | 9.54% | 56.0% / 57.6% | **11.4% / 11.1%** | 0.083 / 0.135 |
+| Long-form 10 x 75 s | 10.59% | 34.7% / 39.6% | **12.3% / 12.1%** | 0.178 / 0.254 |
+
+The incremental design duplicated and dropped whole segments ("In the woman's
+sitting group, failed to finish the." twice in one 13 s clip). The re-feed
+design's remaining gap to offline is surface form (numerals, punctuation) and
+occasional word choice; its `rewrite_rate` is ~0.65 because the last
+`unfixed_token_num` tokens are regenerated every chunk, by design.
+
+Artifacts: `2026-09-19-streaming-manifest-{multilingual100,longform10}.json`
+and the `-incremental-kv` counterparts.
+
+### Streaming (Rolling Decode, February 2026)
 
 | Metric | Value |
 |---|---:|
@@ -445,6 +467,8 @@ All benchmark artifacts are committed under `docs/benchmarks/`. Key files:
 | `2026-09-07-reference-parity-suite-multilingual100-analysis.md` | v0.4.0 token-level parity |
 | `2026-09-19-reference-parity-suite-multilingual100-analysis.md` | v0.4.1 token-level parity rerun after encoder tail padding |
 | `2026-09-19-encoder-parity-tail-padding.json` | v0.4.1 encoder-output error vs fp32 reference, before/after tail padding |
+| `2026-09-19-streaming-manifest-*.json` | v0.4.2 streaming quality vs offline on maintained manifests (before/after re-feed) |
+| `2026-09-19-quantized-artifacts-*.json` | Quantized artifact evals (0.6B/1.7B x 4/8-bit) |
 | `2026-02-14-quant-matrix-speaker100.md` | Quantization quality + latency matrix |
 | `2026-02-15-quant-matrix-test-other-speaker100.md` | Quantization quality + latency on LibriSpeech test-other |
 | `2026-02-15-manifest-quality-multilingual100-0p6b-refresh.json` | 0.6B multilingual quality |

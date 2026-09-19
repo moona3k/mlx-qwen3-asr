@@ -27,7 +27,7 @@ This project rewrites every layer for MLX so the same model runs natively on M1/
 - **Built-in HTTP server** — `mlx-qwen3-asr serve` exposes the pipeline over HTTP with async jobs, OpenAI API compatibility, and Bearer token auth
 - **Session API** — explicit model/tokenizer ownership with no hidden global state
 - **Speculative decoding** — experimental opt-in path (0.6B drafts for 1.7B target), parity-verified
-- **Streaming** — KV-cache streaming with linear complexity, context trimming, and tail refinement
+- **Streaming** — windowed re-decode with text-prefix rollback (the official Qwen3-ASR recipe); final text within ~2pp of offline quality on the multilingual-100 and long-form lanes
 - **Native WAV fast-path** — custom binary WAV parser bypasses ffmpeg for PCM/float WAV files
 - **675 tests** — every optimization is benchmark-gated with committed JSON artifacts
 - **Minimal dependencies** — mlx, numpy, regex, huggingface-hub
@@ -589,7 +589,7 @@ domain bias is applied.
 
 ### Streaming
 
-Rolling decode implementation for near-real-time transcription:
+Near-real-time transcription following the official streaming recipe: each chunk re-encodes the accumulated window (bounded by `max_context_sec`) and decodes with the previous text, minus its last few tokens, forced as a prefix. Partial text is stable and the final text tracks offline quality (multilingual-100 primary error 11.4% streaming vs 9.5% offline).
 
 ```python
 from mlx_qwen3_asr.streaming import (
