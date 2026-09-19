@@ -133,8 +133,11 @@ def _load_model_with_resolved_path(
     # Load weights into model
     model.load_weights(list(weights.items()))
 
-    # Cast to target dtype
-    if dtype != mx.float32 and not quantized:
+    # Cast floating parameters to the requested activation dtype. Quantized
+    # checkpoints still contain floating scales, biases, norms, and unquantized
+    # layers; leaving those in a different dtype promotes runtime activations.
+    # Packed quantized weights are integer arrays and remain unchanged.
+    if dtype != mx.float32:
         params = _cast_tree_dtype(model.parameters(), dtype)
         model.load_weights(list(mlx_utils.tree_flatten(params)))
 

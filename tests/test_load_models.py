@@ -30,7 +30,11 @@ from mlx_qwen3_asr.load_models import (
 from mlx_qwen3_asr.model import Qwen3ASRModel
 
 
-def _tiny_config(*, tie_word_embeddings: bool = True) -> Qwen3ASRConfig:
+def _tiny_config(
+    *,
+    tie_word_embeddings: bool = True,
+    audio_token_id: int = 151676,
+) -> Qwen3ASRConfig:
     """Build a small valid ASR config for loader tests."""
     return Qwen3ASRConfig(
         audio_config=AudioEncoderConfig(
@@ -53,10 +57,15 @@ def _tiny_config(*, tie_word_embeddings: bool = True) -> Qwen3ASRConfig:
             head_dim=128,
             tie_word_embeddings=tie_word_embeddings,
         ),
+        audio_token_id=audio_token_id,
     )
 
 
-def _tiny_config_dict(*, tie_word_embeddings: bool = True) -> dict:
+def _tiny_config_dict(
+    *,
+    tie_word_embeddings: bool = True,
+    audio_token_id: int = 151676,
+) -> dict:
     """Return the nested JSON config shape used by checkpoint directories."""
     return {
         "thinker_config": {
@@ -80,14 +89,25 @@ def _tiny_config_dict(*, tie_word_embeddings: bool = True) -> dict:
                 "head_dim": 128,
                 "tie_word_embeddings": tie_word_embeddings,
             },
+            "audio_token_id": audio_token_id,
         }
     }
 
 
-def _write_tiny_config(model_dir: Path, *, tie_word_embeddings: bool = True) -> None:
+def _write_tiny_config(
+    model_dir: Path,
+    *,
+    tie_word_embeddings: bool = True,
+    audio_token_id: int = 151676,
+) -> None:
     """Write a tiny nested config.json into a checkpoint fixture directory."""
     (model_dir / "config.json").write_text(
-        json.dumps(_tiny_config_dict(tie_word_embeddings=tie_word_embeddings)),
+        json.dumps(
+            _tiny_config_dict(
+                tie_word_embeddings=tie_word_embeddings,
+                audio_token_id=audio_token_id,
+            )
+        ),
         encoding="utf-8",
     )
 
@@ -268,6 +288,77 @@ class TestLoadModelWithCommunityLayouts:
             key.startswith("audio_tower.") and key.endswith((".scales", ".biases"))
             for key in params
         )
+
+    def test_quantized_bfloat16_checkpoint_uses_requested_activation_dtype(
+        self,
+        tmp_path: Path,
+    ):
+        """Quantized checkpoints must not mix bfloat16 weights with float16 inputs."""
+        model_dir = tmp_path / "partial-quant-bf16"
+        model_dir.mkdir()
+        _write_tiny_config(model_dir, audio_token_id=127)
+        (model_dir / "quantization_config.json").write_text(
+            '{"bits": 4, "group_size": 64}',
+            encoding="utf-8",
+        )
+
+        model = Qwen3ASRModel(_tiny_config(audio_token_id=127))
+        quantized_paths = {
+            "model.embed_tokens",
+            "model.layers.0.self_attn.q_proj",
+            "lm_head",
+        }
+        nn.quantize(
+            model,
+            bits=4,
+            group_size=64,
+            class_predicate=lambda path, _module: path in quantized_paths,
+        )
+        weights = dict(mlx_utils.tree_flatten(model.parameters()))
+        weights = _cast_tree_dtype(weights, mx.bfloat16)
+        for key in ("lm_head.weight", "lm_head.scales", "lm_head.biases"):
+            weights.pop(key)
+        mx.save_safetensors(str(model_dir / "model.safetensors"), weights)
+
+        loaded, _, _ = _load_model_with_resolved_path(str(model_dir), dtype=mx.float16)
+        params = dict(mlx_utils.tree_flatten(loaded.parameters()))
+
+        floating_dtypes = {
+            value.dtype
+            for value in params.values()
+            if isinstance(value, mx.array) and mx.issubdtype(value.dtype, mx.floating)
+        }
+        packed_weight_dtypes = {
+            value.dtype
+            for name, value in params.items()
+            if name.endswith(".weight")
+            and isinstance(value, mx.array)
+            and not mx.issubdtype(value.dtype, mx.floating)
+        }
+        assert floating_dtypes == {mx.float16}
+        assert packed_weight_dtypes == {mx.uint32}
+
+        mel = mx.zeros((1, 128, 100), dtype=mx.float16)
+        audio_features, _ = loaded.audio_tower(
+            mel,
+            mx.array([100], dtype=mx.int32),
+        )
+        n_audio_tokens = int(audio_features.shape[1])
+        input_ids = mx.full(
+            (1, n_audio_tokens),
+            loaded.audio_token_id,
+            dtype=mx.int32,
+        )
+        positions = mx.arange(n_audio_tokens)[None, :]
+        position_ids = mx.stack([positions, positions, positions], axis=1)
+        cache = loaded.create_cache(max_seq_len=n_audio_tokens + 1)
+        logits = loaded.prefill(input_ids, audio_features, position_ids, cache)
+        cache_arrays = [x for x in [*cache.keys, *cache.values] if x is not None]
+        mx.eval(audio_features, logits, cache_arrays)
+
+        assert audio_features.dtype == mx.float16
+        assert logits.dtype == mx.float16
+        assert {value.dtype for value in cache_arrays} == {mx.float16}
 
 
 class TestResolvePath:
