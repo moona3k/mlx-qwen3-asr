@@ -155,3 +155,12 @@ class TestQuantizeModelEncoderBits:
         assert isinstance(model.audio_tower.layers[0], nn.Linear)
         assert not isinstance(model.audio_tower.layers[0], nn.QuantizedLinear)
         assert model.model.layers[0].bits == 4
+
+    def test_unsupported_encoder_bits_raises(self):
+        import pytest
+
+        from mlx_qwen3_asr.convert import quantize_model
+
+        model, _ = self._model()
+        with pytest.raises(ValueError, match="encoder_bits"):
+            quantize_model(model, bits=4, group_size=64, encoder_bits=32)

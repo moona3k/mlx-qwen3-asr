@@ -71,6 +71,8 @@ def quantize_model(
         Quantized model (in-place modification)
     """
     enc_bits = bits if encoder_bits is None else int(encoder_bits)
+    if enc_bits not in (2, 4, 8, 16):
+        raise ValueError(f"encoder_bits must be 2, 4, 8 or 16 (float16), got: {encoder_bits}")
 
     def _is_encoder(path: str) -> bool:
         return path.startswith("audio_tower")
@@ -88,7 +90,7 @@ def quantize_model(
         group_size=group_size,
         class_predicate=lambda path, m: _quantizable(m) and not _is_encoder(path),
     )
-    if enc_bits < 16:
+    if enc_bits != 16:
         nn.quantize(
             model,
             bits=enc_bits,
