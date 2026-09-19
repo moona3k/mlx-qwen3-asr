@@ -1,0 +1,35 @@
+docs/research/2026-09-07-stt-repo-opportunities.md
+  s_ecfbb93c4da731::t_9088f1878620c0 1-83
+CLAUDE.md
+  s_7b5ee2ad1f9b97::t_80b52d9611e2fa 21
+README.md
+  s_7b5ee2ad1f9b97::t_43e98eca7cab27 32,700,781,793
+mlx_qwen3_asr/_version.py
+  s_7b5ee2ad1f9b97::t_ea030a296b5411 1
+pyproject.toml
+  s_7b5ee2ad1f9b97::t_75b90bb6955202 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b281083cb2b2e639316afb580b2a6665d4746747",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    },
+    "s_ecfbb93c4da731": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07d80-cf9e-7fa2-92d7-8c4469cffd0c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
