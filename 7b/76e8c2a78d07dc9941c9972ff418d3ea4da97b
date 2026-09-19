@@ -1,0 +1,56 @@
+scripts/eval/metrics.py
+  s_7b5ee2ad1f9b97::t_6c25de9ee37910 6-7,12-26,35-112
+  s_7b5ee2ad1f9b97::t_d5a6ceeb182755 113-114
+docs/EVAL_GAPS.md
+  s_7b5ee2ad1f9b97::t_5ba3e7c0f0650e 104-109,113-116
+tests/test_eval_streaming_manifest.py
+  s_7b5ee2ad1f9b97::t_14f348a140327c 205-258,263,267-270,272-273,275-435
+  s_7b5ee2ad1f9b97::t_28cfa0db6a602c 259-262,264-266,271,274
+  s_7b5ee2ad1f9b97::t_36d52180bc2e40 133-134
+docs/QUALITY_GATE.md
+  s_7b5ee2ad1f9b97::t_0e088d584e19b7 141-143
+  s_7b5ee2ad1f9b97::t_1a4bd84545a9c1 95-99
+  s_7b5ee2ad1f9b97::t_4bc3d04e64ed35 160,164-171,173-193
+scripts/eval_manifest_quality.py
+  s_7b5ee2ad1f9b97::t_794ae0f5f33b1f 28,30-34
+scripts/eval_streaming_manifest.py
+  s_7b5ee2ad1f9b97::t_c96f12fc70fd88 536-541,544
+  s_7b5ee2ad1f9b97::t_476bd2617fd53d 329-331
+  s_7b5ee2ad1f9b97::t_cd6c3878ed49f0 41-48,57
+  s_7b5ee2ad1f9b97::t_352d94204f1cfb 363-399
+  s_7b5ee2ad1f9b97::t_2d8a7d05d13459 433-456,463-464,468-473
+  s_7b5ee2ad1f9b97::t_3b61940db6b4ed 2-10
+  s_7b5ee2ad1f9b97::t_3fa297a0d50e58 562
+  s_7b5ee2ad1f9b97::t_773a6feea5da5b 111-112,120,126-260
+  s_7b5ee2ad1f9b97::t_ba6db78d21348a 578-580
+  s_7b5ee2ad1f9b97::t_bdb571700e4909 261-262
+scripts/quality_gate.py
+  s_7b5ee2ad1f9b97::t_acdfd709155d25 345-353,361-370
+  s_7b5ee2ad1f9b97::t_7c976107e69be5 454-487
+  s_7b5ee2ad1f9b97::t_12250f877783e1 962
+docs/memory/operating-memory.md
+  s_7b5ee2ad1f9b97::t_216e6b08e0a6ef 82-85
+  s_7b5ee2ad1f9b97::t_45db32d1d01afe 104-106
+docs/memory/events/2026-09.md
+  s_7b5ee2ad1f9b97::t_68a39161395da2 310-349
+tests/test_quality_gate.py
+  s_7b5ee2ad1f9b97::t_a2bea4ea2b15d5 273-274,276,305-414
+docs/ROADMAP.md
+  s_7b5ee2ad1f9b97::t_dbb3e58466150e 117-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7b76e8c2a78d07dc9941c9972ff418d3ea4da97b",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
