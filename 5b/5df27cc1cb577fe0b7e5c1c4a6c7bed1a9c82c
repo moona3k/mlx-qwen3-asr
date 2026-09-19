@@ -1,0 +1,71 @@
+scripts/eval_diarization.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 24
+scripts/build_earnings22_longform_manifest.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 12
+scripts/eval_reference_parity_suite.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 25
+scripts/_repo_path.py
+  s_7b5ee2ad1f9b97::t_f6aa24b64a4d81 1-20
+scripts/eval_streaming_manifest.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 17
+scripts/convert.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 16
+scripts/build_realworld_manifest.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 17
+scripts/eval/_repo_path.py
+  s_7b5ee2ad1f9b97::t_7c0cb6b5ac5538 1-20
+scripts/benchmark_encoder_windowing.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 11
+scripts/benchmark_streaming.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 15-16
+scripts/eval_logit_parity_probe.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 17
+scripts/eval_streaming_metrics.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 13-14
+scripts/benchmark_asr.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 15-16
+scripts/build_multilingual_manifest.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 17
+tests/conftest.py
+  s_7b5ee2ad1f9b97::t_be05173bbe7f9d 1-16
+scripts/eval_aligner_parity.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 15
+scripts/eval_mel_parity.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 13-14
+scripts/build_longform_manifest.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 11
+.gitignore
+  s_7b5ee2ad1f9b97::t_6e065892b92585 20
+scripts/build_diarization_manifest.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 21
+scripts/eval_manifest_quality.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 16
+scripts/eval_manifest_head2head.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 15
+scripts/README.md
+  s_7b5ee2ad1f9b97::t_d78fd18167932a 5-10
+scripts/eval_nonnear_parity_matrix.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 14
+scripts/eval_librispeech.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 15
+scripts/eval/benchmark_quantization_matrix.py
+  s_7b5ee2ad1f9b97::t_7c0cb6b5ac5538 15
+scripts/benchmark_speculative.py
+  s_7b5ee2ad1f9b97::t_8326f7248d2a43 15-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5b5df27cc1cb577fe0b7e5c1c4a6c7bed1a9c82c",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
