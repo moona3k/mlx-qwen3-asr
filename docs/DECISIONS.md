@@ -460,3 +460,37 @@ kernel-launch cost outweighed the saved compute.
 - `KVCache.fork()` shares arrays in concatenating mode (immutable) and copies
   in preallocated mode, because MLX slice assignment is visible through every
   reference to the buffer.
+
+## Decision 31: Streaming Commits Windows at a Pause, and New Windows Inherit the Language
+
+**Choice:** When the live window must be committed, search its last 2 s for a
+low-energy run of at least 120 ms (RMS at most half the window median), cut at
+the run's centre, decode the truncated window once more for its final text
+(rolling back the prefix by 10 tokens per carried second on top of the usual
+`unfixed_token_num`), and carry the audio after the cut into the new window.
+A new window is prompted with the language already detected for the stream;
+a forced language always wins. Both default on (`commit_at_silence`,
+`commit_lookback_sec`, `commit_min_silence_sec` on `init_streaming`).
+**Alternatives (rejected):** text-level dedupe at the seam (fragments of a cut
+word do not match the whole word, and legitimate repeats would be deleted);
+overlapping audio without truncating the old window (duplicates the overlap
+text); cutting at the single quietest 20 ms frame (measured: it landed in the
+stop closure of "что" and duplicated the word on both sides).
+
+**Rationale:**
+- The official recipe never bounds the window, so the boundary is our
+  problem alone. Hard cuts at 30 s multiples showed up in hypotheses as
+  spurious sentence breaks ("for. Cost-saving", "EPC. Earlier", "que.") and
+  once as a hallucinated phrase ("Very little. The middle of this world").
+- Long-form lane, identical code, hard vs silence cut: fixed 12.28% -> 11.87%,
+  energy 12.08% -> 12.23%. The energy rise is one English row where the model
+  wrote three numbers as words instead of digits (3-4 word errors each); it is
+  window-content variance, not a boundary effect. Every hard-cut boundary
+  artifact is absent from the silence-cut output.
+- The language carry fixed a real failure exposed by the shorter first chunk
+  of a carried window: a Hindi stream re-detected as Indonesian and looped
+  (59% error on that row, 25% with the carry). It also matches the official
+  recipe, which detects language once per unbounded window.
+- Cost is one extra window decode per commit: +9.6% RTF interleaved on 75-90 s
+  clips (0.0765 -> 0.0838), still below the pre-Decision-30 0.104.
+- Artifacts: `docs/benchmarks/2026-09-19-streaming-manifest-longform10-{hard,silence}-cut.json`.

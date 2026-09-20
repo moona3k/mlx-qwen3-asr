@@ -472,6 +472,14 @@ on (`-no-prefix-reuse` vs `-prefix-reuse` artifacts):
 | Multilingual-100 | 11.35 / 11.05 -> 11.32 / 11.02 | 0.090 -> 0.081 | 0.157 -> 0.134 | 3 / 200, each equal or better |
 | Long-form 10 x 75 s | 12.33 / 12.13 -> 12.28 / 12.08 | 0.104 -> 0.083 | 0.136 -> 0.111 | 2 / 20, each equal or better |
 
+Commit at silence (Decision 31), long-form lane, hard cut vs silence cut on
+identical code (`-hard-cut` vs `-silence-cut` artifacts): primary fixed
+12.28% -> 11.87%, energy 12.08% -> 12.23%; 8 rows better, 5 worse, 7 same;
+zero adjacent duplicate words either way; the hard-cut boundary artifacts
+(spurious sentence breaks and a hallucinated phrase at 30 s multiples) are
+absent from the silence-cut hypotheses. Interleaved timing on 4 clips: RTF
+0.0765 -> 0.0838.
+
 Per 2 s chunk on a 30 s window the remaining time is ~55% greedy generation
 (the rollback regenerates ~5 tokens plus the new ones), ~27% prefill of the
 prompt tail and text prefix, ~13% encoder for the partial block. The 0.178 RTF
@@ -520,7 +528,7 @@ All benchmark artifacts are committed under `docs/benchmarks/`. Key files:
 | `2026-09-19-reference-parity-suite-multilingual100-analysis.md` | v0.4.1 token-level parity rerun after encoder tail padding |
 | `2026-09-19-encoder-parity-tail-padding.json` | v0.4.1 encoder-output error vs fp32 reference, before/after tail padding |
 | `2026-09-19-aligner-parity-50.md` | Forced aligner audit on MLX 0.30.6 and 0.32.2: word timestamps + aligner encoder output; reference window-mask finding |
-| `2026-09-19-streaming-manifest-*.json` | v0.4.2 streaming quality vs offline on maintained manifests (before/after re-feed); `-{no-,}prefix-reuse` pairs for Decision 30 |
+| `2026-09-19-streaming-manifest-*.json` | v0.4.2 streaming quality vs offline on maintained manifests (before/after re-feed); `-{no-,}prefix-reuse` pairs for Decision 30; `-{hard,silence}-cut` pair for Decision 31 |
 | `2026-09-19-quantized-artifacts-*.json` | Quantized artifact evals (0.6B/1.7B x 4/8-bit) |
 | `2026-02-14-quant-matrix-speaker100.md` | Quantization quality + latency matrix |
 | `2026-02-15-quant-matrix-test-other-speaker100.md` | Quantization quality + latency on LibriSpeech test-other |

@@ -68,6 +68,11 @@ UNFIXED_TOKEN_NUM = 5     # Trailing tokens rolled back before each re-decode
 
 _DEFAULT_EOS_TOKEN_IDS = (151643, 151645)
 _ENDPOINTING_MODES = {"fixed", "energy"}
+# Upper bound on generated tokens per second of speech, used to size the extra
+# rollback when a window is truncated at a silence before commit.
+_COMMIT_ROLLBACK_TOKENS_PER_SEC = 10.0
+# A commit cut requires a frame at most this fraction of the window's median RMS.
+_COMMIT_DIP_RATIO = 0.5
 _REPLACEMENT_CHAR = "\ufffd"
 
 
@@ -133,6 +138,14 @@ class StreamingState:
             recomputing them every chunk. Output is the same up to
             floating-point reduction order; disable to A/B against the plain
             re-decode.
+        commit_at_silence: When the window must be committed, move the cut
+            back to the latest low-energy frame within ``commit_lookback_samples``
+            so no word is split across windows; the audio after the cut is
+            carried into the new window. Costs one extra decode per commit.
+        commit_lookback_samples: How far back from the window end to look for
+            that silence.
+        commit_min_silence_samples: Shortest low-energy run accepted as a
+            pause; shorter dips are stop-consonant closures inside words.
     """
 
     buffer: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float32))
@@ -158,7 +171,13 @@ class StreamingState:
     endpoint_frame_samples: int = 320  # 20ms at 16kHz
     endpoint_min_chunk_samples: int = 8000  # 500ms at 16kHz
     reuse_window_prefix: bool = True
+    commit_at_silence: bool = True
+    commit_lookback_samples: int = 32000  # 2 s at 16 kHz
+    commit_min_silence_samples: int = 1920  # 120 ms at 16 kHz
     _prefix_cache: Optional[_WindowPrefixCache] = None
+    _window_language: Optional[str] = None
+    _commit_extra_rollback: int = 0
+    _commit_silence_events: int = 0
     _model_path: str = DEFAULT_MODEL_ID
     _adaptive_token_budget: bool = True
     _window_raw_ids: list[int] = field(default_factory=list)
@@ -191,6 +210,9 @@ def init_streaming(
     endpoint_min_chunk_sec: float = 0.5,
     language: Optional[str] = None,
     reuse_window_prefix: bool = True,
+    commit_at_silence: bool = True,
+    commit_lookback_sec: float = 2.0,
+    commit_min_silence_sec: float = 0.12,
 ) -> StreamingState:
     """Initialize a streaming ASR session."""
     if chunk_size_sec <= 0:
@@ -231,6 +253,10 @@ def init_streaming(
         raise ValueError(
             f"endpoint_min_chunk_sec must be > 0, got: {endpoint_min_chunk_sec}"
         )
+    if commit_lookback_sec < 0:
+        raise ValueError(f"commit_lookback_sec must be >= 0, got: {commit_lookback_sec}")
+    if commit_min_silence_sec <= 0:
+        raise ValueError(f"commit_min_silence_sec must be > 0, got: {commit_min_silence_sec}")
 
     # Backward-compatible override for callers still passing enable_tail_refine.
     if enable_tail_refine is None:
@@ -257,7 +283,11 @@ def init_streaming(
         endpoint_frame_samples=max(1, int((endpoint_frame_ms / 1000.0) * sample_rate)),
         endpoint_min_chunk_samples=max(1, int(endpoint_min_chunk_sec * sample_rate)),
         forced_language=canonicalize_language(language),
+        _window_language=canonicalize_language(language),
         reuse_window_prefix=bool(reuse_window_prefix),
+        commit_at_silence=bool(commit_at_silence),
+        commit_lookback_samples=max(0, int(commit_lookback_sec * sample_rate)),
+        commit_min_silence_samples=max(1, int(commit_min_silence_sec * sample_rate)),
     )
 
 
@@ -283,7 +313,7 @@ def feed_audio(
         chunk_audio = state.buffer[:decode_samples]
         state.buffer = state.buffer[decode_samples:]
 
-        _extend_window(state, chunk_audio)
+        _extend_window(state, chunk_audio, model)
         prev_text = state.text
         _decode_and_update(state, model)
 
@@ -320,7 +350,7 @@ def finish_streaming(
 
     tail = state.buffer
     state.buffer = np.array([], dtype=np.float32)
-    _extend_window(state, tail)
+    _extend_window(state, tail, model)
     _decode_and_update(state, model)
     state.chunk_id += 1
 
@@ -344,15 +374,105 @@ def streaming_metrics(state: StreamingState) -> dict[str, float | int]:
         "rewrite_events": rewrite_events,
         "rewrite_rate": float(rewrite_events / text_updates) if text_updates > 0 else 0.0,
         "finalization_delta_chars": int(state._finalization_delta_chars),
+        "commit_silence_events": int(state._commit_silence_events),
     }
 
 
-def _extend_window(state: StreamingState, audio: np.ndarray) -> None:
-    """Append audio to the live window, committing the window first if it would overflow."""
+def _extend_window(
+    state: StreamingState,
+    audio: np.ndarray,
+    model: Optional[Qwen3ASRModel] = None,
+) -> None:
+    """Append audio to the live window, committing the window first if it would overflow.
+
+    When a commit is needed and ``commit_at_silence`` is on, the boundary is
+    moved back to the latest low-energy frame within ``commit_lookback_samples``
+    of the window end: the window is truncated there and decoded once more for
+    its final text (rolling back enough tokens to drop anything spoken in the
+    carried-over audio), and the audio after the boundary starts the new window
+    together with the new chunk. A word that straddles the fixed boundary is
+    therefore decoded whole, in one window. Without a usable silence the cut
+    stays at the chunk boundary.
+    """
     overflow = len(state.audio_accum) + len(audio) > state.max_context_samples
+    carry = np.array([], dtype=np.float32)
     if len(state.audio_accum) > 0 and overflow:
+        cut = _select_commit_boundary(state)
+        if 0 < cut < len(state.audio_accum):
+            carry = state.audio_accum[cut:]
+            state.audio_accum = state.audio_accum[:cut]
+            state._commit_extra_rollback = _rollback_for_carry(state, len(carry))
+            _decode_and_update(state, model)
+            state._commit_extra_rollback = 0
+            state._commit_silence_events += 1
         _commit_window(state)
-    state.audio_accum = np.concatenate([state.audio_accum, audio])
+    state.audio_accum = np.concatenate([state.audio_accum, carry, audio])
+
+
+def _rollback_for_carry(state: StreamingState, carry_samples: int) -> int:
+    """Extra tokens to roll back when re-decoding a window truncated by ``carry_samples``.
+
+    The rolled-back prefix must not force text that was spoken in the carried
+    audio. Token rate is bounded generously (CJK character tokens run fastest);
+    over-rolling only costs regeneration on this one decode.
+    """
+    carry_sec = float(carry_samples) / float(max(1, state.sample_rate))
+    return int(np.ceil(carry_sec * _COMMIT_ROLLBACK_TOKENS_PER_SEC))
+
+
+def _select_commit_boundary(state: StreamingState) -> int:
+    """Sample index in ``audio_accum`` at which to end the window, or its length.
+
+    Searches the trailing ``commit_lookback_samples`` for runs of consecutive
+    low-energy frames (RMS at most half the window's median) lasting at least
+    ``commit_min_silence_samples``; a single quiet frame is usually the closure
+    of a stop consonant inside a word, not a pause (measured: cutting there
+    duplicated the word on both sides of the boundary). Among qualifying runs
+    the quietest wins, ties go to the latest, and the cut is the run's centre.
+    Unlike chunk endpointing, which wants the latest acceptable boundary to
+    bound latency, the commit cut wants the most likely pause even if that
+    carries more audio over.
+    """
+    total = int(len(state.audio_accum))
+    if not state.commit_at_silence or total == 0:
+        return total
+    lookback = max(0, int(state.commit_lookback_samples))
+    frame = max(1, int(state.endpoint_frame_samples))
+    hop = max(1, frame // 2)
+    search_start = max(0, total - lookback)
+    if total - search_start < frame:
+        return total
+
+    segment = state.audio_accum[search_start:total]
+    seg_rms = _frame_rms(segment, frame, hop)
+    ref_rms = _frame_rms(state.audio_accum, frame, hop)
+    if seg_rms.size == 0 or ref_rms.size == 0:
+        return total
+    ref_median = float(np.median(ref_rms))
+    if ref_median <= 1e-8:
+        return total
+    quiet = seg_rms <= ref_median * _COMMIT_DIP_RATIO
+    min_frames = max(1, int(np.ceil(max(0, int(state.commit_min_silence_samples)) / hop)))
+    best: tuple[float, int, int] | None = None  # (mean rms, start frame, end frame)
+    run_start: int | None = None
+    for i in range(len(quiet) + 1):
+        if i < len(quiet) and quiet[i]:
+            if run_start is None:
+                run_start = i
+            continue
+        if run_start is not None:
+            run_len = i - run_start
+            if run_len >= min_frames:
+                mean_rms = float(np.mean(seg_rms[run_start:i]))
+                if best is None or mean_rms <= best[0]:
+                    best = (mean_rms, run_start, i)
+            run_start = None
+    if best is None:
+        return total
+    _, start_frame, end_frame = best
+    centre_frame = (start_frame + end_frame - 1) / 2.0
+    boundary = search_start + int(round(centre_frame * hop)) + frame // 2
+    return max(0, min(total, boundary))
 
 
 def _commit_window(state: StreamingState) -> None:
@@ -363,6 +483,13 @@ def _commit_window(state: StreamingState) -> None:
     state._window_raw_ids = []
     state._window_chunk_id = 0
     state._prefix_cache = None
+    # A new window decodes its first chunks without a text prefix, so it would
+    # re-detect the language from a few seconds of audio; carry the language
+    # the stream has already settled on instead (a forced language always wins).
+    if state.forced_language is not None:
+        state._window_language = state.forced_language
+    elif state.language and state.language != "unknown":
+        state._window_language = state.language
 
 
 def _decode_and_update(state: StreamingState, model: Optional[Qwen3ASRModel]) -> None:
@@ -495,7 +622,9 @@ def _decode_window(
         prefix_ids: list[int] = []
     else:
         prefix_ids = _rollback_prefix_ids(
-            state._window_raw_ids, state.unfixed_token_num, tokenizer
+            state._window_raw_ids,
+            state.unfixed_token_num + int(state._commit_extra_rollback),
+            tokenizer,
         )
 
     new_prefix_positions = 0
@@ -516,7 +645,7 @@ def _decode_window(
         prompt_tokens = list(
             tokenizer.build_prompt_tokens(
                 n_audio_tokens=n_audio_tokens,
-                language=state.forced_language,
+                language=state._window_language,
                 context=state.context,
             )
         )
@@ -538,7 +667,7 @@ def _decode_window(
         prompt_tokens = list(
             tokenizer.build_prompt_tokens(
                 n_audio_tokens=n_audio_tokens,
-                language=state.forced_language,
+                language=state._window_language,
                 context=state.context,
             )
         )
@@ -585,7 +714,7 @@ def _decode_window(
     state._window_chunk_id += 1
 
     raw_text = tokenizer.decode(raw_ids)
-    lang, text = parse_asr_output(raw_text, user_language=state.forced_language)
+    lang, text = parse_asr_output(raw_text, user_language=state._window_language)
     return text, lang
 
 

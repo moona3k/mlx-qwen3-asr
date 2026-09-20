@@ -237,8 +237,20 @@ chunk k arrives
   `unfixed_token_num` tokens can change, which is what `rewrite_rate` counts.
 - When the next chunk would overflow `max_context_sec`, the window's text is
   committed to `committed_text` and a new window starts with that chunk.
-  `state.text` is `committed_text` joined with the live window text. A word
-  cut at the boundary can be duplicated or dropped once per window.
+  `state.text` is `committed_text` joined with the live window text.
+- Commit at silence (`commit_at_silence=True`, Decision 31): before
+  committing, the last `commit_lookback_sec` (2 s) of the window is searched
+  for a low-energy run of at least `commit_min_silence_sec` (120 ms; shorter
+  dips are stop-consonant closures inside words). If found, the window is
+  truncated at the run's centre, decoded once more for its final text with
+  the prefix rolled back far enough to drop anything spoken in the carried
+  audio (10 tokens/s bound), and the carried audio starts the new window
+  with the next chunk. No word is split across windows when a pause exists;
+  without one the cut stays at the chunk boundary. Costs one extra decode
+  per commit (+10% RTF on 75 s clips).
+- A new window inherits the language the stream has already detected
+  (`_window_language`), so its first prefix-free chunks are not re-detected
+  from a few seconds of audio; a forced language always wins.
 - Per-chunk cost is bounded by the window (encoder over <= 30 s plus a
   prefill of ~12.5 audio tokens/s and the prefix), not by session length.
 - Prefix reuse (`reuse_window_prefix=True`, Decision 30): the encoder's

@@ -472,6 +472,18 @@ def main() -> int:
             "every chunk, for A/B runs."
         ),
     )
+    parser.add_argument(
+        "--commit-at-silence",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Move the window-commit cut to the quietest frame in the last "
+            "--commit-lookback-sec (production default); --no-commit-at-silence cuts at "
+            "the chunk boundary."
+        ),
+    )
+    parser.add_argument("--commit-lookback-sec", type=float, default=2.0)
+    parser.add_argument("--commit-min-silence-sec", type=float, default=0.12)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--json-output", default=None)
     parser.add_argument("--fail-partial-stability-below", type=float, default=None)
@@ -554,6 +566,9 @@ def main() -> int:
                 endpointing_mode=mode,
                 finalization_mode=args.finalization_mode,
                 reuse_window_prefix=bool(args.reuse_window_prefix),
+                commit_at_silence=bool(args.commit_at_silence),
+                commit_lookback_sec=float(args.commit_lookback_sec),
+                commit_min_silence_sec=float(args.commit_min_silence_sec),
             )
 
             t0 = time.perf_counter()
@@ -581,6 +596,7 @@ def main() -> int:
                     ),
                     "latency_sec": latency_sec,
                     "rtf": (latency_sec / duration_sec) if duration_sec > 0 else 0.0,
+                    "commit_silence_events": int(metrics.get("commit_silence_events", 0)),
                     "final_text": str(getattr(state, "text", "")),
                     "final_language": str(getattr(state, "language", "unknown")),
                 }
@@ -611,6 +627,9 @@ def main() -> int:
         "unfixed_token_num": args.unfixed_token_num,
         "finalization_mode": args.finalization_mode,
         "reuse_window_prefix": bool(args.reuse_window_prefix),
+        "commit_at_silence": bool(args.commit_at_silence),
+        "commit_lookback_sec": float(args.commit_lookback_sec),
+        "commit_min_silence_sec": float(args.commit_min_silence_sec),
         "samples": len(samples),
         "evaluations": len(rows),
         "aggregate": aggregate,

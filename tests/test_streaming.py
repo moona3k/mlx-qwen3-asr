@@ -252,6 +252,107 @@ class TestFeedAudio:
         assert state.window_text == "gamma"
         assert state.text == "alpha beta gamma"
 
+    def _silence_gap_audio(self, n: int, gap_start: int, gap_end: int) -> np.ndarray:
+        # Deterministic, varied, never quiet: amplitude in [0.5, 1.0]; then a
+        # true zero gap so the commit search has exactly one dip to find.
+        i = np.arange(n)
+        x = (0.5 + 0.5 * ((i * 37) % 100) / 100.0).astype(np.float32)
+        x[gap_start:gap_end] = 0.0
+        return x
+
+    def test_commit_moves_boundary_to_silence_and_carries_audio(self, monkeypatch):
+        calls: list[tuple[int, int]] = []  # (window samples, extra rollback)
+        outputs = iter(["one two", "one two three", "one two", "four"])
+
+        def fake_decode(audio, state, model=None):  # noqa: ANN001
+            calls.append((len(audio), state._commit_extra_rollback))
+            return next(outputs), "English"
+
+        monkeypatch.setattr(smod, "_decode_window", fake_decode)
+
+        # 100 Hz audio, 1 s chunks, 2 s window, look back 1 s for a silence.
+        state = init_streaming(
+            chunk_size_sec=1.0,
+            max_context_sec=2.0,
+            sample_rate=100,
+            commit_lookback_sec=1.0,
+            endpoint_frame_ms=100.0,  # 10-sample frames
+        )
+        chunk1 = self._silence_gap_audio(100, 0, 0)
+        # 250 ms pause at samples 155..180 of the window.
+        chunk2 = self._silence_gap_audio(100, 55, 80)
+        feed_audio(chunk1, state)
+        feed_audio(chunk2, state)
+        assert calls == [(100, 0), (200, 0)]
+
+        feed_audio(self._silence_gap_audio(100, 0, 0), state)
+        # Third chunk overflows: the window is cut inside the silence (< 200
+        # samples), re-decoded once with an extra rollback covering the carried
+        # audio, committed, and the carried tail starts the new window.
+        assert len(calls) == 4
+        cut_len, extra = calls[2]
+        assert 160 <= cut_len <= 175  # centre of the pause
+        assert extra == int(np.ceil((200 - cut_len) / 100 * smod._COMMIT_ROLLBACK_TOKENS_PER_SEC))
+        assert calls[3] == (200 - cut_len + 100, 0)
+        assert state.committed_text == "one two"
+        assert state.window_text == "four"
+        assert state.text == "one two four"
+        assert streaming_metrics(state)["commit_silence_events"] == 1
+
+    def test_commit_falls_back_to_hard_cut_without_silence(self, monkeypatch):
+        call_lengths = []
+        monkeypatch.setattr(
+            smod,
+            "_decode_window",
+            lambda audio, state, model=None: (call_lengths.append(len(audio)), ("x", "English"))[1],
+        )
+        state = init_streaming(chunk_size_sec=1.0, max_context_sec=2.0, sample_rate=100)
+        for _ in range(3):
+            feed_audio(self._silence_gap_audio(100, 0, 0), state)
+        assert call_lengths == [100, 200, 100]
+        assert streaming_metrics(state)["commit_silence_events"] == 0
+
+    def test_commit_at_silence_can_be_disabled(self, monkeypatch):
+        call_lengths = []
+        monkeypatch.setattr(
+            smod,
+            "_decode_window",
+            lambda audio, state, model=None: (call_lengths.append(len(audio)), ("x", "English"))[1],
+        )
+        state = init_streaming(
+            chunk_size_sec=1.0,
+            max_context_sec=2.0,
+            sample_rate=100,
+            commit_at_silence=False,
+            endpoint_frame_ms=100.0,
+        )
+        feed_audio(self._silence_gap_audio(100, 0, 0), state)
+        feed_audio(self._silence_gap_audio(100, 55, 80), state)
+        feed_audio(self._silence_gap_audio(100, 0, 0), state)
+        assert call_lengths == [100, 200, 100]
+
+    def test_commit_ignores_dips_shorter_than_min_silence(self, monkeypatch):
+        call_lengths = []
+        monkeypatch.setattr(
+            smod,
+            "_decode_window",
+            lambda audio, state, model=None: (call_lengths.append(len(audio)), ("x", "English"))[1],
+        )
+        state = init_streaming(
+            chunk_size_sec=1.0,
+            max_context_sec=2.0,
+            sample_rate=100,
+            commit_lookback_sec=1.0,
+            commit_min_silence_sec=0.2,
+            endpoint_frame_ms=100.0,
+        )
+        feed_audio(self._silence_gap_audio(100, 0, 0), state)
+        # 100 ms dip: a plosive closure, not a pause.
+        feed_audio(self._silence_gap_audio(100, 60, 70), state)
+        feed_audio(self._silence_gap_audio(100, 0, 0), state)
+        assert call_lengths == [100, 200, 100]
+        assert streaming_metrics(state)["commit_silence_events"] == 0
+
     def test_commit_window_joins_without_spaces_for_cjk(self):
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10)
         state.language = "Chinese"
@@ -812,6 +913,35 @@ class TestWindowDecode:
             smod._prompt_audio_start([11, 12], pad, 2)
         with pytest.raises(RuntimeError, match="contiguous"):
             smod._prompt_audio_start([11, pad, 12, pad], pad, 2)
+
+    def test_new_window_carries_detected_language_into_prompt(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=10)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+        monkeypatch.setattr(
+            smod, "parse_asr_output", lambda _raw, user_language=None: ("Hindi", "text")
+        )
+
+        # First window: nothing known, the prompt leaves the language open and
+        # the decode detects it.
+        state.audio_accum = np.ones(10, dtype=np.float32)
+        smod._decode_and_update(state, None)
+        assert fake_tokenizer.prompt_calls[-1][1] is None
+        assert state.language == "Hindi"
+
+        # After a commit the next window is prompted with the detected language
+        # instead of re-detecting from a short first chunk.
+        smod._commit_window(state)
+        assert state._window_language == "Hindi"
+        state.audio_accum = np.ones(10, dtype=np.float32)
+        smod._decode_and_update(state, None)
+        assert fake_tokenizer.prompt_calls[-1][1] == "Hindi"
+
+    def test_forced_language_wins_over_detected_on_new_window(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=10, language="en")
+        state.language = "Hindi"
+        smod._commit_window(state)
+        assert state._window_language == "English"
 
     def test_decode_window_forwards_forced_language_to_prompt(self, monkeypatch):
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10, language="zh", context="ctx")

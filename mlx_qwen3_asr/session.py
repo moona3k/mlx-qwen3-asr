@@ -166,6 +166,9 @@ class Session:
         endpoint_frame_ms: float = 20.0,
         endpoint_min_chunk_sec: float = 0.5,
         reuse_window_prefix: bool = True,
+        commit_at_silence: bool = True,
+        commit_lookback_sec: float = 2.0,
+        commit_min_silence_sec: float = 0.12,
     ) -> streaming_mod.StreamingState:
         """Create streaming state bound to this session's model settings."""
         return streaming_mod.init_streaming(
@@ -186,6 +189,9 @@ class Session:
             endpoint_frame_ms=endpoint_frame_ms,
             endpoint_min_chunk_sec=endpoint_min_chunk_sec,
             reuse_window_prefix=reuse_window_prefix,
+            commit_at_silence=commit_at_silence,
+            commit_lookback_sec=commit_lookback_sec,
+            commit_min_silence_sec=commit_min_silence_sec,
         )
 
     def feed_audio(

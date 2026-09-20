@@ -144,10 +144,17 @@ criterion so the next agent can tell when it is done.
    the first two; generation is the floor of the re-decode recipe, so the
    "toward 0.06" target is not reachable without changing the recipe
    (fewer rolled-back tokens, or speculative decoding of the tail).
-4. **Window-commit overlap.** A word cut at the 30 s boundary can duplicate or
-   drop once per window.
-   - Done when: the long-form lane shows no boundary duplicates in
-     `final_text` on the 10 clips and primary error does not rise.
+4. **Window-commit at silence.** Done 2026-09-19 (Decision 31). The commit
+   cut moves to the quietest >= 120 ms pause in the last 2 s of the window and
+   the audio after it is carried into the new window; new windows inherit
+   the detected language. Long-form lane, hard cut vs silence cut, same code:
+   fixed 12.28% -> 11.87%, energy 12.08% -> 12.23% (the rise is numeral
+   formatting variance on one English row, not a boundary artifact); the
+   boundary artifacts visible in the hard-cut hypotheses ("for. Cost-saving",
+   "EPC. Earlier", "que.", a spurious "The middle") are gone; zero adjacent
+   duplicate words either way; +9.6% RTF interleaved. The language carry
+   alone fixed a 59% Hindi row where a fresh window had drifted to Indonesian
+   and looped.
 5. **Publish from CI.** Add `HF_TOKEN` to repo secrets; run
    `publish-quantized.yml` for one artifact end to end.
    - Done when: a workflow run has produced a commit on a

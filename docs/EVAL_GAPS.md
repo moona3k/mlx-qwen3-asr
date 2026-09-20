@@ -103,8 +103,8 @@ make broad "production-grade across languages/conditions" quality claims.
      0.104 -> 0.083, multilingual-100 0.090 -> 0.081, quality equal or better
      on every changed hypothesis. Generation is now ~55% of per-chunk time and
      is the floor of the re-decode recipe.
-   - Remaining candidate: overlap windows at commit so boundary words are not
-     cut (ROADMAP handoff item 4).
+   - Commit at silence (Decision 31) removed the boundary artifacts; long-form
+     fixed 11.87%, energy 12.23% against a 13.59% ceiling.
 2. Streaming lane in the release gate: closed 2026-09-19.
    `scripts/eval_streaming_manifest.py` scores `final_text` against manifest
    references itself (`quality_vs_reference`, schema v1.2) and the strict
@@ -119,6 +119,6 @@ make broad "production-grade across languages/conditions" quality claims.
 
 ## Follow-up Order
 
-1. Long-form streaming headroom under the 3pp ceiling is 1.25pp. Before item 3
-   or 4 of the ROADMAP handoff lands, decide whether the fix should close the
-   gap (preferred) or whether the ceiling needs a per-lane value.
+1. Long-form streaming headroom under the 3pp ceiling is 1.4pp (energy) after
+   items 3 and 4. The remaining gap to offline is surface form (numerals as
+   digits vs words, punctuation) and window-content variance, not boundaries.
