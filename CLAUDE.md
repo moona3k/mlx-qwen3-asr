@@ -171,6 +171,10 @@ Types: `feat` `fix` `perf` `refactor` `docs` `test` `chore`.
 
 PyPI account moona3k@gmail.com, token scoped to the project. Pure Python wheel. License string `Apache-2.0`.
 
+HuggingFace publishing (`scripts/publish_quantized.py`) also runs locally; it
+reads the token from `HF_TOKEN`, else the gitignored `.secrets/hf_token`, else
+the `huggingface-cli login` file. Never add the token to repo secrets or docs.
+
 ## Documentation
 
 | File | Purpose |

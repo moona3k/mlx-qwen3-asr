@@ -27,6 +27,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from eval.metrics import compute_cer, compute_wer, normalize_text  # noqa: E402
+from eval.provenance import runtime_provenance  # noqa: E402
 
 OPENSLR_BASE = "https://www.openslr.org/resources/12"
 SPLIT_ARCHIVES = {
@@ -326,6 +327,7 @@ def main() -> int:
         "audio_duration_sec_total": total_audio_sec,
         "rtf": (sum(latencies) / total_audio_sec) if total_audio_sec > 0 else 0.0,
         "elapsed_sec": elapsed,
+        "runtime": runtime_provenance(),
         "rows": sample_rows,
     }
 

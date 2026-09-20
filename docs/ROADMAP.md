@@ -155,14 +155,20 @@ criterion so the next agent can tell when it is done.
    duplicate words either way; +9.6% RTF interleaved. The language carry
    alone fixed a 59% Hindi row where a fresh window had drifted to Indonesian
    and looped.
-5. **Publish from CI.** Add `HF_TOKEN` to repo secrets; run
-   `publish-quantized.yml` for one artifact end to end.
-   - Done when: a workflow run has produced a commit on a
-     `moona3k/mlx-qwen3-asr-*` repo.
-6. **Broaden the hardware/MLX matrix.** Everything on 2026-09-19 was measured
-   on one M4 Pro with MLX 0.30.6 (repo venv) and 0.32.2 (temp venvs).
-   - Done when: the nightly lane records machine and MLX version, and at least
-     one 8-16 GB machine result is committed.
+5. **Publishing token.** Decided 2026-09-19: publishing stays on a
+   maintainer machine; the token lives in the gitignored `.secrets/hf_token`
+   (or `HF_TOKEN`, or the `huggingface-cli login` file), resolved by
+   `scripts/publish_quantized.py::resolve_hf_token`; a test asserts the file
+   is gitignored. `publish-quantized.yml` remains usable by anyone who adds a
+   repo secret, but it is not on the release path.
+6. **Broaden the hardware/MLX matrix.** Half done 2026-09-19: every eval and
+   benchmark artifact now records `runtime` (chip, memory, macOS, Python, MLX,
+   commit) via `scripts/eval/provenance.py`, including the nightly uploads;
+   `docs/BENCHMARKS.md` has a hardware matrix with the two known hosts (M4 Pro
+   48 GB; `macos-14` runner 7 GB).
+   - Still needed: one committed result from an 8-16 GB Apple Silicon machine.
+     Requires hardware the maintainer does not have; the matrix section gives
+     the two commands and the file-naming rule for a contributor.
 
 ## Next Exploration Queue
 
@@ -187,8 +193,8 @@ Near-term work should remain correctness-gated and benchmark-driven:
 
 2. Quantized model publication lane
 - Done 2026-09-19 (see Status item 3). Remaining: re-publish when the source
-  checkpoints or the quantization recipe change; the `publish-quantized.yml`
-  workflow needs an `HF_TOKEN` secret to run from CI.
+  checkpoints or the quantization recipe change. Publishing runs locally with
+  the token in the gitignored `.secrets/hf_token` (handoff item 5).
 
 3. Long-form robustness benchmark expansion
 - Goal: extend golden eval + latency coverage beyond the current short fixture and 10s clip.

@@ -43,6 +43,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from eval.metrics import score_hypothesis  # noqa: E402
+from eval.provenance import runtime_provenance  # noqa: E402
 
 SCHEMA_VERSION = "streaming-manifest-quality-v1.2"
 
@@ -616,6 +617,7 @@ def main() -> int:
         "suite": "streaming-manifest-quality-v1",
         "generated_at_utc": _iso_utc_now(),
         "git_commit": _git_head_commit(repo_root),
+        "runtime": runtime_provenance(repo_root),
         "manifest_jsonl": str(manifest_path),
         "manifest_sha256": manifest_sha256,
         "model": args.model,

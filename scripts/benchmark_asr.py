@@ -17,6 +17,12 @@ try:
 except ModuleNotFoundError:  # invoked as ``python -m scripts.<name>``
     from scripts import _repo_path  # noqa: F401
 
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from eval.provenance import runtime_provenance  # noqa: E402
+
 
 def _maybe_reexec_venv() -> None:
     repo = Path(__file__).resolve().parents[1]
@@ -130,6 +136,7 @@ def main() -> int:
             "std": std_sec,
         },
         "rtf": rtf,
+        "runtime": runtime_provenance(),
         "transcript_preview": last_text[:200],
     }
 

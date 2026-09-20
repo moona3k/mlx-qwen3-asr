@@ -503,11 +503,14 @@ Publish to HuggingFace (converts, load-checks and uploads; `--from-dir`
 uploads an already validated directory):
 
 ```bash
-HF_TOKEN=... python scripts/publish_quantized.py \
+python scripts/publish_quantized.py \
   --source-model Qwen/Qwen3-ASR-0.6B \
   --repo-id YOUR_USER/mlx-qwen3-asr-0.6b-4bit \
   --bits 4
 ```
+
+The token is read from `HF_TOKEN`, else from the gitignored file
+`.secrets/hf_token` at the repo root, else from `huggingface-cli login`.
 
 ## Output formats
 

@@ -29,6 +29,24 @@ Two measurement generations are recorded here:
 | Real-world200 WER (AMI+Earnings, Feb 2026) | 23.23% | — | — | — |
 | MLX vs PyTorch primary error (multilingual-100) | 9.54% vs 10.34% | — | — | — |
 
+### Hardware / MLX matrix
+
+Every number in this file was produced on the machines below. Artifacts
+written after 2026-09-19 carry a `runtime` block (`host_chip`, `memory_gb`,
+`macos_version`, `python`, `mlx_version`, `git_commit`) from
+`scripts/eval/provenance.py`, and the nightly lane uploads it with each run.
+
+| Host | Memory | MLX | What was measured here |
+|---|---:|---|---|
+| Apple M4 Pro (maintainer laptop) | 48 GB | 0.30.6 (repo venv), 0.32.2 (temp venv) | everything |
+| GitHub `macos-14` runner (M1, 7 GB) | 7 GB | latest release at run time | nightly LibriSpeech-100 + latency, PR fast gate |
+
+Missing: any 8-16 GB Apple Silicon machine. To add a row, run
+`scripts/eval_librispeech.py --samples 100 --sampling speaker_round_robin
+--json-output ...` and `scripts/benchmark_asr.py tests/fixtures/test_speech.wav
+--runs 5 --json-output ...`, commit both JSONs under `docs/benchmarks/` with the
+host in the file name, and add the row.
+
 ---
 
 ## English Quality (LibriSpeech, 100 samples/subset)

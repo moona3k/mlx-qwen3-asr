@@ -19,6 +19,12 @@ Two modes:
 
 Pass ``--output-dir`` in mode 1 to keep the converted files instead of a
 temporary directory, and ``--skip-upload`` to stop after conversion.
+
+Token resolution (first hit wins): ``HF_TOKEN`` or ``HUGGINGFACE_HUB_TOKEN`` in
+the environment, then the gitignored file ``.secrets/hf_token`` at the repo root
+(one line, the token), then the file written by ``huggingface-cli login``
+(``$HF_TOKEN_PATH``, else ``~/.cache/huggingface/token``). Publishing runs from a
+maintainer machine by design; the token never enters the repo or CI secrets.
 """
 
 from __future__ import annotations
@@ -110,6 +116,39 @@ def _require_empty_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+LOCAL_TOKEN_FILE = _REPO_ROOT / ".secrets" / "hf_token"
+
+
+def _read_token_file(path: Path) -> str | None:
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return value or None
+
+
+def resolve_hf_token(
+    env: dict[str, str] | None = None,
+    local_file: Path = LOCAL_TOKEN_FILE,
+    home: Path | None = None,
+) -> str | None:
+    """Return the HuggingFace token from env, the local gitignored file, or the hub login file."""
+    env = os.environ if env is None else env
+    for key in ("HF_TOKEN", "HUGGINGFACE_HUB_TOKEN"):
+        value = (env.get(key) or "").strip()
+        if value:
+            return value
+    from_local = _read_token_file(local_file)
+    if from_local:
+        return from_local
+    hub_path = env.get("HF_TOKEN_PATH")
+    if hub_path:
+        return _read_token_file(Path(hub_path).expanduser())
+    home = Path.home() if home is None else home
+    return _read_token_file(home / ".cache" / "huggingface" / "token")
+
+
 def _upload(model_dir: Path, args: argparse.Namespace, token: str) -> None:
     from huggingface_hub import HfApi
 
@@ -175,9 +214,13 @@ def main() -> None:
     if args.from_dir is None and args.bits is None:
         parser.error("--bits is required unless --from-dir is given")
 
-    token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
+    token = resolve_hf_token()
     if not token and not args.skip_upload:
-        raise RuntimeError("Set HF_TOKEN (or HUGGINGFACE_HUB_TOKEN) before publishing.")
+        raise RuntimeError(
+            "No HuggingFace token found. Set HF_TOKEN, or put the token in the "
+            f"gitignored file {LOCAL_TOKEN_FILE.relative_to(_REPO_ROOT)}, or run "
+            "`huggingface-cli login`."
+        )
 
     load_check = not args.skip_load_check
 

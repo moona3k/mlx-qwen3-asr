@@ -123,17 +123,20 @@ Promote to distilled learnings when:
    `2026-09-19-encoder-parity-tail-padding.json` long-clip magnitudes are
    affected. Reported upstream as QwenLM/Qwen3-ASR#213 (open).
    - refs: `MEM-2026-09-19-014`
-4. Publishing (PyPI, HuggingFace) runs from one laptop with local tokens;
-   `publish-quantized.yml` cannot run without an `HF_TOKEN` repo secret.
-   - refs: `MEM-2026-09-19-012`
+4. Publishing (PyPI, HuggingFace) runs from one maintainer machine by
+   decision; the HF token lives in the gitignored `.secrets/hf_token`. A
+   second maintainer needs their own token file, not a repo secret.
+   - refs: `MEM-2026-09-19-012`, `MEM-2026-09-19-018`
 
 ## Handoff (2026-09-19)
 
 Start with `docs/reviews/2026-09-19-day-review.html` for the concepts, then
-the "Handoff" section of `docs/ROADMAP.md` for the ordered work items with
-acceptance criteria. Reproduce the three headline lanes before changing code:
-`scripts/eval_librispeech.py --samples 100`, the multilingual-100 streaming
-lane, and the encoder-output MAE script pattern in `MEM-2026-09-19-010`.
+the "Handoff" section of `docs/ROADMAP.md`. Items 1-5 closed the same day
+(events 013-018, Decisions 30-31); item 6 needs an 8-16 GB machine. Before
+changing streaming or encoder code, reproduce: `scripts/eval_librispeech.py
+--samples 100`, both strict streaming lanes cache-off/on
+(`eval_streaming_manifest.py --[no-]reuse-window-prefix`), and
+`scripts/eval_aligner_encoder_parity.py --samples 50`.
 
 ## Revisit Triggers
 

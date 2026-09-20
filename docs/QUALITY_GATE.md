@@ -240,6 +240,10 @@ manifest, each anchored on its offline artifact
   `speaker_round_robin`, default `n=100`)
 - Latency/RTF benchmark (`scripts/benchmark_asr.py`)
 
+Both JSON artifacts carry a `runtime` block (host chip, memory, macOS,
+Python, MLX version, git commit) so results from different runners and MLX
+releases can be told apart; see the hardware matrix in `docs/BENCHMARKS.md`.
+
 This lane is intentionally separate from PR CI so day-to-day development stays fast.
 Current schedule cadence is weekly (plus manual `workflow_dispatch`) to keep operational overhead low.
 

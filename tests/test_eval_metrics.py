@@ -73,3 +73,22 @@ def test_score_hypothesis_primary_metric_by_language():
     assert zh["primary_metric"] == "cer"
     assert (zh["primary_errors"], zh["primary_denominator"]) == (1, 4)
     assert zh["wer_errors"] == 1  # character fallback tokens
+
+
+def test_runtime_provenance_fields(tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "eval_provenance_script", Path("scripts/eval/provenance.py")
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    info = module.runtime_provenance(repo_root=Path("."))
+    assert set(info) == {
+        "host_chip", "memory_gb", "os", "macos_version", "machine",
+        "python", "mlx_version", "git_commit",
+    }
+    assert info["python"].count(".") >= 1
+    assert info["mlx_version"]
+    # Outside a git checkout the commit is None, not an exception.
+    assert module.runtime_provenance(repo_root=tmp_path)["git_commit"] is None
