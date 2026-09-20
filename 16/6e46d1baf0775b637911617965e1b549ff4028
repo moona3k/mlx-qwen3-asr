@@ -1,0 +1,48 @@
+docs/memory/operating-memory.md
+  s_7b5ee2ad1f9b97::t_ba46cb696c54b3 126-129
+  s_7b5ee2ad1f9b97::t_243ed7a47873d8 134-139
+tests/test_publish_quantized.py
+  s_7b5ee2ad1f9b97::t_98bb7e133e994b 1-74
+scripts/eval_streaming_manifest.py
+  s_7b5ee2ad1f9b97::t_7380cc9f7ee78a 46,620
+tests/test_eval_metrics.py
+  s_7b5ee2ad1f9b97::t_2e039da1edd45a 76-94
+scripts/publish_quantized.py
+  s_7b5ee2ad1f9b97::t_62f059a120ae43 22-27,119-151,217,219-223
+scripts/eval_librispeech.py
+  s_7b5ee2ad1f9b97::t_7380cc9f7ee78a 30,330
+scripts/eval/provenance.py
+  s_7b5ee2ad1f9b97::t_774f6e12151513 1-69
+README.md
+  s_7b5ee2ad1f9b97::t_d2fbe1ade933b7 506,512-513
+  s_7b5ee2ad1f9b97::t_c30dbdd1731c09 514
+scripts/benchmark_asr.py
+  s_7b5ee2ad1f9b97::t_7380cc9f7ee78a 20-25,139
+docs/ROADMAP.md
+  s_7b5ee2ad1f9b97::t_2ceddfac4e9828 164-171
+  s_7b5ee2ad1f9b97::t_d2fbe1ade933b7 158-163,196-197
+docs/BENCHMARKS.md
+  s_7b5ee2ad1f9b97::t_2ceddfac4e9828 32-49
+docs/QUALITY_GATE.md
+  s_7b5ee2ad1f9b97::t_2ceddfac4e9828 243-246
+CLAUDE.md
+  s_7b5ee2ad1f9b97::t_d2fbe1ade933b7 174-177
+docs/memory/events/2026-09.md
+  s_7b5ee2ad1f9b97::t_2ceddfac4e9828 504-528
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "166e46d1baf0775b637911617965e1b549ff4028",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
