@@ -1,0 +1,39 @@
+{
+  "suite": "manifest-quality-v1",
+  "manifest_jsonl": "/Users/dmoon/code/mlx-qwen3-asr/docs/benchmarks/2026-02-15-earnings22-full-longform3-manifest.jsonl",
+  "manifest_sha256": "08b1fc63351beb39f125685acefb99ec1a9c644972f59a73832890d4ac9baccd",
+  "model": "Qwen/Qwen3-ASR-0.6B",
+  "dtype": "float16",
+  "max_new_tokens": 1024,
+  "samples": 3,
+  "wer": 0.14714714714714713,
+  "cer": 0.08107519645296016,
+  "primary_error_rate": 0.14714714714714713,
+  "latency_sec_mean": 77.25115366666189,
+  "elapsed_sec": 378.1994260000065,
+  "by_language": {
+    "English": {
+      "samples": 3,
+      "wer_errors": 1617,
+      "wer_denominator": 10989,
+      "cer_errors": 4096,
+      "cer_denominator": 50521,
+      "primary_errors": 1617,
+      "primary_denominator": 10989,
+      "latency_sec_mean": 77.25115366666189,
+      "wer": 0.14714714714714713,
+      "cer": 0.08107519645296016,
+      "primary_error_rate": 0.14714714714714713
+    }
+  },
+  "runtime": {
+    "host_chip": "Apple M4 Pro",
+    "memory_gb": 48.0,
+    "os": "Darwin 25.6.0",
+    "macos_version": "26.6.2",
+    "machine": "arm64",
+    "python": "3.11.5",
+    "mlx_version": "0.30.6",
+    "git_commit": "efd4603"
+  }
+}

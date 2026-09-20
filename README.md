@@ -29,7 +29,7 @@ This project rewrites every layer for MLX so the same model runs natively on M1/
 - **Speculative decoding** — experimental opt-in path (0.6B drafts for 1.7B target), parity-verified
 - **Streaming** — windowed re-decode with text-prefix rollback (the official Qwen3-ASR recipe); final text within ~2pp of offline quality on the multilingual-100 and long-form lanes
 - **Native WAV fast-path** — custom binary WAV parser bypasses ffmpeg for PCM/float WAV files
-- **688 tests** — every optimization is benchmark-gated with committed JSON artifacts
+- **735 tests** — every optimization is benchmark-gated with committed JSON artifacts
 - **Minimal dependencies** — mlx, numpy, regex, huggingface-hub
 
 ## Requirements
@@ -612,7 +612,7 @@ domain bias is applied.
 
 ### Streaming
 
-Near-real-time transcription following the official streaming recipe: each chunk re-encodes the accumulated window (bounded by `max_context_sec`) and decodes with the previous text, minus its last few tokens, forced as a prefix. Partial text is stable and the final text tracks offline quality (multilingual-100 primary error 11.4% streaming vs 9.5% offline).
+Near-real-time transcription following the official streaming recipe: each chunk decodes the accumulated window (bounded by `max_context_sec`) with the previous text, minus its last few tokens, forced as a prefix. Encoder output and decoder KV for the parts of the window that cannot change are reused across chunks, and when the window fills it is committed at a pause rather than mid-word. Partial text is stable and the final text tracks offline quality (multilingual-100 primary error 11.3% streaming vs 9.5% offline; long-form 11.9% vs 10.6%).
 
 ```python
 from mlx_qwen3_asr.streaming import (
@@ -722,7 +722,7 @@ Frozen dataclass:
 This project enforces parity with the official PyTorch implementation. No optimization lands without passing quality gates and committing benchmark artifacts.
 
 ```bash
-# Unit tests (688 tests)
+# Unit tests (735 tests)
 pytest -q
 
 # Fast quality gate
@@ -803,7 +803,7 @@ mlx_qwen3_asr/
 ├── writers.py            # txt/json/srt/vtt/tsv writers, subtitle cue grouping
 └── config.py             # Dataclass configs
 
-tests/                    # 11,477 lines, 688 tests
+tests/                    # 12,672 lines, 735 tests
 scripts/                  # Benchmarks, evaluation, conversion, publishing
 docs/                     # Architecture, decisions, benchmarks, roadmap
 docs/benchmarks/          # 160+ committed artifacts for reproducibility
@@ -815,7 +815,7 @@ docs/benchmarks/          # 160+ committed artifacts for reproducibility
 git clone https://github.com/moona3k/mlx-qwen3-asr.git
 cd mlx-qwen3-asr
 pip install -e ".[dev]"
-pytest -q                 # 688 tests
+pytest -q                 # 735 tests
 ```
 
 ## Acknowledgments

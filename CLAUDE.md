@@ -18,20 +18,24 @@ output quality, every layer rewritten for Metal. Not a wrapper, not a binding.
 
 Not a multi-model toolkit (that is mlx-audio) and not a training framework.
 
-## Status (v0.4.3, September 2026)
+## Status (v0.4.4, September 2026)
 
 Published on PyPI and in use by third parties (external issues and PRs land
-regularly). Full suite is 680+ tests and runs in under 10 s. Real-model
+regularly). Full suite is 730+ tests and runs in under 10 s. Real-model
 regressions are caught by the nightly LibriSpeech lane.
 
 Recent (2026-09-19): quantized checkpoints run in float16 (#20), encoder tail
 chunks padded like the official path (#21), streaming rebuilt on the official
 re-feed recipe after the manifest lane found 56% error (#26), quantized
-artifacts published as `moona3k/mlx-qwen3-asr-*` (#25, #28).
+artifacts published as `moona3k/mlx-qwen3-asr-*` (#25, #28). 0.4.4: streaming
+reuses encoder output and decoder KV across chunks and commits windows at a
+pause (Decisions 30-31); strict release gate scores streaming against
+references on two manifests; aligner encoder parity lane.
 
-Next (see `docs/ROADMAP.md`): aligner quality hardening, long-form robustness
-benchmarks, streaming encoder-output caching and a reference-scored streaming
-gate in strict release mode.
+Next (see `docs/ROADMAP.md`): an 8-16 GB machine row for the hardware
+matrix, the real-world long-form WER drift since February (`docs/EVAL_GAPS.md`
+P2), and streaming generation cost (55% of per-chunk time: fewer rolled-back
+tokens or speculative tail decoding). Upstream: QwenLM/Qwen3-ASR#213.
 
 ## Architecture
 
