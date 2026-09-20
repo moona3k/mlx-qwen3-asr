@@ -1,0 +1,63 @@
+docs/BENCHMARKS.md
+  s_7b5ee2ad1f9b97::t_0368514c6eecd2 396
+docs/memory/operating-memory.md
+  s_7b5ee2ad1f9b97::t_0368514c6eecd2 117
+  s_7b5ee2ad1f9b97::t_3b6c3fe2070a57 110
+scripts/quality_gate.py
+  s_7b5ee2ad1f9b97::t_95a0fb6ca58cbc 421-423
+  s_7b5ee2ad1f9b97::t_751747f3193203 390-407
+  s_7b5ee2ad1f9b97::t_292dd8f71199f0 450
+  s_7b5ee2ad1f9b97::t_7791be58becc43 547-550,560-561
+scripts/eval_manifest_quality.py
+  s_7b5ee2ad1f9b97::t_e84dc03ec4a195 7
+  s_7b5ee2ad1f9b97::t_d8abbd73364756 286
+scripts/eval_streaming_manifest.py
+  s_7b5ee2ad1f9b97::t_fc4a15322044e2 171-175
+  s_7b5ee2ad1f9b97::t_afcb83c78c172e 245-251,254-256,260-277,279-280,284-285
+  s_7b5ee2ad1f9b97::t_6401dedeb44b1b 502-505,509,515-516
+  s_7b5ee2ad1f9b97::t_4222b62075b740 404-411
+  s_7b5ee2ad1f9b97::t_220bee703974b7 593
+scripts/eval_aligner_encoder_parity.py
+  s_7b5ee2ad1f9b97::t_833f6163700828 161-162,167-175,181
+  s_7b5ee2ad1f9b97::t_97d59554008714 100-101,110
+  s_7b5ee2ad1f9b97::t_9db68a1efcd6e0 244-245,250
+docs/EVAL_GAPS.md
+  s_7b5ee2ad1f9b97::t_3b6c3fe2070a57 113,118
+tests/test_eval_streaming_manifest.py
+  s_7b5ee2ad1f9b97::t_cf3454d12365f2 330-333
+  s_7b5ee2ad1f9b97::t_82876df2ca09b2 344-414
+  s_7b5ee2ad1f9b97::t_7e5e6a065dee5a 474-480,483
+docs/ROADMAP.md
+  s_7b5ee2ad1f9b97::t_3b6c3fe2070a57 125
+  s_7b5ee2ad1f9b97::t_0368514c6eecd2 135-136
+tests/test_quality_gate.py
+  s_7b5ee2ad1f9b97::t_27ac12b0802864 434-440,443,446-499,503-506
+  s_7b5ee2ad1f9b97::t_409dea743bafaa 441-442,444-445,500-502
+docs/QUALITY_GATE.md
+  s_7b5ee2ad1f9b97::t_8c1d4875579d55 203-207,210-213
+  s_7b5ee2ad1f9b97::t_f89fb0e01c65f7 214-229
+tests/test_eval_aligner_encoder_parity.py
+  s_7b5ee2ad1f9b97::t_3ec778fde799c4 84-92,95,97,102-111,115-116,118-126
+docs/memory/events/2026-09.md
+  s_7b5ee2ad1f9b97::t_0368514c6eecd2 395-431
+docs/benchmarks/2026-09-19-aligner-parity-50.md
+  s_7b5ee2ad1f9b97::t_0368514c6eecd2 68-72
+scripts/eval_reference_parity_suite.py
+  s_7b5ee2ad1f9b97::t_d7ff80d4440162 16,37-42,208,210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "df702cfcefbbd6a8074dc9ac6313d71befeb8dfc",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
