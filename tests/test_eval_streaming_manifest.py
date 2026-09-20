@@ -327,7 +327,10 @@ def test_reference_gate_passes_post_fix_longform_lane():
         quality["offline"]["primary_error_rate"] + 0.03
         - quality["worst_mode_primary_error_rate"]
     ) * 100
-    assert 1.0 < headroom_pp < 2.0
+    assert 1.0 < headroom_pp < 2.0, (
+        f"long-form headroom drifted to {headroom_pp:.2f}pp; re-check the committed "
+        "artifact, then update docs/EVAL_GAPS.md and this pin"
+    )
 
 
 def test_load_offline_quality_rejects_other_manifest(tmp_path: Path):
@@ -336,6 +339,77 @@ def test_load_offline_quality_rejects_other_manifest(tmp_path: Path):
         mod._load_offline_quality(  # noqa: SLF001
             _OFFLINE_MULTILINGUAL, manifest_path=tmp_path / "other.jsonl"
         )
+
+
+def test_load_offline_quality_prefers_sha_and_checks_model(tmp_path: Path):
+    mod = _load_script_module()
+    manifest = tmp_path / "same-name.jsonl"
+    manifest.write_text("{}\n", encoding="utf-8")
+    sha = mod._sha256_file(manifest)  # noqa: SLF001
+    base = {"manifest_jsonl": "/elsewhere/same-name.jsonl", "wer": 0.1, "cer": 0.1,
+            "primary_error_rate": 0.1, "model": "Qwen/Qwen3-ASR-0.6B"}
+
+    good = tmp_path / "good.json"
+    good.write_text(json.dumps({**base, "manifest_sha256": sha}), encoding="utf-8")
+    out = mod._load_offline_quality(  # noqa: SLF001
+        good, manifest_path=manifest, manifest_sha256=sha, model="Qwen/Qwen3-ASR-0.6B"
+    )
+    assert out["manifest_sha256"] == sha
+
+    # Same file name, different content: the sha wins over the basename.
+    stale = tmp_path / "stale.json"
+    stale.write_text(json.dumps({**base, "manifest_sha256": "0" * 64}), encoding="utf-8")
+    with pytest.raises(ValueError, match="sha256"):
+        mod._load_offline_quality(stale, manifest_path=manifest, manifest_sha256=sha)  # noqa: SLF001
+
+    with pytest.raises(ValueError, match="model"):
+        mod._load_offline_quality(  # noqa: SLF001
+            good, manifest_path=manifest, manifest_sha256=sha, model="Qwen/Qwen3-ASR-1.7B"
+        )
+
+    nofield = tmp_path / "nofield.json"
+    nofield.write_text(json.dumps({k: v for k, v in base.items() if k != "manifest_jsonl"}))
+    with pytest.raises(ValueError, match="no manifest_jsonl"):
+        mod._load_offline_quality(nofield, manifest_path=manifest)  # noqa: SLF001
+
+
+def test_reference_gate_fails_when_rows_are_unscored_or_reference_empty():
+    mod = _load_script_module()
+    rows = [
+        {"sample_id": "a", "endpointing_mode": "fixed", "final_text": "hello"},
+        {"sample_id": "b", "endpointing_mode": "fixed", "final_text": "x"},  # no reference
+        {"sample_id": "c", "endpointing_mode": "fixed", "final_text": "y"},  # empty reference
+    ]
+    quality = mod._score_rows_against_references(  # noqa: SLF001
+        rows, {"a": ("hello", "English"), "c": ("...", "English")}
+    )
+    assert quality is not None
+    assert (quality["scored_rows"], quality["unscored_rows"]) == (1, 2)
+    assert "primary_error_rate" not in rows[2]
+    failures = mod._threshold_failures(  # noqa: SLF001
+        aggregate={},
+        fail_partial_stability_below=None,
+        fail_rewrite_rate_above=None,
+        fail_finalization_delta_chars_above=None,
+        quality=quality,
+        fail_primary_above=0.5,
+    )
+    assert len(failures) == 1 and "2 evaluation(s) had no usable reference_text" in failures[0]
+
+
+def test_main_refuses_limit_with_offline_anchor(monkeypatch, tmp_path: Path):
+    mod = _load_script_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "eval_streaming_manifest.py", "--manifest-jsonl", str(tmp_path / "m.jsonl"),
+            "--offline-quality-json", str(tmp_path / "o.json"), "--limit", "5",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc:
+        mod.main()
+    assert exc.value.code == 2
 
 
 def test_reference_gate_requires_references_when_threshold_requested():
@@ -397,14 +471,19 @@ def test_main_scores_references_and_gates_on_offline_ceiling(monkeypatch, tmp_pa
     )
 
     hypotheses = {"s1": "hello world", "s2": "你好世界"}
+    # main() calls load_audio once per sample, in manifest order, before streaming it.
+    order = iter(["s1", "s2"] * 4)
+    current: dict[str, str] = {}
+
+    def _fake_load_audio(_path):  # noqa: ANN001
+        current["sample_id"] = next(order)
+        return np.zeros(16000, dtype=np.float32)
 
     monkeypatch.setattr(mod, "load_model", lambda _name, dtype=None: (object(), {}))
-    monkeypatch.setattr(mod, "load_audio", lambda _path: np.zeros(16000, dtype=np.float32))
+    monkeypatch.setattr(mod, "load_audio", _fake_load_audio)
 
     def _fake_init_streaming(**kwargs):  # noqa: ANN003
         return SimpleNamespace(text="", language="unknown", sample_id=None)
-
-    current: dict[str, str] = {}
 
     def _fake_feed_audio(_chunk, state, model=None):  # noqa: ANN001, ANN002, ARG001
         state.sample_id = current["sample_id"]
@@ -412,21 +491,6 @@ def test_main_scores_references_and_gates_on_offline_ceiling(monkeypatch, tmp_pa
     def _fake_finish_streaming(state, model=None):  # noqa: ANN001, ARG001
         state.text = hypotheses[state.sample_id]
 
-    real_parse = mod._parse_manifest  # noqa: SLF001
-
-    def _tracking_parse(path):  # noqa: ANN001
-        samples = real_parse(path)
-        # Track which sample is being streamed via load_audio ordering.
-        order = iter(samples)
-
-        def _load(_p):  # noqa: ANN001
-            current["sample_id"] = next(order).sample_id
-            return np.zeros(16000, dtype=np.float32)
-
-        monkeypatch.setattr(mod, "load_audio", _load)
-        return samples
-
-    monkeypatch.setattr(mod, "_parse_manifest", _tracking_parse)
     monkeypatch.setattr(mod, "init_streaming", _fake_init_streaming)
     monkeypatch.setattr(mod, "feed_audio", _fake_feed_audio)
     monkeypatch.setattr(mod, "finish_streaming", _fake_finish_streaming)

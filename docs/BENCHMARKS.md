@@ -393,6 +393,7 @@ reference does not apply the encoder's 800-frame attention window
 (`_prepare_attention_mask` is defined but never called in `qwen-asr` 0.0.6);
 compared as shipped, clips over 8 s show 5-13% error that disappears when the
 reference's own mask is applied. The MLX encoder windows as trained.
+Reported upstream as [QwenLM/Qwen3-ASR#213](https://github.com/QwenLM/Qwen3-ASR/issues/213).
 
 Artifact: `2026-09-19-aligner-parity-50.md` (supersedes `2026-02-14-aligner-parity-50.md`)
 

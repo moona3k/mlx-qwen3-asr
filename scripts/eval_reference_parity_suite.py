@@ -13,10 +13,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
+import sys
 import tarfile
 import time
-import unicodedata
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,13 +34,18 @@ from mlx_qwen3_asr.generate import GenerationConfig, generate
 from mlx_qwen3_asr.load_models import load_model
 from mlx_qwen3_asr.tokenizer import parse_asr_output
 
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from eval import metrics as _metrics  # noqa: E402
+
 OPENSLR_BASE = "https://www.openslr.org/resources/12"
 SPLIT_ARCHIVES = {
     "test-clean": "test-clean.tar.gz",
     "test-other": "test-other.tar.gz",
 }
 EOS_IDS = {151643, 151645}
-_WS_RE = re.compile(r"\s+")
 
 
 @dataclass(frozen=True)
@@ -201,24 +205,9 @@ def _first_mismatch(a: list[int], b: list[int]) -> int:
 def _normalize_parity_text(text: str) -> str:
     """Normalize text for language-agnostic parity comparison.
 
-    Keeps Unicode letters/numbers/marks across scripts while removing
-    punctuation/symbol noise and normalizing whitespace.
+    Shared with the manifest-quality and streaming lanes (``eval.metrics``).
     """
-    s = unicodedata.normalize("NFKC", str(text or "")).casefold()
-    out: list[str] = []
-    for ch in s:
-        if ch in {"’", "`"}:
-            ch = "'"
-        cat = unicodedata.category(ch)
-        if cat and cat[0] in {"L", "N", "M"}:
-            out.append(ch)
-            continue
-        if ch == "'":
-            out.append(ch)
-            continue
-        if ch.isspace() or (cat and cat[0] in {"P", "S"}):
-            out.append(" ")
-    return _WS_RE.sub(" ", "".join(out)).strip()
+    return _metrics.normalize_quality_text(text)
 
 
 def _build_long_mixes(

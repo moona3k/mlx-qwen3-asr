@@ -387,6 +387,24 @@ def _run_streaming_manifest_quality_gates(
             )
         ]
 
+    if offline_json:
+        # One offline artifact cannot anchor several default manifests; the
+        # override only makes sense together with an explicit manifest.
+        return [
+            StepResult(
+                name="streaming-manifest-quality",
+                cmd="scripts/eval_streaming_manifest.py --manifest-jsonl <path>",
+                passed=False,
+                duration_sec=0.0,
+                returncode=1,
+                note=(
+                    "STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON is set without "
+                    "STREAMING_MANIFEST_QUALITY_EVAL_JSONL; set both or neither "
+                    "(strict default lanes carry their own offline artifacts)"
+                ),
+            )
+        ]
+
     lanes = [
         (repo / manifest_rel, repo / offline_rel)
         for manifest_rel, offline_rel in STREAMING_MANIFEST_STRICT_DEFAULT_LANES
@@ -400,10 +418,9 @@ def _run_streaming_manifest_quality_gates(
                 python_bin=python_bin,
                 strict_release=True,
                 manifest_jsonl=str(manifest_path),
-                offline_json=(
-                    offline_json
-                    if offline_json is not None
-                    else (str(offline_path) if offline_path.exists() else None)
+                offline_json=str(offline_path) if offline_path.exists() else None,
+                missing_offline_note=(
+                    f"Committed offline artifact missing for strict lane: {offline_path}"
                 ),
                 # Keep one artifact per lane when a shared JSON output is set.
                 json_output_suffix=manifest_path.stem if len(lanes) > 1 else None,
@@ -430,6 +447,7 @@ def _run_streaming_manifest_quality_gate(
     manifest_jsonl: str | None = None,
     offline_json: str | None = None,
     json_output_suffix: str | None = None,
+    missing_offline_note: str | None = None,
 ) -> StepResult:
     if not manifest_jsonl:
         return StepResult(
@@ -526,10 +544,10 @@ def _run_streaming_manifest_quality_gate(
                 note=f"Offline quality artifact not found: {offline_path}",
             )
         cmd.extend(["--offline-quality-json", str(offline_path)])
-        offline_pp = os.environ.get(
-            "STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE_OFFLINE_PP",
-            STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_PP if strict_release else "",
-        )
+        offline_pp = os.environ.get("STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE_OFFLINE_PP")
+        if strict_release:
+            # Strict always keeps a ceiling; an empty override falls back to the default.
+            offline_pp = offline_pp or STREAMING_MANIFEST_STRICT_DEFAULT_OFFLINE_PP
         if offline_pp:
             cmd.extend(["--fail-primary-above-offline-pp", offline_pp])
     elif strict_release:
@@ -539,7 +557,8 @@ def _run_streaming_manifest_quality_gate(
             passed=False,
             duration_sec=0.0,
             returncode=1,
-            note=(
+            note=missing_offline_note
+            or (
                 "Strict release requires STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON "
                 "(offline eval_manifest_quality artifact for the same manifest) so the "
                 "reference-scored ceiling has a baseline"

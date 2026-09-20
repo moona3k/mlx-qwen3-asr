@@ -110,11 +110,11 @@ make broad "production-grade across languages/conditions" quality claims.
 
    Since 2026-09-19 (later the same day) the strict gate also runs the
    long-form 10 x 75 s manifest against its offline artifact; headroom there is
-   1.2pp (12.3% vs 10.6% + 3pp), so the P2 encoder caching / window-overlap
+   1.25pp (12.33% vs a 13.59% ceiling), so the P2 encoder caching / window-overlap
    work must not lose more than that.
 
 ## Follow-up Order
 
-1. Long-form streaming headroom under the 3pp ceiling is 1.2pp. Before item 3
+1. Long-form streaming headroom under the 3pp ceiling is 1.25pp. Before item 3
    or 4 of the ROADMAP handoff lands, decide whether the fix should close the
    gap (preferred) or whether the ceiling needs a per-lane value.

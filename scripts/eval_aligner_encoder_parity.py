@@ -97,6 +97,8 @@ def compare_encoder_outputs(mlx_out: np.ndarray, ref_out: np.ndarray) -> dict[st
         raise ValueError(f"Expected non-empty (n_tokens, hidden) outputs, got {mlx_out.shape}")
     diff = np.abs(mlx_out.astype(np.float64) - ref_out.astype(np.float64))
     ref_mag = float(np.abs(ref_out.astype(np.float64)).mean())
+    if ref_mag <= 0.0:
+        raise ValueError("Reference encoder output is all zeros; cannot compute relative error")
     mae = float(diff.mean())
     return {
         "n_tokens": int(mlx_out.shape[0]),
@@ -105,7 +107,7 @@ def compare_encoder_outputs(mlx_out: np.ndarray, ref_out: np.ndarray) -> dict[st
         "max_abs_err": float(diff.max()),
         "last_token_mae": float(diff[-1].mean()),
         "reference_mean_abs": ref_mag,
-        "relative_mae": (mae / ref_mag) if ref_mag > 0 else 0.0,
+        "relative_mae": mae / ref_mag,
     }
 
 
@@ -156,17 +158,27 @@ def apply_reference_window_mask(encoder) -> None:
 
     Wraps each encoder layer so the block-diagonal mask from the encoder's own
     ``_prepare_attention_mask`` is passed when the caller did not supply one.
-    Idempotent.
+    The mask is built once per encoder forward (keyed on the ``cu_seqlens``
+    boundaries and sequence length) and shared across layers. Idempotent.
     """
     if getattr(encoder, "_mlx_qwen3_asr_windowed", False):
         return
+
+    cache: dict[tuple, object] = {}
+
+    def _mask_for(hidden_states, cu_seqlens):
+        key = (int(hidden_states.shape[0]), tuple(int(v) for v in cu_seqlens.tolist()))
+        if key not in cache:
+            cache.clear()
+            cache[key] = encoder._prepare_attention_mask(hidden_states, cu_seqlens)
+        return cache[key]
 
     def _wrap(layer):
         original = layer.forward
 
         def forward(hidden_states, cu_seqlens, attention_mask=None, **kwargs):
             if attention_mask is None:
-                attention_mask = encoder._prepare_attention_mask(hidden_states, cu_seqlens)
+                attention_mask = _mask_for(hidden_states, cu_seqlens)
             return original(hidden_states, cu_seqlens, attention_mask=attention_mask, **kwargs)
 
         layer.forward = forward
@@ -229,11 +241,13 @@ def main() -> int:
     parser.add_argument("--fail-last-token-mae-max-above", type=float, default=None)
     parser.add_argument("--fail-relative-mae-max-above", type=float, default=None)
     args = parser.parse_args()
+    if args.samples < 1:
+        parser.error("--samples must be >= 1")
 
     started = time.perf_counter()
     data_dir = Path(args.data_dir).expanduser().resolve()
     split_root = _ensure_split(data_dir, args.subset)
-    selected = _collect_samples(split_root, max_samples=max(1, args.samples))
+    selected = _collect_samples(split_root, max_samples=args.samples)
     if not selected:
         raise RuntimeError(f"No samples found under {split_root}")
 

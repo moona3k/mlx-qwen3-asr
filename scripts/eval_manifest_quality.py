@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -282,6 +283,7 @@ def main() -> int:
     payload = {
         "suite": "manifest-quality-v1",
         "manifest_jsonl": str(manifest_path),
+        "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
         "model": args.model,
         "dtype": args.dtype,
         "max_new_tokens": args.max_new_tokens,

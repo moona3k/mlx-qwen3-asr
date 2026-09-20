@@ -107,14 +107,14 @@ Promote to distilled learnings when:
 
 1. Memory updates are currently social-process enforced, not CI-enforced.
    - refs: `MEM-2026-02-16-001`, `MEM-2026-02-16-002`
-2. Long-form streaming sits 1.2pp under the strict 3pp ceiling; the ROADMAP
+2. Long-form streaming sits 1.25pp under the strict 3pp ceiling; the ROADMAP
    encoder-caching and window-overlap items must not spend that headroom.
    - refs: `MEM-2026-09-19-014`; `docs/EVAL_GAPS.md` follow-up.
 3. The shipped CPU `qwen-asr` reference does not window encoder attention
    (mask defined, never called). Every encoder-output number measured
    against it on clips over 8 s before 2026-09-19 overstates MLX error;
    `2026-09-19-encoder-parity-tail-padding.json` long-clip magnitudes are
-   affected. Not yet reported upstream.
+   affected. Reported upstream as QwenLM/Qwen3-ASR#213 (open).
    - refs: `MEM-2026-09-19-014`
 4. Publishing (PyPI, HuggingFace) runs from one laptop with local tokens;
    `publish-quantized.yml` cannot run without an `HF_TOKEN` repo secret.

@@ -65,6 +65,11 @@ because argmax over 80 ms timestamp classes is robust to it.
 
 Artifacts: `2026-09-19-aligner-encoder-parity-50-mlx{0.30.6,0.32.2}-{windowed,as-shipped}.json`.
 
+Reported upstream: https://github.com/QwenLM/Qwen3-ASR/issues/213. On the ASR
+0.6B model the same clip shows 24.9% relative encoder divergence, and 4 of 22
+LibriSpeech clips over 8 s change transcript (punctuation/casing) between the
+shipped and windowed reference.
+
 ## Gate
 
 `RUN_ALIGNER_PARITY=1` in `scripts/quality_gate.py` now runs both scripts:

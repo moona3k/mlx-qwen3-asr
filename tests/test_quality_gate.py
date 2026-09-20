@@ -431,6 +431,79 @@ def test_streaming_manifest_quality_gate_strict_runs_every_committed_lane(
     assert all(Path(o).stem.startswith("streaming-") for o in outputs)
 
 
+def test_streaming_manifest_quality_gate_strict_rejects_offline_env_without_manifest(
+    monkeypatch,
+    tmp_path,
+):
+    qg = _load_quality_gate_module()
+    monkeypatch.delenv("STREAMING_MANIFEST_QUALITY_EVAL_JSONL", raising=False)
+    monkeypatch.setenv("STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON", str(tmp_path / "o.json"))
+    def _must_not_run(*_args, **_kwargs):
+        raise AssertionError("must not run")
+
+    monkeypatch.setattr(qg, "_run", _must_not_run)
+
+    steps = qg._run_streaming_manifest_quality_gates(
+        repo=tmp_path, python_bin="python", strict_release=True
+    )
+    assert len(steps) == 1 and not steps[0].passed
+    assert "set both or neither" in steps[0].note
+
+
+def test_streaming_manifest_quality_gate_strict_reports_missing_committed_offline(
+    monkeypatch,
+    tmp_path,
+):
+    qg = _load_quality_gate_module()
+    monkeypatch.delenv("STREAMING_MANIFEST_QUALITY_EVAL_JSONL", raising=False)
+    monkeypatch.delenv("STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON", raising=False)
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"RIFF")
+    manifest = tmp_path / qg.STREAMING_MANIFEST_STRICT_DEFAULT_MANIFEST
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps({"sample_id": "s1", "audio_path": str(audio)}) + "\n", encoding="utf-8"
+    )
+    # Deliberately no offline artifact.
+    steps = qg._run_streaming_manifest_quality_gates(
+        repo=tmp_path, python_bin="python", strict_release=True
+    )
+    assert len(steps) == 1 and not steps[0].passed
+    assert "Committed offline artifact missing" in steps[0].note
+
+
+def test_streaming_manifest_quality_gate_strict_empty_pp_env_keeps_default_ceiling(
+    monkeypatch,
+    tmp_path,
+):
+    qg = _load_quality_gate_module()
+    manifest = tmp_path / "m.jsonl"
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"RIFF")
+    manifest.write_text(
+        json.dumps({"sample_id": "s1", "audio_path": str(audio)}) + "\n", encoding="utf-8"
+    )
+    offline = tmp_path / "offline.json"
+    offline.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("STREAMING_MANIFEST_QUALITY_EVAL_JSONL", str(manifest))
+    monkeypatch.setenv("STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON", str(offline))
+    monkeypatch.setenv("STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE_OFFLINE_PP", "")
+
+    cmds: list[list[str]] = []
+    monkeypatch.setattr(
+        qg,
+        "_run",
+        lambda cmd, _cwd, env=None: (  # noqa: ARG005
+            cmds.append(cmd),
+            qg.StepResult(name="python", cmd="", passed=True, duration_sec=0.0, returncode=0),
+        )[1],
+    )
+    qg._run_streaming_manifest_quality_gates(
+        repo=tmp_path, python_bin="python", strict_release=True
+    )
+    assert cmds[0][cmds[0].index("--fail-primary-above-offline-pp") + 1] == "3.0"
+
+
 def test_streaming_manifest_quality_gate_explicit_manifest_runs_single_lane(
     monkeypatch,
     tmp_path,

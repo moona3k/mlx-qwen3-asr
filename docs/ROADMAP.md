@@ -122,7 +122,7 @@ criterion so the next agent can tell when it is done.
    `test_reference_gate_would_have_failed_pre_fix_streaming_decoder` re-scores
    the committed pre-#26 artifact and asserts the gate rejects it (57.6% vs a
    12.5% ceiling) while the post-#26 artifact passes (11.4%).
-   The long-form 10 x 75 s manifest is under the same ceiling (1.2pp headroom).
+   The long-form 10 x 75 s manifest is under the same ceiling (1.25pp headroom).
 2. **Forced aligner audit.** Done 2026-09-19. Word timestamps: 100% text
    match, 5.57 ms MAE on MLX 0.30.6 and 0.32.2 (February: 5.69 ms). New
    `scripts/eval_aligner_encoder_parity.py` measures the aligner encoder
@@ -132,7 +132,8 @@ criterion so the next agent can tell when it is done.
    (`_prepare_attention_mask` is defined, not called), so as-shipped
    comparisons show 5-13% error on clips over 8 s that vanish with the mask.
    Artifact: `docs/benchmarks/2026-09-19-aligner-parity-50.md`.
-   Remaining: report the missing mask upstream to QwenLM/Qwen3-ASR.
+   Reported upstream as QwenLM/Qwen3-ASR#213 (repro: 24.9% encoder
+   divergence on a 20 s clip, 4/22 long-clip transcripts change).
 3. **Streaming encoder-output caching.** The conv stem is per-100-frame chunk
    and attention windows are fixed, so most of a 30 s window's encoder work
    repeats between re-decodes.

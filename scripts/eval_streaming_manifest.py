@@ -168,6 +168,11 @@ def _score_rows_against_references(
             continue
         reference_text, language = ref
         score = score_hypothesis(reference_text, str(row.get("final_text", "")), language)
+        if int(score["primary_denominator"]) == 0:
+            # A reference that normalizes to nothing cannot be scored; counting
+            # it as 0% error would flatter the gate.
+            unscored += 1
+            continue
         row["reference_raw"] = reference_text
         row["reference_normalized"] = score["reference_normalized"]
         row["hypothesis_normalized"] = score["hypothesis_normalized"]
@@ -237,23 +242,47 @@ def _score_rows_against_references(
     }
 
 
-def _load_offline_quality(path: Path, *, manifest_path: Path) -> dict[str, float | str]:
+def _load_offline_quality(
+    path: Path,
+    *,
+    manifest_path: Path,
+    manifest_sha256: str | None = None,
+    model: str | None = None,
+) -> dict[str, float | str]:
     """Read the offline ``eval_manifest_quality`` artifact used as the ceiling anchor.
 
-    Refuses artifacts produced from a different manifest: comparing streaming
-    on one dataset against offline on another would make the ceiling
+    Refuses artifacts that do not anchor the same comparison: a different
+    manifest (by ``manifest_sha256`` when both sides carry it, else by file
+    name) or a different model. Either mismatch would make the ceiling
     meaningless.
     """
     payload = json.loads(path.read_text(encoding="utf-8"))
-    offline_manifest = Path(str(payload.get("manifest_jsonl", ""))).name
-    if offline_manifest and offline_manifest != manifest_path.name:
+    if "manifest_jsonl" not in payload:
+        raise ValueError(f"Offline quality artifact has no manifest_jsonl field: {path}")
+    offline_sha = payload.get("manifest_sha256")
+    if offline_sha and manifest_sha256:
+        if str(offline_sha) != manifest_sha256:
+            raise ValueError(
+                "Offline quality artifact was produced from a different manifest "
+                f"(sha256 {str(offline_sha)[:12]} != {manifest_sha256[:12]}): {path}"
+            )
+    else:
+        offline_manifest = Path(str(payload["manifest_jsonl"])).name
+        if offline_manifest != manifest_path.name:
+            raise ValueError(
+                "Offline quality artifact was produced from a different manifest: "
+                f"{offline_manifest} != {manifest_path.name}"
+            )
+    offline_model = str(payload.get("model", ""))
+    if model is not None and offline_model and offline_model != model:
         raise ValueError(
-            "Offline quality artifact was produced from a different manifest: "
-            f"{offline_manifest} != {manifest_path.name}"
+            f"Offline quality artifact was produced with model {offline_model!r}, "
+            f"streaming lane is evaluating {model!r}"
         )
     return {
         "source": str(path),
-        "model": str(payload.get("model", "")),
+        "model": offline_model,
+        "manifest_sha256": str(offline_sha) if offline_sha else "",
         "wer": float(payload["wer"]),
         "cer": float(payload["cer"]),
         "primary_error_rate": float(payload["primary_error_rate"]),
@@ -372,6 +401,14 @@ def _threshold_failures(
     if quality is None:
         return failures
 
+    unscored = int(quality.get("unscored_rows", 0))
+    if wants_reference_gate and unscored > 0:
+        failures.append(
+            "Streaming reference gate failed: "
+            f"{unscored} evaluation(s) had no usable reference_text, so the primary "
+            "error rate covers only part of the manifest"
+        )
+
     worst_primary = float(quality["worst_mode_primary_error_rate"])
     if fail_primary_above is not None and worst_primary > fail_primary_above:
         failures.append(
@@ -462,14 +499,21 @@ def main() -> int:
         raise ValueError("--max-context-sec must be > 0")
     if args.fail_primary_above_offline_pp is not None and not args.offline_quality_json:
         parser.error("--fail-primary-above-offline-pp requires --offline-quality-json")
+    if args.offline_quality_json and args.limit is not None:
+        # The offline artifact scores the whole manifest; a truncated streaming
+        # run would compare a different sample set against it.
+        parser.error("--limit cannot be combined with --offline-quality-json")
 
     started = time.perf_counter()
     manifest_path = Path(args.manifest_jsonl).expanduser().resolve()
+    manifest_sha256 = _sha256_file(manifest_path)
     offline_quality: dict[str, float | str] | None = None
     if args.offline_quality_json:
         offline_quality = _load_offline_quality(
             Path(args.offline_quality_json).expanduser().resolve(),
             manifest_path=manifest_path,
+            manifest_sha256=manifest_sha256,
+            model=args.model,
         )
     samples = _parse_manifest(manifest_path)
     if args.limit is not None:
@@ -546,7 +590,7 @@ def main() -> int:
         "generated_at_utc": _iso_utc_now(),
         "git_commit": _git_head_commit(repo_root),
         "manifest_jsonl": str(manifest_path),
-        "manifest_sha256": _sha256_file(manifest_path),
+        "manifest_sha256": manifest_sha256,
         "model": args.model,
         "dtype": args.dtype,
         "endpointing_modes": endpointing_modes,

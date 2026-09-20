@@ -200,8 +200,33 @@ manifest, each anchored on its offline artifact
   `2026-09-07-manifest-quality-longform10-0p6b.json`
 - Setting `STREAMING_MANIFEST_QUALITY_EVAL_JSONL` runs only that manifest;
   in strict mode it then requires `STREAMING_MANIFEST_QUALITY_EVAL_OFFLINE_JSON`.
+  Setting the offline override alone fails the step (one artifact cannot
+  anchor two manifests).
+- The offline artifact must match the manifest (`manifest_sha256` when both
+  carry it, else file name) and the model; `--limit` is refused together with
+  an offline anchor because the anchor scores the whole manifest.
 - With several lanes, `STREAMING_MANIFEST_QUALITY_EVAL_JSON_OUTPUT` gets the
   manifest stem appended so each lane keeps its own artifact.
+- The committed manifests carry absolute `audio_path`s from the maintainer's
+  machine. On another checkout, rebuild them to the same file names so the
+  committed offline artifacts still anchor (the sha check only applies when
+  the offline artifact records one; the 2026-09-07 artifacts predate it):
+
+
+  ```bash
+  python scripts/build_multilingual_manifest.py \
+    --languages en_us,zh_cn,ja_jp,de_de,fr_fr,es_419,ru_ru,ar_eg,hi_in,ko_kr \
+    --samples-per-language 10 \
+    --output-manifest docs/benchmarks/2026-09-07-fleurs-multilingual-100-manifest.jsonl
+  python scripts/build_longform_manifest.py \
+    --input-manifest docs/benchmarks/2026-09-07-fleurs-multilingual-100-manifest.jsonl \
+    --target-duration-sec 75 --clips-per-language 1 \
+    --output-manifest docs/benchmarks/2026-09-07-fleurs-longform-10x75-manifest.jsonl
+  ```
+
+  Or set `STREAMING_MANIFEST_QUALITY_EVAL_JSONL` + `..._OFFLINE_JSON` to a
+  pair you produced with `scripts/eval_manifest_quality.py` (which now records
+  `manifest_sha256`).
 - `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE_OFFLINE_PP=3.0`
   (worst endpointing mode may exceed offline primary error by at most 3pp)
 - `STREAMING_MANIFEST_QUALITY_EVAL_FAIL_PRIMARY_ABOVE` sets an absolute

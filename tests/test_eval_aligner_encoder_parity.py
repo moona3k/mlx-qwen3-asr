@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -82,26 +81,47 @@ def test_summarize_and_thresholds():
     ) == ["Aligner encoder parity: no clips were compared"]
 
 
-def test_apply_reference_window_mask_supplies_mask_and_is_idempotent():
+def test_compare_encoder_outputs_rejects_zero_reference():
+    mod = _load_script_module()
+    with pytest.raises(ValueError, match="all zeros"):
+        mod.compare_encoder_outputs(np.ones((2, 2)), np.zeros((2, 2)))
+
+
+def test_apply_reference_window_mask_supplies_mask_once_and_is_idempotent():
+    """Exercise the real torch dispatch: Module.__call__ -> instance forward."""
+    torch = pytest.importorskip("torch")
     mod = _load_script_module()
     calls: list[object] = []
+    mask_builds: list[tuple] = []
 
-    class _Layer:
+    class _Layer(torch.nn.Module):
         def forward(self, hidden_states, cu_seqlens, attention_mask=None, **kwargs):  # noqa: ANN001
             calls.append(attention_mask)
             return (hidden_states,)
 
-    encoder = SimpleNamespace(
-        layers=[_Layer(), _Layer()],
-        _prepare_attention_mask=lambda hidden_states, cu_seqlens: ("mask", tuple(cu_seqlens)),
-    )
+    class _Encoder(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layers = torch.nn.ModuleList([_Layer(), _Layer()])
+
+        def _prepare_attention_mask(self, hidden_states, cu_seqlens):  # noqa: ANN001
+            mask_builds.append(tuple(cu_seqlens.tolist()))
+            return torch.zeros(1, 1, hidden_states.shape[0], hidden_states.shape[0])
+
+    encoder = _Encoder()
     mod.apply_reference_window_mask(encoder)
     mod.apply_reference_window_mask(encoder)  # second call must not double-wrap
 
+    hidden = torch.zeros(150, 4)
+    cu = torch.tensor([0, 104, 150], dtype=torch.int32)
     for layer in encoder.layers:
-        layer.forward("h", [0, 104, 150])
-    assert calls == [("mask", (0, 104, 150))] * 2
+        layer(hidden, cu)  # positional call, as Qwen3ASRAudioEncoder.forward does
+    assert len(calls) == 2 and all(isinstance(m, torch.Tensor) for m in calls)
+    assert calls[0] is calls[1], "mask should be built once per forward and shared"
+    assert mask_builds == [(0, 104, 150)]
 
-    # An explicit mask passes through untouched.
-    encoder.layers[0].forward("h", [0, 5], attention_mask="explicit")
+    # A new sequence rebuilds; an explicit mask passes through untouched.
+    encoder.layers[0](torch.zeros(50, 4), torch.tensor([0, 50], dtype=torch.int32))
+    assert mask_builds[-1] == (0, 50)
+    encoder.layers[0](hidden, cu, attention_mask="explicit")
     assert calls[-1] == "explicit"
