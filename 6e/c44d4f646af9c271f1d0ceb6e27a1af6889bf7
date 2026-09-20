@@ -1,0 +1,25 @@
+docs/benchmarks/2026-09-19-manifest-quality-earnings22-full-longform3-0p6b-v0.4.4.json
+  s_7b5ee2ad1f9b97::t_3053824e49bd03 28-37
+scripts/eval_manifest_quality.py
+  s_7b5ee2ad1f9b97::t_3053824e49bd03 30,297
+docs/benchmarks/2026-09-19-manifest-quality-multilingual100-0p6b-v0.4.4.json
+  s_7b5ee2ad1f9b97::t_3053824e49bd03 2347-2357
+CLAUDE.md
+  s_7b5ee2ad1f9b97::t_aa08f68fe4e9e7 35-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6ec44d4f646af9c271f1d0ceb6e27a1af6889bf7",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
