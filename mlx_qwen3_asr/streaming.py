@@ -18,6 +18,21 @@ An earlier design fed each chunk through the encoder on its own and appended
 it to a live KV cache as a follow-up chat turn. That is linear in cost but the
 model was never trained on it: the multilingual-100 lane measured 56% primary
 error against 9.5% offline (``docs/benchmarks/2026-09-19-streaming-manifest-*``).
+
+Prefix reuse. Re-encoding the window is exact but most of it repeats. The
+encoder's attention windows (``n_window_infer`` = 800 mel frames = 8 s) never
+attend across each other and the conv stem is per 100-frame chunk, so the
+encoder output for every complete 800-frame block is final once the block is
+in the window. The decoder is causal, so the KV entries for the prompt head
+and those blocks' audio tokens are final too. ``_WindowPrefixCache`` keeps
+both; each chunk encodes only the uncached frames (new complete blocks plus
+the partial tail) in one pass and prefills only the matching prompt tail plus
+the text prefix onto a fork of the cached KV, which is then trimmed back to
+the block boundary and kept (Decision 30). The
+log-mel clamps every bin against the window's global maximum, so the cache is
+keyed on that maximum and rebuilt when a louder chunk raises it (about one
+chunk in eight on the long-form lane). Two-stage prefill is bit-identical to
+the single pass; block-wise encoding differs by reduction order only.
 """
 
 from __future__ import annotations
@@ -31,6 +46,7 @@ import numpy as np
 from .attention import scalar_int
 from .audio import compute_features
 from .config import DEFAULT_MODEL_ID
+from .decoder import KVCache
 from .generate import (
     AUTO_MAX_NEW_TOKENS_FLOOR,
     detect_repetition,
@@ -53,6 +69,34 @@ UNFIXED_TOKEN_NUM = 5     # Trailing tokens rolled back before each re-decode
 _DEFAULT_EOS_TOKEN_IDS = (151643, 151645)
 _ENDPOINTING_MODES = {"fixed", "energy"}
 _REPLACEMENT_CHAR = "\ufffd"
+
+
+@dataclass
+class _WindowPrefixCache:
+    """Encoder output and decoder KV for the final part of the live window.
+
+    Attributes:
+        mel_max: Global log-mel maximum the cached blocks were computed under.
+            The mel clamps against this value, so a different maximum means
+            different inputs and the cache is discarded.
+        blocks: Encoder output per complete attention window, each
+            ``(tokens_per_block, output_dim)``, in window order.
+        kv: Decoder KV cache covering the prompt head and the audio tokens of
+            the first ``kv_blocks`` blocks; ``None`` until the first block.
+        kv_blocks: Number of blocks whose audio tokens ``kv`` covers.
+        kv_positions: Sequence length covered by ``kv``.
+    """
+
+    mel_max: float
+    tokens_per_block: int
+    blocks: list[mx.array] = field(default_factory=list)
+    kv: Optional[KVCache] = None
+    kv_blocks: int = 0
+    kv_positions: int = 0
+
+    @property
+    def cached_tokens(self) -> int:
+        return len(self.blocks) * self.tokens_per_block
 
 
 @dataclass
@@ -84,6 +128,11 @@ class StreamingState:
             `latency`); both modes decode the pending tail at finish.
         enable_tail_refine: Retained for API compatibility; the window
             re-decode at finish subsumes the former tail refinement pass.
+        reuse_window_prefix: Reuse encoder output and decoder KV for the
+            complete 8 s attention windows of the live window instead of
+            recomputing them every chunk. Output is the same up to
+            floating-point reduction order; disable to A/B against the plain
+            re-decode.
     """
 
     buffer: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float32))
@@ -108,6 +157,8 @@ class StreamingState:
     endpoint_lookback_samples: int = 4800  # 300ms at 16kHz
     endpoint_frame_samples: int = 320  # 20ms at 16kHz
     endpoint_min_chunk_samples: int = 8000  # 500ms at 16kHz
+    reuse_window_prefix: bool = True
+    _prefix_cache: Optional[_WindowPrefixCache] = None
     _model_path: str = DEFAULT_MODEL_ID
     _adaptive_token_budget: bool = True
     _window_raw_ids: list[int] = field(default_factory=list)
@@ -139,6 +190,7 @@ def init_streaming(
     endpoint_frame_ms: float = 20.0,
     endpoint_min_chunk_sec: float = 0.5,
     language: Optional[str] = None,
+    reuse_window_prefix: bool = True,
 ) -> StreamingState:
     """Initialize a streaming ASR session."""
     if chunk_size_sec <= 0:
@@ -205,6 +257,7 @@ def init_streaming(
         endpoint_frame_samples=max(1, int((endpoint_frame_ms / 1000.0) * sample_rate)),
         endpoint_min_chunk_samples=max(1, int(endpoint_min_chunk_sec * sample_rate)),
         forced_language=canonicalize_language(language),
+        reuse_window_prefix=bool(reuse_window_prefix),
     )
 
 
@@ -309,6 +362,7 @@ def _commit_window(state: StreamingState) -> None:
     state.audio_accum = np.array([], dtype=np.float32)
     state._window_raw_ids = []
     state._window_chunk_id = 0
+    state._prefix_cache = None
 
 
 def _decode_and_update(state: StreamingState, model: Optional[Qwen3ASRModel]) -> None:
@@ -437,14 +491,6 @@ def _decode_window(
         np.asarray(window_audio, dtype=np.float32),
         sr=state.sample_rate,
     )
-    audio_features, _ = model_obj.audio_tower(mel.astype(dtype), feature_lens)
-    n_audio_tokens = int(audio_features.shape[1])
-
-    prompt_tokens = tokenizer.build_prompt_tokens(
-        n_audio_tokens=n_audio_tokens,
-        language=state.forced_language,
-        context=state.context,
-    )
     if state._window_chunk_id < state.unfixed_chunk_num:
         prefix_ids: list[int] = []
     else:
@@ -452,9 +498,55 @@ def _decode_window(
             state._window_raw_ids, state.unfixed_token_num, tokenizer
         )
 
-    input_ids = mx.array([list(prompt_tokens) + prefix_ids])
-    position_ids = _build_position_ids(0, int(input_ids.shape[1]))
-    cache = model_obj.create_cache()
+    new_prefix_positions = 0
+    n_new_blocks = 0
+    prefix_cache: Optional[_WindowPrefixCache] = None
+    if state.reuse_window_prefix:
+        # One encoder pass over everything not yet cached (new complete blocks
+        # plus the partial tail) and one prefill over the matching prompt tail
+        # plus the text prefix, on a fork of the cached KV. When new blocks
+        # completed this chunk, the fork is trimmed back to the block boundary
+        # after generation and becomes the new prefix KV.
+        prefix_cache, new_features, n_new_blocks = _encode_with_prefix_cache(
+            state, model_obj, mel, dtype
+        )
+        tpb = prefix_cache.tokens_per_block
+        previously_cached = prefix_cache.cached_tokens - n_new_blocks * tpb
+        n_audio_tokens = previously_cached + int(new_features.shape[0])
+        prompt_tokens = list(
+            tokenizer.build_prompt_tokens(
+                n_audio_tokens=n_audio_tokens,
+                language=state.forced_language,
+                context=state.context,
+            )
+        )
+        if prefix_cache.kv is not None:
+            cache = prefix_cache.kv.fork()
+            split = prefix_cache.kv_positions
+        else:
+            cache = model_obj.create_cache()
+            split = 0
+        if len(prefix_cache.blocks) > 0:
+            head = _prompt_audio_start(prompt_tokens, int(model_obj.audio_token_id), n_audio_tokens)
+            new_prefix_positions = head + prefix_cache.cached_tokens
+        input_ids = mx.array([prompt_tokens[split:] + prefix_ids])
+        position_ids = _build_position_ids(split, int(input_ids.shape[1]))
+        audio_features = new_features[None, :, :]
+    else:
+        audio_features, _ = model_obj.audio_tower(mel.astype(dtype), feature_lens)
+        n_audio_tokens = int(audio_features.shape[1])
+        prompt_tokens = list(
+            tokenizer.build_prompt_tokens(
+                n_audio_tokens=n_audio_tokens,
+                language=state.forced_language,
+                context=state.context,
+            )
+        )
+        split = 0
+        input_ids = mx.array([prompt_tokens + prefix_ids])
+        position_ids = _build_position_ids(0, int(input_ids.shape[1]))
+        cache = model_obj.create_cache()
+
     logits = model_obj.prefill(
         input_ids=input_ids,
         audio_features=audio_features,
@@ -471,11 +563,18 @@ def _decode_window(
         model=model_obj,
         cache=cache,
         initial_logits=logits,
-        start_pos=int(input_ids.shape[1]),
+        start_pos=split + int(input_ids.shape[1]),
         max_new_tokens=budget,
         eos_token_ids=eos_token_ids,
         pos_dtype=position_ids.dtype,
     )
+    if (
+        prefix_cache is not None
+        and n_new_blocks > 0
+        and new_prefix_positions > prefix_cache.kv_positions
+    ):
+        _adopt_prefix_kv(prefix_cache, cache, new_prefix_positions, len(prefix_cache.blocks))
+
     # Release the window-sized tensors before the next chunk; long sessions
     # otherwise accumulate Metal allocations (see the offline chunk loop).
     del cache, logits, audio_features, mel
@@ -488,6 +587,95 @@ def _decode_window(
     raw_text = tokenizer.decode(raw_ids)
     lang, text = parse_asr_output(raw_text, user_language=state.forced_language)
     return text, lang
+
+
+def _encode_with_prefix_cache(
+    state: StreamingState,
+    model: Qwen3ASRModel,
+    mel: mx.array,
+    dtype: mx.Dtype,
+) -> tuple[_WindowPrefixCache, mx.array, int]:
+    """Encode the part of the live window that is not cached yet.
+
+    A block (one encoder attention window of ``attention_window_frames``) is
+    complete when at least one mel frame follows it: the last STFT frame of a
+    block reaches 200 samples past the block's end, so a block ending exactly
+    at the audio end would be re-padded once more audio arrives. Blocks are
+    cached under the window's log-mel maximum and discarded when it changes.
+
+    Encodes the newly complete blocks and the partial tail in one pass (block
+    boundaries are attention-window boundaries, so the result equals encoding
+    them separately up to reduction order), stores the block slices, and
+    returns ``(cache, new_features, n_new_blocks)`` where ``new_features`` is
+    ``(new_block_tokens + tail_tokens, output_dim)``. The tail is never empty.
+    """
+    encoder = model.audio_tower
+    block = int(encoder.attention_window_frames)
+    mel2d = mel[0].astype(dtype)
+    n_frames = int(mel2d.shape[1])
+    mel_max = float(mx.max(mel))
+    n_complete = max(0, (n_frames - 1) // block)
+
+    prefix_cache = state._prefix_cache
+    if (
+        prefix_cache is None
+        or prefix_cache.mel_max != mel_max
+        or len(prefix_cache.blocks) > n_complete
+    ):
+        tokens_per_block = scalar_int(
+            encoder.get_output_lengths(mx.array([block], dtype=mx.int32))[0]
+        )
+        prefix_cache = _WindowPrefixCache(mel_max=mel_max, tokens_per_block=tokens_per_block)
+        state._prefix_cache = prefix_cache
+
+    first_new_block = len(prefix_cache.blocks)
+    n_new_blocks = n_complete - first_new_block
+    new_features = encoder.encode_frames(mel2d[:, first_new_block * block :])
+    if n_new_blocks > 0:
+        tpb = prefix_cache.tokens_per_block
+        for j in range(n_new_blocks):
+            block_features = new_features[j * tpb : (j + 1) * tpb]
+            mx.eval(block_features)
+            prefix_cache.blocks.append(block_features)
+    return prefix_cache, new_features, n_new_blocks
+
+
+def _prompt_audio_start(prompt_tokens: list[int], audio_token_id: int, n_audio_tokens: int) -> int:
+    """Index of the first audio placeholder; verifies the placeholders are contiguous."""
+    try:
+        head = prompt_tokens.index(audio_token_id)
+    except ValueError as exc:
+        raise RuntimeError("Prompt contains no audio placeholder tokens") from exc
+    run = prompt_tokens[head : head + n_audio_tokens]
+    if len(run) != n_audio_tokens or any(t != audio_token_id for t in run):
+        raise RuntimeError(
+            "Prompt audio placeholders are not one contiguous run of "
+            f"{n_audio_tokens} tokens starting at {head}"
+        )
+    return head
+
+
+def _adopt_prefix_kv(
+    prefix_cache: _WindowPrefixCache,
+    cache: KVCache,
+    prefix_positions: int,
+    n_blocks: int,
+) -> None:
+    """Make ``cache`` (after this chunk's prefill and generation) the new prefix KV.
+
+    The decoder is causal, so entries up to ``prefix_positions`` (prompt head
+    plus all cached blocks' audio tokens) do not depend on anything after
+    them; trimming the fork back to that boundary yields exactly the KV a
+    prefill of that prefix alone would produce.
+    """
+    adopted = cache.fork()
+    adopted.trim(adopted.offset - prefix_positions)
+    # Materialize so later forks reuse data rather than a pending slice graph.
+    mx.eval(*[k for k in adopted.keys if k is not None])
+    mx.eval(*[v for v in adopted.values if v is not None])
+    prefix_cache.kv = adopted
+    prefix_cache.kv_blocks = n_blocks
+    prefix_cache.kv_positions = prefix_positions
 
 
 def _select_decode_samples(state: StreamingState) -> int:

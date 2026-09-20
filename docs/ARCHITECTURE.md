@@ -241,6 +241,21 @@ chunk k arrives
   cut at the boundary can be duplicated or dropped once per window.
 - Per-chunk cost is bounded by the window (encoder over <= 30 s plus a
   prefill of ~12.5 audio tokens/s and the prefix), not by session length.
+- Prefix reuse (`reuse_window_prefix=True`, Decision 30): the encoder's
+  attention windows are 800 mel frames (8 s, 104 tokens) and never attend
+  across each other; the conv stem and position embeddings are per 100-frame
+  chunk. So the encoder output of every complete 800-frame block is final,
+  and because the decoder is causal, so are the KV entries for the prompt
+  head and those blocks' audio tokens. `_WindowPrefixCache` keeps both; each
+  chunk encodes only the trailing partial block and prefills the prompt tail
+  plus the text prefix onto a `KVCache.fork()` of the cached KV. The log-mel
+  clamps against the window's global max, so the cache is keyed on that max
+  and rebuilt when a louder chunk raises it. A block counts as complete only
+  when at least one frame follows it (the last STFT frame reaches 200 samples
+  past the block). Two-stage prefill is bit-identical to the single pass;
+  block-wise encoding differs by reduction order only (max 1.6e-6). Measured
+  RTF 0.104 -> 0.083 on the long-form lane and 0.090 -> 0.081 on
+  multilingual-100; generation (~55% of per-chunk time) is the floor.
 
 The earlier design encoded each 2 s chunk alone and appended it to a live
 decoder KV cache as a follow-up chat turn. It is linear in cost but the model

@@ -192,6 +192,42 @@ class TestAudioEncoderLayer:
 # ---------------------------------------------------------------------------
 
 
+class TestAudioEncoderEncodeFrames:
+    """encode_frames matches __call__ and block-wise encoding matches the full pass."""
+
+    def test_encode_frames_matches_call_for_single_sample(self):
+        cfg = _tiny_audio_config()
+        encoder = AudioEncoder(cfg)
+        mel = mx.random.normal((128, 250))
+        mx.eval(encoder.parameters())
+        full, lens = encoder(mel[None], mx.array([250], dtype=mx.int32))
+        single = encoder.encode_frames(mel)
+        assert int(lens[0]) == single.shape[0]
+        assert np.allclose(np.array(full[0]), np.array(single), atol=1e-6)
+
+    def test_blockwise_encoding_matches_full_pass_up_to_rounding(self):
+        cfg = _tiny_audio_config()
+        encoder = AudioEncoder(cfg)
+        mx.eval(encoder.parameters())
+        block = encoder.attention_window_frames
+        assert block == cfg.n_window_infer
+        n_frames = 2 * block + 150  # two complete windows plus a partial tail
+        mel = mx.random.normal((128, n_frames))
+        full = encoder.encode_frames(mel)
+        parts = [encoder.encode_frames(mel[:, i : i + block]) for i in range(0, 2 * block, block)]
+        parts.append(encoder.encode_frames(mel[:, 2 * block :]))
+        blockwise = mx.concatenate(parts, axis=0)
+        assert blockwise.shape == full.shape
+        assert np.allclose(np.array(full), np.array(blockwise), atol=1e-4, rtol=1e-4)
+
+    def test_encode_frames_rejects_bad_shapes(self):
+        encoder = AudioEncoder(_tiny_audio_config())
+        with pytest.raises(ValueError, match="n_mels, n_frames"):
+            encoder.encode_frames(mx.zeros((1, 128, 10)))
+        with pytest.raises(ValueError, match="at least one"):
+            encoder.encode_frames(mx.zeros((128, 0)))
+
+
 class TestAudioEncoderGetOutputLengths:
     """Test AudioEncoder.get_output_lengths with known lengths."""
 

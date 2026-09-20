@@ -375,6 +375,34 @@ class KVCache:
         """Return the current cached sequence length."""
         return self.offset
 
+    def fork(self) -> "KVCache":
+        """Return a new cache that starts from this cache's current contents.
+
+        In the default concatenating mode the fork shares the key/value arrays
+        (``mx.concatenate`` produces new arrays, so later appends to either
+        cache cannot affect the other). In preallocated mode ``update`` writes
+        into the buffer in place, and MLX slice assignment is visible through
+        every reference, so the live prefix is copied. Used by streaming to
+        decode several windows from one prefilled prompt prefix.
+        """
+        other = KVCache(len(self.keys), max_seq_len=self.max_seq_len)
+        other.offset = self.offset
+        if self.max_seq_len is None:
+            other.keys = list(self.keys)
+            other.values = list(self.values)
+            return other
+        for i, (k, v) in enumerate(zip(self.keys, self.values, strict=True)):
+            if k is None or v is None:
+                continue
+            assert k is not None and v is not None
+            buf_k = mx.zeros(k.shape, dtype=k.dtype)
+            buf_v = mx.zeros(v.shape, dtype=v.dtype)
+            buf_k[..., : self.offset, :] = k[..., : self.offset, :]
+            buf_v[..., : self.offset, :] = v[..., : self.offset, :]
+            other.keys[i] = buf_k
+            other.values[i] = buf_v
+        return other
+
     def trim(self, num_tokens: int) -> None:
         """Trim recently appended tokens from all layer caches.
 

@@ -335,6 +335,33 @@ class AudioEncoder(nn.Module):
         output_lens = mx.array(all_output_lens)
         return output, output_lens
 
+    @property
+    def attention_window_frames(self) -> int:
+        """Mel frames per attention window (``n_window_infer``, 800 = 8 s).
+
+        Tokens from different windows never attend to each other, and the
+        conv stem and position embeddings are per 100-frame chunk, so the
+        encoder output for a complete window depends only on that window's
+        mel frames. Streaming relies on this to reuse encoder output for
+        windows that are already final.
+        """
+        return int(self.config.n_window_infer)
+
+    def encode_frames(self, mel: mx.array) -> mx.array:
+        """Encode one trimmed mel spectrogram, shape ``(n_mels, n_frames)``.
+
+        Same computation as ``__call__`` for a single unpadded sample, without
+        the batch padding. Returns ``(n_tokens, output_dim)``. Encoding a
+        sequence of whole attention windows separately and concatenating the
+        results equals encoding them together up to floating-point reduction
+        order (measured max 1.6e-6 on values of scale 1e-2).
+        """
+        if mel.ndim != 2:
+            raise ValueError(f"encode_frames expects (n_mels, n_frames), got {mel.shape}")
+        if int(mel.shape[1]) == 0:
+            raise ValueError("encode_frames requires at least one mel frame")
+        return self._encode_single(mel, self.config.n_window * 2, self.config.n_window_infer)
+
     def _encode_single(
         self,
         mel: mx.array,

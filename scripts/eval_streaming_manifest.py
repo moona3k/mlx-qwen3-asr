@@ -462,6 +462,16 @@ def main() -> int:
         choices=["accuracy", "latency"],
         default="accuracy",
     )
+    parser.add_argument(
+        "--reuse-window-prefix",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Reuse encoder output and decoder KV for complete 8 s attention windows "
+            "(production default). --no-reuse-window-prefix re-encodes the whole window "
+            "every chunk, for A/B runs."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--json-output", default=None)
     parser.add_argument("--fail-partial-stability-below", type=float, default=None)
@@ -543,6 +553,7 @@ def main() -> int:
                 sample_rate=16000,
                 endpointing_mode=mode,
                 finalization_mode=args.finalization_mode,
+                reuse_window_prefix=bool(args.reuse_window_prefix),
             )
 
             t0 = time.perf_counter()
@@ -599,6 +610,7 @@ def main() -> int:
         "unfixed_chunk_num": args.unfixed_chunk_num,
         "unfixed_token_num": args.unfixed_token_num,
         "finalization_mode": args.finalization_mode,
+        "reuse_window_prefix": bool(args.reuse_window_prefix),
         "samples": len(samples),
         "evaluations": len(rows),
         "aggregate": aggregate,

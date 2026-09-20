@@ -646,7 +646,9 @@ Optional microphone flags: `--mic-device`, `--mic-duration-sec`, `--mic-sample-r
 - Ingests small PCM chunks (default 2s)
 - Each chunk re-encodes the accumulated window and decodes from the previous text
   minus the last `unfixed_token_num` tokens, so per-chunk cost is bounded by the
-  window, not by session length (RTF 0.08 on 5-20 s clips, 0.18 on 75 s clips)
+  window, not by session length; encoder output and decoder KV for complete
+  8 s attention windows are reused across chunks (RTF 0.08 on 5-20 s clips,
+  0.08 on 75 s clips with a 30 s window)
 - Bounded context window (default 30s): when it fills, its text is committed and a
   new window starts
 - Prefix rollback controls (`unfixed_chunk_num`, `unfixed_token_num`)

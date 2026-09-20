@@ -102,14 +102,21 @@ Promote to distilled learnings when:
    in kind; then read the reference's attention path, not the MLX one. The
    reference can be the side that departs from training.
    - refs: `MEM-2026-09-19-014`
+9. Profile before caching. The streaming item assumed the encoder dominated;
+   it was 18% (prefill 31%, generation 50%). A cache that adds kernel launches
+   (separate block encode + KV extension) was 12% slower on short clips even
+   though it saved compute; folding the cached work into the calls that
+   happen anyway (one encode, one prefill, trim after) made it a win on both
+   lanes. Measure cache-off and cache-on back to back on the same machine.
+   - refs: `MEM-2026-09-19-016`
 
 ## Open Risks
 
 1. Memory updates are currently social-process enforced, not CI-enforced.
    - refs: `MEM-2026-02-16-001`, `MEM-2026-02-16-002`
-2. Long-form streaming sits 1.25pp under the strict 3pp ceiling; the ROADMAP
-   encoder-caching and window-overlap items must not spend that headroom.
-   - refs: `MEM-2026-09-19-014`; `docs/EVAL_GAPS.md` follow-up.
+2. Long-form streaming sits 1.3pp under the strict 3pp ceiling (12.28% vs
+   13.59% after prefix reuse); the window-overlap item must not spend it.
+   - refs: `MEM-2026-09-19-014`, `MEM-2026-09-19-016`; `docs/EVAL_GAPS.md`.
 3. The shipped CPU `qwen-asr` reference does not window encoder attention
    (mask defined, never called). Every encoder-output number measured
    against it on clips over 8 s before 2026-09-19 overstates MLX error;

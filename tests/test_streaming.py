@@ -3,6 +3,7 @@
 
 import mlx.core as mx
 import numpy as np
+import pytest
 
 import mlx_qwen3_asr.streaming as smod
 from mlx_qwen3_asr.config import DEFAULT_MODEL_ID
@@ -569,25 +570,71 @@ class TestStreamingMetrics:
 
 
 class TestWindowDecode:
+    # The fake encoder emits one token per 5 mel frames and has a 10-frame
+    # attention window, so a 10-frame "block" is 2 tokens.
+    FRAMES_PER_TOKEN = 5
+    WINDOW_FRAMES = 10
+    AUDIO_PAD = 151676
+
     def _fakes(self, decode_text="language English<asr_text>hello"):
-        class _FakeModel:
-            audio_token_id = 151676
+        outer = self
+
+        class _FakeTower:
+            attention_window_frames = outer.WINDOW_FRAMES
 
             def __init__(self):
+                self.encode_calls: list[int] = []
+
+            def __call__(self, mel, feature_lens):  # noqa: ANN001
+                n = int(mel.shape[2]) // outer.FRAMES_PER_TOKEN
+                return mx.zeros((1, n, 8), dtype=mx.float16), mx.array([n], dtype=mx.int32)
+
+            def encode_frames(self, mel):  # noqa: ANN001
+                frames = int(mel.shape[1])
+                self.encode_calls.append(frames)
+                n = max(1, frames // outer.FRAMES_PER_TOKEN)
+                return mx.zeros((n, 8), dtype=mx.float16)
+
+            def get_output_lengths(self, input_lengths):  # noqa: ANN001
+                return input_lengths // outer.FRAMES_PER_TOKEN
+
+        class _FakeCache:
+            def __init__(self, offset=0):
+                self.keys = [None]
+                self.values = [None]
+                self.offset = offset
+                self.forks = 0
+
+            def fork(self):
+                self.forks += 1
+                return _FakeCache(self.offset)
+
+            def trim(self, n):  # noqa: ANN001
+                assert 0 <= n <= self.offset
+                self.offset -= n
+
+        class _FakeModel:
+            audio_token_id = outer.AUDIO_PAD
+
+            def __init__(self):
+                self.audio_tower = _FakeTower()
                 self.create_cache_calls = 0
                 self.prefill_lengths = []
                 self.prefill_starts = []
+                self.prefill_audio_tokens = []
+                self.caches: list[_FakeCache] = []
 
             def create_cache(self):
                 self.create_cache_calls += 1
-                return object()
-
-            def audio_tower(self, mel, feature_lens):  # noqa: ANN001
-                return mx.zeros((1, 2, 8), dtype=mx.float16), mx.array([2], dtype=mx.int32)
+                cache = _FakeCache()
+                self.caches.append(cache)
+                return cache
 
             def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
                 self.prefill_lengths.append(int(input_ids.shape[1]))
                 self.prefill_starts.append(int(np.array(position_ids)[0, 0, 0]))
+                self.prefill_audio_tokens.append(int(audio_features.shape[1]))
+                cache.offset += int(input_ids.shape[1])
                 return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
 
         class _FakeTokenizer:
@@ -598,24 +645,27 @@ class TestWindowDecode:
 
             def build_prompt_tokens(self, n_audio_tokens, language=None, context=""):  # noqa: ANN001
                 self.prompt_calls.append((n_audio_tokens, language, context))
-                return [11, 12]
+                return [11] + [outer.AUDIO_PAD] * n_audio_tokens + [12]
 
             def decode(self, ids):  # noqa: ANN001
                 return decode_text
 
         return _FakeModel(), _FakeTokenizer()
 
-    def _patch_runtime(self, monkeypatch, fake_model, fake_tokenizer, generated):
+    def _patch_runtime(self, monkeypatch, fake_model, fake_tokenizer, generated, frames=None):
         monkeypatch.setattr(
             smod,
             "_ensure_stream_runtime",
             lambda _state, _model: (fake_model, fake_tokenizer, mx.float16),
         )
         self.feature_calls = []
+        # Mel: value 1.0 everywhere so the global max is stable across chunks.
+        # ``frames`` overrides the per-call frame count (default: len(audio)).
 
         def fake_compute_features(audio, sr=16000, padding="do_not_pad"):  # noqa: ANN001
             self.feature_calls.append((len(audio), sr))
-            return mx.zeros((1, 128, 10), dtype=mx.float32), mx.array([10], dtype=mx.int32)
+            n = frames if frames is not None else int(len(audio))
+            return mx.ones((1, 128, n), dtype=mx.float32), mx.array([n], dtype=mx.int32)
 
         monkeypatch.setattr(smod, "compute_features", fake_compute_features)
         self.budgets = []
@@ -648,14 +698,33 @@ class TestWindowDecode:
 
         text_2, _ = smod._decode_window(np.ones(20, dtype=np.float32), state)
         assert text_2 == "hello"
-        # Second decode: prompt [11, 12] + prefix [1, 2] (last token rolled back).
-        assert fake_model.prefill_lengths == [2, 4]
+        # First decode (10 frames, no complete block): prompt [11, pad, pad, 12]
+        # prefilled in one pass. Second decode (20 frames): block 0 completed,
+        # nothing cached yet, so the whole prompt [11, 4 pads, 12] + prefix
+        # [1, 2] (last token rolled back) is prefilled from position 0; after
+        # generation the cache is trimmed to head + block 0 = 3 positions and
+        # kept as the prefix KV.
+        assert fake_model.prefill_lengths == [4, 8]
         assert fake_model.prefill_starts == [0, 0]
+        assert fake_model.prefill_audio_tokens == [2, 4]
         assert fake_model.create_cache_calls == 2
+        assert state._prefix_cache.kv_positions == 3
+        assert state._prefix_cache.kv.offset == 3
         assert state._window_raw_ids == [1, 2, 1, 2, 3]
         assert state._window_chunk_id == 2
-        # The whole window is re-encoded and the prompt rebuilt each time.
-        assert [c[0] for c in fake_tokenizer.prompt_calls] == [2, 2]
+        assert [c[0] for c in fake_tokenizer.prompt_calls] == [2, 4]
+        # One encoder pass per chunk over the uncached frames.
+        assert fake_model.audio_tower.encode_calls == [10, 20]
+
+        # Third decode (30 frames): block 1 completed; only frames 10..30 are
+        # encoded and only the prompt tail after position 3 is prefilled on a
+        # fork of the prefix KV.
+        smod._decode_window(np.ones(30, dtype=np.float32), state)
+        assert fake_model.prefill_lengths[-1] == 5 + 4  # [4 pads, 12] + prefix [1, 2, 1, 2]
+        assert fake_model.prefill_starts[-1] == 3
+        assert fake_model.prefill_audio_tokens[-1] == 4
+        assert fake_model.audio_tower.encode_calls == [10, 20, 20]
+        assert state._prefix_cache.kv_positions == 5 and len(state._prefix_cache.blocks) == 2
 
     def test_decode_window_skips_prefix_during_warmup(self, monkeypatch):
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10, unfixed_chunk_num=2)
@@ -667,9 +736,82 @@ class TestWindowDecode:
         smod._decode_window(np.ones(30, dtype=np.float32), state)
 
         # Chunks 0 and 1 decode without a prefix; chunk 2 rolls back 5 tokens
-        # from the 2 available, leaving an empty prefix.
-        assert fake_model.prefill_lengths == [2, 2, 2]
+        # from the 2 available, leaving an empty prefix. Prefills: whole prompt
+        # (4), whole prompt with block 0 completed (6), then only the tail after
+        # the cached 3 positions ([4 pads, 12] = 5).
+        assert fake_model.prefill_lengths == [4, 6, 5]
+        assert fake_model.prefill_starts == [0, 0, 3]
         assert state._window_chunk_id == 3
+
+    def test_decode_window_without_prefix_reuse_reencodes_everything(self, monkeypatch):
+        state = init_streaming(
+            chunk_size_sec=1.0, sample_rate=10, unfixed_chunk_num=0, reuse_window_prefix=False
+        )
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1, 2, 3])
+
+        smod._decode_window(np.ones(10, dtype=np.float32), state)
+        smod._decode_window(np.ones(20, dtype=np.float32), state)
+
+        assert fake_model.audio_tower.encode_calls == []
+        assert fake_model.prefill_starts == [0, 0]
+        assert fake_model.prefill_audio_tokens == [2, 4]
+        assert state._prefix_cache is None
+
+    def test_prefix_cache_is_rebuilt_when_mel_max_changes(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=10, unfixed_chunk_num=0)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+
+        smod._decode_window(np.ones(20, dtype=np.float32), state)
+        assert len(state._prefix_cache.blocks) == 1
+        first_cache = state._prefix_cache
+
+        # A louder chunk raises the window's log-mel max: everything cached
+        # was computed under a different clamp and must be discarded.
+        def louder(audio, sr=16000, padding="do_not_pad"):  # noqa: ANN001
+            n = int(len(audio))
+            mel = mx.ones((1, 128, n), dtype=mx.float32)
+            mel[0, 0, -1] = 5.0
+            return mel, mx.array([n], dtype=mx.int32)
+
+        monkeypatch.setattr(smod, "compute_features", louder)
+        smod._decode_window(np.ones(30, dtype=np.float32), state)
+        assert state._prefix_cache is not first_cache
+        assert len(state._prefix_cache.blocks) == 2
+        # After the reset the whole 30-frame window is re-encoded in one pass.
+        assert fake_model.audio_tower.encode_calls == [20, 30]
+        assert fake_model.prefill_starts == [0, 0]
+
+    def test_prefix_cache_resets_on_window_commit(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=10, unfixed_chunk_num=0)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+
+        smod._decode_window(np.ones(20, dtype=np.float32), state)
+        assert state._prefix_cache is not None
+        smod._commit_window(state)
+        assert state._prefix_cache is None
+
+    def test_block_is_not_complete_until_a_frame_follows_it(self, monkeypatch):
+        state = init_streaming(chunk_size_sec=1.0, sample_rate=10, unfixed_chunk_num=0)
+        fake_model, fake_tokenizer = self._fakes()
+        self._patch_runtime(monkeypatch, fake_model, fake_tokenizer, generated=[1])
+
+        # Exactly one window of frames: the last STFT frame still depends on
+        # audio that has not arrived, so nothing is cached yet.
+        smod._decode_window(np.ones(10, dtype=np.float32), state)
+        assert state._prefix_cache.blocks == []
+        smod._decode_window(np.ones(11, dtype=np.float32), state)
+        assert len(state._prefix_cache.blocks) == 1
+
+    def test_prompt_audio_start_validates_contiguous_run(self):
+        pad = self.AUDIO_PAD
+        assert smod._prompt_audio_start([11, pad, pad, 12], pad, 2) == 1
+        with pytest.raises(RuntimeError, match="no audio placeholder"):
+            smod._prompt_audio_start([11, 12], pad, 2)
+        with pytest.raises(RuntimeError, match="contiguous"):
+            smod._prompt_audio_start([11, pad, 12, pad], pad, 2)
 
     def test_decode_window_forwards_forced_language_to_prompt(self, monkeypatch):
         state = init_streaming(chunk_size_sec=1.0, sample_rate=10, language="zh", context="ctx")

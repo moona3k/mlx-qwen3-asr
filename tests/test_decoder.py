@@ -96,3 +96,30 @@ def test_causal_mask_caches_are_bounded():
     # Most recent entries are the ones retained, and are reused on the next call.
     mask = decmod._create_causal_mask(limit + 9, mx.float32)
     assert decmod._create_causal_mask(limit + 9, mx.float32) is mask
+
+
+def test_kvcache_fork_is_independent_in_concat_mode():
+    cache = decmod.KVCache(num_layers=1)
+    cache.update(mx.ones((1, 1, 3, 2)), mx.ones((1, 1, 3, 2)), 0)
+    fork = cache.fork()
+    assert fork.offset == 3
+    fork.update(mx.zeros((1, 1, 2, 2)), mx.zeros((1, 1, 2, 2)), 0)
+    cache.update(mx.full((1, 1, 1, 2), 7.0), mx.full((1, 1, 1, 2), 7.0), 0)
+    assert fork.offset == 5 and cache.offset == 4
+    assert fork.keys[0].shape[2] == 5 and cache.keys[0].shape[2] == 4
+    # Shared prefix identical, divergent suffixes independent.
+    assert np.array_equal(np.array(fork.keys[0][..., :3, :]), np.array(cache.keys[0][..., :3, :]))
+    assert float(fork.keys[0][0, 0, 3, 0]) == 0.0 and float(cache.keys[0][0, 0, 3, 0]) == 7.0
+
+
+def test_kvcache_fork_copies_preallocated_buffers():
+    cache = decmod.KVCache(num_layers=1, max_seq_len=8)
+    cache.update(mx.ones((1, 1, 3, 2)), mx.ones((1, 1, 3, 2)), 0)
+    fork = cache.fork()
+    # In-place slice writes alias through shared references in MLX; the fork
+    # must not observe writes into the original buffer.
+    cache.update(mx.full((1, 1, 1, 2), 9.0), mx.full((1, 1, 1, 2), 9.0), 0)
+    fork.update(mx.full((1, 1, 1, 2), 4.0), mx.full((1, 1, 1, 2), 4.0), 0)
+    assert float(cache.keys[0][0, 0, 3, 0]) == 9.0
+    assert float(fork.keys[0][0, 0, 3, 0]) == 4.0
+    assert np.array_equal(np.array(fork.keys[0][..., :3, :]), np.ones((1, 1, 3, 2)))

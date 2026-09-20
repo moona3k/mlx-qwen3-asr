@@ -97,10 +97,14 @@ make broad "production-grade across languages/conditions" quality claims.
 ## Remaining Gaps (prioritized)
 
 1. `P2` Streaming residual gap and cost
-   - Why: streaming trails offline by ~2pp on both lanes and re-encodes the
-     window every chunk (RTF 0.18 on 75 s clips with a 30 s window).
-   - Candidates: cache encoder output per 100-frame chunk across re-decodes;
-     overlap windows at commit so boundary words are not cut.
+   - Why: streaming trails offline by ~2pp on both lanes.
+   - Done 2026-09-19 (Decision 30): encoder output and decoder KV for
+     complete 8 s attention windows are reused across chunks; long-form RTF
+     0.104 -> 0.083, multilingual-100 0.090 -> 0.081, quality equal or better
+     on every changed hypothesis. Generation is now ~55% of per-chunk time and
+     is the floor of the re-decode recipe.
+   - Remaining candidate: overlap windows at commit so boundary words are not
+     cut (ROADMAP handoff item 4).
 2. Streaming lane in the release gate: closed 2026-09-19.
    `scripts/eval_streaming_manifest.py` scores `final_text` against manifest
    references itself (`quality_vs_reference`, schema v1.2) and the strict

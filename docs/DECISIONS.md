@@ -416,3 +416,47 @@ decoder KV cache as a follow-up chat turn (linear cost, no re-encoding).
 - Window commit at `max_context_sec` bounds per-chunk cost; a word cut at the
   boundary can be duplicated or dropped once per window. Re-using encoder
   output across chunks is a future optimisation, not a correctness need.
+
+## Decision 30: Streaming Reuses Encoder Output and Decoder KV for Complete Attention Windows
+
+**Choice:** Keep the Decision 29 re-decode, but cache what cannot change. The
+encoder's attention windows (`n_window_infer` = 800 mel frames = 8 s = 104
+tokens) never attend across each other and the conv stem and position
+embeddings are per 100-frame chunk, so the encoder output of every complete
+800-frame block is final. The decoder is causal, so the KV entries for the
+prompt head and those blocks' audio tokens are final too. Each chunk encodes
+only the uncached frames (new complete blocks + partial tail) in one pass,
+prefills only the prompt tail plus the text prefix onto a `KVCache.fork()` of
+the cached KV, and after generation trims that fork back to the block boundary
+to become the new prefix KV. `reuse_window_prefix=False` restores the plain
+re-decode for A/B runs.
+**Alternative (rejected):** Cache encoder output only. It saves at most the
+encoder's 18% share of per-chunk time; a first cut with separate block-encode
+and KV-extension calls was 12% *slower* on 10-20 s clips because fixed
+kernel-launch cost outweighed the saved compute.
+
+**Rationale:**
+- Per 2 s chunk on a 30 s window (M4 Pro, 0.6B fp16): mel 1%, encoder 18%,
+  prefill 31%, generation 50%. Generation is the recipe's floor (the rollback
+  regenerates ~5 tokens plus the new ones every chunk); only encoder and
+  prefill are addressable, and only for the part of the window that repeats.
+- Exactness: appending a prefill to a partially filled causal cache is
+  bit-identical to one prefill (logits and KV, measured). Encoding whole
+  attention windows separately differs from the batched pass by reduction
+  order only (max 1.6e-6 on values of scale 1e-2). Mel frames of a complete
+  block are bit-identical as audio grows, provided the window's global log-mel
+  maximum is unchanged: the mel clamps every bin against it, so the cache is
+  keyed on that maximum and rebuilt when a louder chunk raises it (about one
+  chunk in eight on the long-form lane). A block counts as complete only when
+  one frame follows it, because the last STFT frame reaches 200 samples past
+  the block and would be re-padded otherwise.
+- Measured on the maintained lanes, same machine, same day
+  (`docs/benchmarks/2026-09-19-streaming-manifest-{multilingual100,longform10}-{no-,}prefix-reuse.json`):
+  long-form 10 x 75 s RTF 0.104 -> 0.083 (p95 0.136 -> 0.111), primary
+  12.33% -> 12.28% fixed; multilingual-100 RTF 0.090 -> 0.081 (p95
+  0.157 -> 0.134), primary 11.35% -> 11.32%. Every changed hypothesis (2/20,
+  3/200) scored equal or better. Both lanes stay under the strict offline +
+  3pp ceiling.
+- `KVCache.fork()` shares arrays in concatenating mode (immutable) and copies
+  in preallocated mode, because MLX slice assignment is visible through every
+  reference to the buffer.

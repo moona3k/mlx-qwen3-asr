@@ -134,12 +134,16 @@ criterion so the next agent can tell when it is done.
    Artifact: `docs/benchmarks/2026-09-19-aligner-parity-50.md`.
    Reported upstream as QwenLM/Qwen3-ASR#213 (repro: 24.9% encoder
    divergence on a 20 s clip, 4/22 long-clip transcripts change).
-3. **Streaming encoder-output caching.** The conv stem is per-100-frame chunk
-   and attention windows are fixed, so most of a 30 s window's encoder work
-   repeats between re-decodes.
-   - Done when: long-form streaming RTF drops from 0.18 toward the offline
-     0.06 with the multilingual-100 and long-form `quality_vs_reference`
-     numbers unchanged to the hypothesis, and item 1 is in place first.
+3. **Streaming prefix reuse.** Done 2026-09-19 (Decision 30). Encoder output
+   and decoder KV for complete 8 s attention windows are cached across chunks,
+   keyed on the log-mel global max. Long-form RTF 0.104 -> 0.083 (same-day
+   cache-off baseline), multilingual-100 0.090 -> 0.081; 2/20 and 3/200
+   hypotheses changed, each equal or better; both strict lanes pass. The
+   premise that the encoder dominated was wrong: it was 18% of per-chunk
+   time, prefill 31%, generation 50%. Caching both encoder and KV addressed
+   the first two; generation is the floor of the re-decode recipe, so the
+   "toward 0.06" target is not reachable without changing the recipe
+   (fewer rolled-back tokens, or speculative decoding of the tail).
 4. **Window-commit overlap.** A word cut at the 30 s boundary can duplicate or
    drop once per window.
    - Done when: the long-form lane shows no boundary duplicates in
