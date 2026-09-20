@@ -117,6 +117,16 @@ make broad "production-grade across languages/conditions" quality claims.
    1.25pp (12.33% vs a 13.59% ceiling), so the P2 encoder caching / window-overlap
    work must not lose more than that.
 
+3. `P2` Real-world long-form offline WER drifted 13.2% -> 14.7% between the
+   February baseline and v0.4.3 (Earnings22 full, 3 x 21 min; bit-identical
+   hypotheses on v0.4.3 and v0.4.4, so today's streaming work is not the
+   cause). Under the 20% strict threshold. Candidates: #21 encoder tail
+   padding, language canonicalisation, chunking changes. Bisect with
+   `scripts/eval_manifest_quality.py` on the committed manifest from a
+   worktree per tag (`PYTHONPATH=<worktree>`), comparing `hypothesis_raw`.
+   Artifacts: `2026-02-15-manifest-quality-earnings22-full-longform3-0p6b.json`
+   vs `2026-09-19-manifest-quality-earnings22-full-longform3-0p6b-v0.4.4.json`.
+
 ## Follow-up Order
 
 1. Long-form streaming headroom under the 3pp ceiling is 1.4pp (energy) after
