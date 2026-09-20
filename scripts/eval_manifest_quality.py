@@ -27,6 +27,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from eval import metrics as _metrics  # noqa: E402
+from eval.provenance import runtime_provenance  # noqa: E402
 
 edit_distance = _metrics.edit_distance
 _normalize_quality_text = _metrics.normalize_quality_text
@@ -293,6 +294,7 @@ def main() -> int:
         "primary_error_rate": primary_error_rate,
         "latency_sec_mean": float(np.mean(latencies)) if latencies else 0.0,
         "elapsed_sec": time.perf_counter() - started,
+        "runtime": runtime_provenance(),
         "by_language": by_language,
         "rows": rows,
     }

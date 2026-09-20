@@ -25,5 +25,15 @@
       "cer": 0.08107519645296016,
       "primary_error_rate": 0.14714714714714713
     }
+  },
+  "runtime": {
+    "host_chip": "Apple M4 Pro",
+    "memory_gb": 48.0,
+    "os": "Darwin 25.6.0",
+    "macos_version": "26.6.2",
+    "machine": "arm64",
+    "python": "3.11.5",
+    "mlx_version": "0.30.6",
+    "git_commit": "efd4603"
   }
 }

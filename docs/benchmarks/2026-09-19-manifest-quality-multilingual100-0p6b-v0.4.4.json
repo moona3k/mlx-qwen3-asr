@@ -2344,5 +2344,15 @@
       "primary_error_rate": 0.1111111111111111,
       "latency_sec": 0.45670941699063405
     }
-  ]
+  ],
+  "runtime": {
+    "host_chip": "Apple M4 Pro",
+    "memory_gb": 48.0,
+    "os": "Darwin 25.6.0",
+    "macos_version": "26.6.2",
+    "machine": "arm64",
+    "python": "3.11.5",
+    "mlx_version": "0.30.6",
+    "git_commit": "efd4603"
+  }
 }

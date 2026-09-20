@@ -32,9 +32,10 @@ reuses encoder output and decoder KV across chunks and commits windows at a
 pause (Decisions 30-31); strict release gate scores streaming against
 references on two manifests; aligner encoder parity lane.
 
-Next (see `docs/ROADMAP.md`): aligner quality hardening, long-form robustness
-benchmarks, streaming encoder-output caching and a reference-scored streaming
-gate in strict release mode.
+Next (see `docs/ROADMAP.md`): an 8-16 GB machine row for the hardware
+matrix, the real-world long-form WER drift since February (`docs/EVAL_GAPS.md`
+P2), and streaming generation cost (55% of per-chunk time: fewer rolled-back
+tokens or speculative tail decoding). Upstream: QwenLM/Qwen3-ASR#213.
 
 ## Architecture
 
