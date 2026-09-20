@@ -1,0 +1,53 @@
+docs/ROADMAP.md
+  s_7b5ee2ad1f9b97::t_3afb9379c25491 147-157
+docs/BENCHMARKS.md
+  s_7b5ee2ad1f9b97::t_3afb9379c25491 475-482,531
+mlx_qwen3_asr/streaming.py
+  s_7b5ee2ad1f9b97::t_5b622c18c34315 426-434
+  s_7b5ee2ad1f9b97::t_84eb192a94c1de 454-470,472-474
+  s_7b5ee2ad1f9b97::t_6cc9bf1e55a2e5 71-73,141-146,174-175,179-180,213-214,256-257,288-289,316,353,377,625-627
+  s_7b5ee2ad1f9b97::t_43e3cfce4a4d5f 74-75
+  s_7b5ee2ad1f9b97::t_8aa2351b350bac 471
+  s_7b5ee2ad1f9b97::t_706d1b4917636e 178,286,486-492,648,670,717
+  s_7b5ee2ad1f9b97::t_5580fae077ebc0 381-396,398,400-407,409-425,435-453,475
+  s_7b5ee2ad1f9b97::t_ba76fd4dcd537a 147-148,176,215,258-259,290
+docs/ARCHITECTURE.md
+  s_7b5ee2ad1f9b97::t_3afb9379c25491 240-253
+docs/benchmarks/2026-09-19-streaming-manifest-longform10-hard-cut.json
+  s_7b5ee2ad1f9b97::t_3afb9379c25491 1-703
+docs/benchmarks/2026-09-19-streaming-manifest-longform10-silence-cut.json
+  s_7b5ee2ad1f9b97::t_3afb9379c25491 1-703
+mlx_qwen3_asr/session.py
+  s_7b5ee2ad1f9b97::t_ba76fd4dcd537a 169-171,192-194
+tests/test_streaming.py
+  s_7b5ee2ad1f9b97::t_16ba802fb16ee1 282-283,350-351
+  s_7b5ee2ad1f9b97::t_98b2748cf8e65f 927,936
+  s_7b5ee2ad1f9b97::t_f6deec78d9354d 294,330,333-349,352-354
+  s_7b5ee2ad1f9b97::t_5a51fee26c4335 255,260-281,284-293,295-329,331-332,355
+  s_7b5ee2ad1f9b97::t_b9a43f6e90fcfd 917-926,928-935,937-945
+  s_7b5ee2ad1f9b97::t_43e3cfce4a4d5f 256-259
+docs/DECISIONS.md
+  s_7b5ee2ad1f9b97::t_3afb9379c25491 463-496
+docs/EVAL_GAPS.md
+  s_7b5ee2ad1f9b97::t_3afb9379c25491 106-107,122-124
+scripts/eval_streaming_manifest.py
+  s_7b5ee2ad1f9b97::t_ba76fd4dcd537a 475-486,569-571,599,630-632
+docs/memory/events/2026-09.md
+  s_7b5ee2ad1f9b97::t_1a862b72250d64 478-503
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "39790985b87277ce188d7187aec9e5a3c692998d",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
