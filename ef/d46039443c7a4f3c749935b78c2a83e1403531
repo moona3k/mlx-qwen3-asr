@@ -1,0 +1,36 @@
+docs/benchmarks/2026-09-19-manifest-quality-earnings22-full-longform3-0p6b-v0.4.4.json
+  s_7b5ee2ad1f9b97::t_b67d87152ec400 1-29
+docs/memory/events/2026-09.md
+  s_7b5ee2ad1f9b97::t_012ad0730e8c6a 529-555
+README.md
+  s_7b5ee2ad1f9b97::t_0693f479e929f4 32,725,806,818
+  s_7b5ee2ad1f9b97::t_f8c1c85c788c24 615
+pyproject.toml
+  s_7b5ee2ad1f9b97::t_0693f479e929f4 7
+docs/EVAL_GAPS.md
+  s_7b5ee2ad1f9b97::t_012ad0730e8c6a 120-129
+CLAUDE.md
+  s_7b5ee2ad1f9b97::t_0693f479e929f4 21
+  s_7b5ee2ad1f9b97::t_2e0a427a153c90 24
+  s_7b5ee2ad1f9b97::t_f8c1c85c788c24 30-33
+mlx_qwen3_asr/_version.py
+  s_7b5ee2ad1f9b97::t_0693f479e929f4 1
+docs/benchmarks/2026-09-19-manifest-quality-multilingual100-0p6b-v0.4.4.json
+  s_7b5ee2ad1f9b97::t_b67d87152ec400 1-2348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "efd46039443c7a4f3c749935b78c2a83e1403531",
+  "prompts": {},
+  "sessions": {
+    "s_7b5ee2ad1f9b97": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3a853172-cc4c-43e5-9784-84958657ac20",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Daniel Moon <32221114+moona3k@users.noreply.github.com>"
+    }
+  }
+}
