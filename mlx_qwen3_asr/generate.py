@@ -10,6 +10,7 @@ import mlx.core as mx
 import numpy as np
 
 from .attention import scalar_int
+from .decoder import KVCache
 from .model import Qwen3ASRModel
 
 # Repetition detection constants (from official repo)
@@ -201,10 +202,6 @@ def generate_with_info(
         cache=cache,
     )
 
-    # Sample first token
-    token = _sample(logits, config.temperature)
-    generated = [token]
-
     # Phase 2: Autoregressive decode
     seq_len = input_ids.shape[1]
     next_pos_3d = _build_decode_positions(
@@ -212,6 +209,12 @@ def generate_with_info(
         max_new_tokens=config.max_new_tokens,
         dtype=position_ids.dtype,
     )
+    if config.temperature <= 0.0:
+        return _greedy_pipelined(model, logits, next_pos_3d, cache, config)
+
+    # Sample first token
+    token = _sample(logits, config.temperature)
+    generated = [token]
 
     for step in range(1, config.max_new_tokens):
         # Check EOS
@@ -241,6 +244,43 @@ def generate_with_info(
 
         _periodic_eval(cache=cache, step=step, eval_interval=config.eval_interval)
 
+    return _finalize_generation_result(generated, config)
+
+
+def _greedy_pipelined(
+    model: Qwen3ASRModel,
+    logits: mx.array,
+    next_pos_3d: mx.array,
+    cache: KVCache,
+    config: GenerationConfig,
+) -> GenerationResult:
+    """Greedy decode that queues the step for token i+1 before reading token i on the host.
+
+    Same tokens and stopping rules as the sampled loop in `generate_with_info` (EOS,
+    repetition, budget); the GPU no longer idles for each token's host round trip (as
+    mlx-lm's generate_step). One extra step is computed after the last token and
+    discarded.
+    """
+    y = mx.argmax(logits.reshape(-1))
+    mx.async_eval(y)
+    generated: list[int] = []
+    for step in range(1, config.max_new_tokens + 1):
+        if step < config.max_new_tokens:
+            logits = model.step(
+                input_ids=y.reshape(1, 1),
+                position_ids=next_pos_3d[:, :, step - 1 : step],
+                cache=cache,
+                validate_input_ids=False,
+            )
+            next_y = mx.argmax(logits.reshape(-1))
+            mx.async_eval(next_y)
+        token = scalar_int(y)
+        generated.append(token)
+        if token in config.eos_token_ids or _detect_repetition(generated):
+            break
+        if step == config.max_new_tokens:
+            break
+        y = next_y
     return _finalize_generation_result(generated, config)
 
 
