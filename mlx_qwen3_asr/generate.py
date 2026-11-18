@@ -258,8 +258,9 @@ def _greedy_pipelined(
 
     Same tokens and stopping rules as the sampled loop in `generate_with_info` (EOS,
     repetition, budget); the GPU no longer idles for each token's host round trip (as
-    mlx-lm's generate_step). One extra step is computed after the last token and
-    discarded.
+    mlx-lm's generate_step). When EOS or repetition ends decoding, the step already
+    queued for the next token is computed and discarded; when the token budget ends
+    it, no extra step is queued.
     """
     y = mx.argmax(logits.reshape(-1))
     mx.async_eval(y)

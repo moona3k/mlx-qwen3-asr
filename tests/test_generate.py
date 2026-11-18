@@ -355,6 +355,71 @@ class TestGenerate:
         )
         assert out == [1]
 
+    def test_greedy_queues_the_next_step_before_reading_the_current_token(self, monkeypatch):
+        import mlx_qwen3_asr.generate as gen
+
+        events = []
+        # tokens: prefill -> 1, then steps -> 1, 1, eos 2, and one more that EOS discards
+        replies = iter([1, 1, 2, 1])
+
+        def logits_for(token):
+            row = [0.0, 0.0, 0.0]
+            row[token] = 1.0
+            return mx.array([[row]], dtype=mx.float32)
+
+        class _DummyModel:
+            def create_cache(self, max_seq_len=None):  # noqa: ANN001
+                return object()
+
+            def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
+                return logits_for(1)
+
+            def step(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001,E501
+                events.append("step")
+                return logits_for(next(replies))
+
+        real_scalar_int = gen.scalar_int
+
+        def reading(value):
+            events.append("read")
+            return real_scalar_int(value)
+
+        monkeypatch.setattr(gen, "scalar_int", reading)
+        out = generate(
+            model=_DummyModel(),
+            input_ids=mx.array([[1, 2, 3]]),
+            audio_features=mx.zeros((1, 2, 4)),
+            position_ids=mx.zeros((1, 3, 3), dtype=mx.int32),
+            config=GenerationConfig(max_new_tokens=10, temperature=0.0, eos_token_ids=[2]),
+        )
+        assert out == [1, 1, 1]
+        # Each step is queued before the previous token is read; EOS discards the last step.
+        assert events == ["step", "read"] * 4
+
+    def test_greedy_queues_no_extra_step_at_the_token_budget(self):
+        steps = []
+
+        class _DummyModel:
+            def create_cache(self, max_seq_len=None):  # noqa: ANN001
+                return object()
+
+            def prefill(self, input_ids, audio_features, position_ids, cache):  # noqa: ANN001
+                return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
+
+            def step(self, input_ids, position_ids, cache, *, validate_input_ids=True):  # noqa: ANN001,E501
+                steps.append(1)
+                return mx.array([[[0.0, 1.0, 0.0]]], dtype=mx.float32)
+
+        out = generate(
+            model=_DummyModel(),
+            input_ids=mx.array([[1, 2, 3]]),
+            audio_features=mx.zeros((1, 2, 4)),
+            position_ids=mx.zeros((1, 3, 6), dtype=mx.int32),
+            config=GenerationConfig(max_new_tokens=3, temperature=0.0, eos_token_ids=[2]),
+        )
+        assert out == [1, 1, 1]
+        assert len(steps) == 2
+
     def test_generate_handles_max_new_tokens_zero(self):
         class _DummyModel:
             def create_cache(self, max_seq_len=None):  # noqa: ANN001
