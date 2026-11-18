@@ -384,7 +384,14 @@ class TestGenerate:
             events.append("read")
             return real_scalar_int(value)
 
+        real_async_eval = gen.mx.async_eval
+
+        def submitting(*values):
+            events.append("submit")
+            return real_async_eval(*values)
+
         monkeypatch.setattr(gen, "scalar_int", reading)
+        monkeypatch.setattr(gen.mx, "async_eval", submitting)
         out = generate(
             model=_DummyModel(),
             input_ids=mx.array([[1, 2, 3]]),
@@ -393,8 +400,8 @@ class TestGenerate:
             config=GenerationConfig(max_new_tokens=10, temperature=0.0, eos_token_ids=[2]),
         )
         assert out == [1, 1, 1]
-        # Each step is queued before the previous token is read; EOS discards the last step.
-        assert events == ["step", "read"] * 4
+        # Each step is submitted before the previous token is read; EOS discards the last step.
+        assert events == ["submit"] + ["step", "submit", "read"] * 4
 
     def test_greedy_queues_no_extra_step_at_the_token_budget(self):
         steps = []
