@@ -39,6 +39,7 @@ written after 2026-09-19 carry a `runtime` block (`host_chip`, `memory_gb`,
 | Host | Memory | MLX | What was measured here |
 |---|---:|---|---|
 | Apple M4 Pro (maintainer laptop) | 48 GB | 0.30.6 (repo venv), 0.32.2 (temp venv) | everything |
+| Apple M5 Max (contributor run) | 128 GB | 0.32.5 | LibriSpeech-100 + short-clip latency (`oruk/oruk-fourier-2b` fp16) |
 | GitHub `macos-14` runner (M1, 7 GB) | 7 GB | latest release at run time | nightly LibriSpeech-100 + latency, PR fast gate |
 
 Missing: any 8-16 GB Apple Silicon machine. To add a row, run
@@ -57,9 +58,15 @@ host in the file name, and add the row.
 | 0.6B | test-other | 4.30% | 2.11% | 0.40s | 0.0553 |
 | 1.7B | test-clean | 1.94% | 0.57% | 0.77s | 0.0862 |
 | 1.7B | test-other | 3.45% | 1.48% | 0.66s | 0.0914 |
+| `oruk/oruk-fourier-2b` (fp16, M5 Max)* | test-clean | **1.81%** | **0.39%** | 0.52s | 0.0581 |
+| `oruk/oruk-fourier-2b` (fp16, M5 Max)* | test-other | **2.87%** | **1.11%** | 0.43s | 0.0604 |
+
+*`oruk/oruk-fourier-2b` (revision `8c2a8871`, `CC BY-NC 4.0`, English-specialized Qwen3-ASR 1.7B checkpoint) measured on Apple M5 Max (128 GB, macOS 26.4.1, MLX 0.32.5) using greedy MLX `float16` decoding on the identical 100 speaker-balanced `speaker_round_robin` utterances (`test-clean`: 895.8 s; `test-other`: 718.6 s). Short-clip latency on `tests/fixtures/test_speech.wav` (2.53 s, 5 runs after 3 warmups): 0.12 s median (`RTF 0.048`). Latency rows are not cross-host comparable to M4 Pro; WER/CER are host-independent.
 
 Artifacts: `2026-09-07-librispeech-test-{clean,other}-100.json`,
-`2026-09-07-librispeech-test-{clean,other}-100-1p7b.json`
+`2026-09-07-librispeech-test-{clean,other}-100-1p7b.json`,
+`2026-11-25-librispeech-test-{clean,other}-100-oruk-fourier-2b-fp16-m5-max.json`,
+`2026-11-25-latency-oruk-fourier-2b-fp16-m5-max-short.json`
 
 ---
 
@@ -548,6 +555,7 @@ All benchmark artifacts are committed under `docs/benchmarks/`. Key files:
 | `2026-09-19-aligner-parity-50.md` | Forced aligner audit on MLX 0.30.6 and 0.32.2: word timestamps + aligner encoder output; reference window-mask finding |
 | `2026-09-19-streaming-manifest-*.json` | v0.4.2 streaming quality vs offline on maintained manifests (before/after re-feed); `-{no-,}prefix-reuse` pairs for Decision 30; `-{hard,silence}-cut` pair for Decision 31 |
 | `2026-09-19-quantized-artifacts-*.json` | Quantized artifact evals (0.6B/1.7B x 4/8-bit) |
+| `2026-11-25-*-oruk-fourier-2b-fp16-m5-max*.json` | Apple M5 Max LibriSpeech-100 + short-clip latency (`oruk/oruk-fourier-2b` fp16) |
 | `2026-02-14-quant-matrix-speaker100.md` | Quantization quality + latency matrix |
 | `2026-02-15-quant-matrix-test-other-speaker100.md` | Quantization quality + latency on LibriSpeech test-other |
 | `2026-02-15-manifest-quality-multilingual100-0p6b-refresh.json` | 0.6B multilingual quality |

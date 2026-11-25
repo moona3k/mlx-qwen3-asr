@@ -1,0 +1,964 @@
+{
+  "suite": "librispeech-v1",
+  "subset": "test-other",
+  "sampling": "speaker_round_robin",
+  "samples": 100,
+  "unique_speakers": 33,
+  "speaker_counts": {
+    "1688": 4,
+    "1998": 3,
+    "2033": 3,
+    "2414": 3,
+    "2609": 3,
+    "3005": 3,
+    "3080": 3,
+    "3331": 3,
+    "3528": 3,
+    "3538": 3,
+    "367": 3,
+    "3764": 3,
+    "3997": 3,
+    "4198": 3,
+    "4294": 3,
+    "4350": 3,
+    "4852": 3,
+    "533": 3,
+    "5442": 3,
+    "5484": 3,
+    "5764": 3,
+    "6070": 3,
+    "6128": 3,
+    "6432": 3,
+    "6938": 3,
+    "7018": 3,
+    "7105": 3,
+    "7902": 3,
+    "7975": 3,
+    "8131": 3,
+    "8188": 3,
+    "8280": 3,
+    "8461": 3
+  },
+  "model": "oruk/oruk-fourier-2b",
+  "dtype": "float16",
+  "max_new_tokens": 256,
+  "wer": 0.02867764206054169,
+  "cer": 0.01114786230552493,
+  "mean_latency_sec": 0.4338303938297031,
+  "audio_duration_sec_total": 718.5849999999996,
+  "rtf": 0.060372870826652845,
+  "elapsed_sec": 44.906978292012354,
+  "runtime": {
+    "host_chip": "Apple M5 Max",
+    "memory_gb": 128.0,
+    "os": "Darwin 25.4.0",
+    "macos_version": "26.4.1",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "mlx_version": "0.32.5",
+    "git_commit": "41878a1"
+  },
+  "rows": [
+    {
+      "index": 1,
+      "sample_id": "1688-142285-0000",
+      "speaker_id": "1688",
+      "audio_path": "LibriSpeech/test-other/1688/142285/1688-142285-0000.flac",
+      "reference": "there's iron they say in all our blood and a grain or two perhaps is good but his he makes me harshly feel has got a little too much of steel anon",
+      "hypothesis": "there's iron they say in all our blood and a grain or two perhaps is good but his he makes me harshly feel has got a little too much of steel anon",
+      "latency_sec": 0.8304657080007019
+    },
+    {
+      "index": 2,
+      "sample_id": "1998-15444-0000",
+      "speaker_id": "1998",
+      "audio_path": "LibriSpeech/test-other/1998/15444/1998-15444-0000.flac",
+      "reference": "if called to a case supposed or suspected to be one of poisoning the medical man has two duties to perform to save the patient's life and to place himself in a position to give evidence if called on to do so",
+      "hypothesis": "if called to a case supposed or suspected to be one of poisoning the medical man has two duties to perform to save the patient's life and to place himself in a position to give evidence if called on to do so",
+      "latency_sec": 0.5686814579967177
+    },
+    {
+      "index": 3,
+      "sample_id": "2033-164914-0000",
+      "speaker_id": "2033",
+      "audio_path": "LibriSpeech/test-other/2033/164914/2033-164914-0000.flac",
+      "reference": "replied he of a truth i heard him not and i wot him not and folks are all sleeping",
+      "hypothesis": "replied he of a truth i heard him not and i wot him not and folks are all sleeping",
+      "latency_sec": 0.32908166700508446
+    },
+    {
+      "index": 4,
+      "sample_id": "2414-128291-0000",
+      "speaker_id": "2414",
+      "audio_path": "LibriSpeech/test-other/2414/128291/2414-128291-0000.flac",
+      "reference": "what hath happened unto me",
+      "hypothesis": "what hath happened unto me",
+      "latency_sec": 0.09111329198640306
+    },
+    {
+      "index": 5,
+      "sample_id": "2609-156975-0000",
+      "speaker_id": "2609",
+      "audio_path": "LibriSpeech/test-other/2609/156975/2609-156975-0000.flac",
+      "reference": "then moses was afraid and said surely the thing is known",
+      "hypothesis": "then moses was afraid and said surely the thing is known",
+      "latency_sec": 0.18069058400578797
+    },
+    {
+      "index": 6,
+      "sample_id": "3005-163389-0000",
+      "speaker_id": "3005",
+      "audio_path": "LibriSpeech/test-other/3005/163389/3005-163389-0000.flac",
+      "reference": "they swarmed up in front of sherburn's palings as thick as they could jam together and you couldn't hear yourself think for the noise",
+      "hypothesis": "they swarmed up in front of sherburne's palings as thick as they could jam together and you couldn't hear yourself think for the noise",
+      "latency_sec": 0.44824820899521
+    },
+    {
+      "index": 7,
+      "sample_id": "3080-5032-0000",
+      "speaker_id": "3080",
+      "audio_path": "LibriSpeech/test-other/3080/5032/3080-5032-0000.flac",
+      "reference": "but i am hugely pleased that you have seen my lady",
+      "hypothesis": "but i am hugely pleased that you have seen my lady",
+      "latency_sec": 0.1946976250037551
+    },
+    {
+      "index": 8,
+      "sample_id": "3331-159605-0000",
+      "speaker_id": "3331",
+      "audio_path": "LibriSpeech/test-other/3331/159605/3331-159605-0000.flac",
+      "reference": "she pulled her hair down turned her skirt back put her feet on the fender and took puttel into her lap all of which arrangements signified that something very important had got to be thought over and settled",
+      "hypothesis": "she pulled her hair down turned her skirt back put her feet on the fender and took putter into her lap all of which arrangements signified that something very important had got to be thought over and settled",
+      "latency_sec": 0.9550933750142576
+    },
+    {
+      "index": 9,
+      "sample_id": "3528-168656-0000",
+      "speaker_id": "3528",
+      "audio_path": "LibriSpeech/test-other/3528/168656/3528-168656-0000.flac",
+      "reference": "she had even been in society before the revolution",
+      "hypothesis": "she had even been in society before the revolution",
+      "latency_sec": 0.2638392499939073
+    },
+    {
+      "index": 10,
+      "sample_id": "3538-142836-0000",
+      "speaker_id": "3538",
+      "audio_path": "LibriSpeech/test-other/3538/142836/3538-142836-0000.flac",
+      "reference": "general observations on preserves confectionary ices and dessert dishes",
+      "hypothesis": "general observations on preserves confectionery ices and dessert dishes",
+      "latency_sec": 0.3503448749979725
+    },
+    {
+      "index": 11,
+      "sample_id": "367-130732-0000",
+      "speaker_id": "367",
+      "audio_path": "LibriSpeech/test-other/367/130732/367-130732-0000.flac",
+      "reference": "lobsters and lobsters",
+      "hypothesis": "lobsters and lobsters",
+      "latency_sec": 0.12192920899542514
+    },
+    {
+      "index": 12,
+      "sample_id": "3764-168670-0000",
+      "speaker_id": "3764",
+      "audio_path": "LibriSpeech/test-other/3764/168670/3764-168670-0000.flac",
+      "reference": "the strides of a lame man are like the ogling glances of a one eyed man they do not reach their goal very promptly",
+      "hypothesis": "the strides of a lame man are like the ogling glances of a one eyed man they do not reach their goal very promptly",
+      "latency_sec": 0.39976379199652
+    },
+    {
+      "index": 13,
+      "sample_id": "3997-180294-0000",
+      "speaker_id": "3997",
+      "audio_path": "LibriSpeech/test-other/3997/180294/3997-180294-0000.flac",
+      "reference": "the duke comes every morning they will tell him when he comes that i am asleep and perhaps he will wait until i wake",
+      "hypothesis": "the duke comes every morning they will tell him when he comes that i am asleep and perhaps he will wait until i awake",
+      "latency_sec": 0.3628180420055287
+    },
+    {
+      "index": 14,
+      "sample_id": "4198-12259-0000",
+      "speaker_id": "4198",
+      "audio_path": "LibriSpeech/test-other/4198/12259/4198-12259-0000.flac",
+      "reference": "draw reach fill mix give it me without water",
+      "hypothesis": "draw reach fill mix give it me without water",
+      "latency_sec": 0.2246246249997057
+    },
+    {
+      "index": 15,
+      "sample_id": "4294-14317-0000",
+      "speaker_id": "4294",
+      "audio_path": "LibriSpeech/test-other/4294/14317/4294-14317-0000.flac",
+      "reference": "as i thought that this was due to some fault in the earth i wanted to make these first experiments before i undertook my perseus",
+      "hypothesis": "as i thought that this was due to some fault in the earth i wanted to make these first experiments before i undertook my perseus",
+      "latency_sec": 0.4176352500071516
+    },
+    {
+      "index": 16,
+      "sample_id": "4350-10919-0000",
+      "speaker_id": "4350",
+      "audio_path": "LibriSpeech/test-other/4350/10919/4350-10919-0000.flac",
+      "reference": "he perceived that it was no good talking to the old man and that the principal person in the house was the mother",
+      "hypothesis": "he perceived that it was no good talking to the old man and that the principal person in the house was the mother",
+      "latency_sec": 0.35076020800624974
+    },
+    {
+      "index": 17,
+      "sample_id": "4852-28311-0000",
+      "speaker_id": "4852",
+      "audio_path": "LibriSpeech/test-other/4852/28311/4852-28311-0000.flac",
+      "reference": "say you know sumthin",
+      "hypothesis": "say you know something",
+      "latency_sec": 0.11240575001284014
+    },
+    {
+      "index": 18,
+      "sample_id": "533-1066-0000",
+      "speaker_id": "533",
+      "audio_path": "LibriSpeech/test-other/533/1066/533-1066-0000.flac",
+      "reference": "when churchyards yawn",
+      "hypothesis": "when churchyards yawn",
+      "latency_sec": 0.10573841699806508
+    },
+    {
+      "index": 19,
+      "sample_id": "5442-32873-0000",
+      "speaker_id": "5442",
+      "audio_path": "LibriSpeech/test-other/5442/32873/5442-32873-0000.flac",
+      "reference": "captain lake did not look at all like a london dandy now",
+      "hypothesis": "captain lake did not look at all like a london dandy now",
+      "latency_sec": 0.22198183300497476
+    },
+    {
+      "index": 20,
+      "sample_id": "5484-24317-0000",
+      "speaker_id": "5484",
+      "audio_path": "LibriSpeech/test-other/5484/24317/5484-24317-0000.flac",
+      "reference": "when he came from the bath proclus visited him again",
+      "hypothesis": "when he came from the bath procrustes visited him again",
+      "latency_sec": 0.23247229200205766
+    },
+    {
+      "index": 21,
+      "sample_id": "5764-299665-0000",
+      "speaker_id": "5764",
+      "audio_path": "LibriSpeech/test-other/5764/299665/5764-299665-0000.flac",
+      "reference": "afterward it was supposed that he was satisfied with the blood of oxen lambs and doves and that in exchange for or on account of these sacrifices this god gave rain sunshine and harvest",
+      "hypothesis": "afterward it was supposed that he was satisfied with the blood of oxen lambs and doves and that in exchange for or in account of these sacrifices this god gave rain sunshine and harvest",
+      "latency_sec": 0.6638827919960022
+    },
+    {
+      "index": 22,
+      "sample_id": "6070-63485-0000",
+      "speaker_id": "6070",
+      "audio_path": "LibriSpeech/test-other/6070/63485/6070-63485-0000.flac",
+      "reference": "they're done for said the schoolmaster in a low key to the chouette out with your vitriol and mind your eye",
+      "hypothesis": "there don't for said the schoolmaster in a low key to the schwede out with your vitriol and mind your eye",
+      "latency_sec": 0.4937437089974992
+    },
+    {
+      "index": 23,
+      "sample_id": "6128-63240-0000",
+      "speaker_id": "6128",
+      "audio_path": "LibriSpeech/test-other/6128/63240/6128-63240-0000.flac",
+      "reference": "the gentleman had not even needed to sit down to become interested apparently he had taken up the volume from a table as soon as he came in and standing there after a single glance round the apartment had lost himself in its pages",
+      "hypothesis": "the gentleman had not even needed to sit down to become interested apparently he had taken up the volume from a table as soon as he came in and standing there after a single glance round the apartment had lost himself in its pages",
+      "latency_sec": 0.6977664169971831
+    },
+    {
+      "index": 24,
+      "sample_id": "6432-63722-0000",
+      "speaker_id": "6432",
+      "audio_path": "LibriSpeech/test-other/6432/63722/6432-63722-0000.flac",
+      "reference": "but scuse me didn't yo figger on doin some detectin an give up fishin",
+      "hypothesis": "but excuse me didn't you figure on doing some detecting and giving up fishing",
+      "latency_sec": 0.24411208399396855
+    },
+    {
+      "index": 25,
+      "sample_id": "6938-70848-0000",
+      "speaker_id": "6938",
+      "audio_path": "LibriSpeech/test-other/6938/70848/6938-70848-0000.flac",
+      "reference": "even the sun came out pale and watery at noon",
+      "hypothesis": "even the sun came out pale and watery at noon",
+      "latency_sec": 0.1939080419979291
+    },
+    {
+      "index": 26,
+      "sample_id": "7018-75788-0000",
+      "speaker_id": "7018",
+      "audio_path": "LibriSpeech/test-other/7018/75788/7018-75788-0000.flac",
+      "reference": "then i took up a great stone from among the trees and coming up to him smote him therewith on the head with all my might and crushed in his skull as he lay dead drunk",
+      "hypothesis": "then i took up a great stone from among the trees and coming up to him smote him therewith on the head with all my might and crushed in his skull as he lay dead drunk",
+      "latency_sec": 0.609069833997637
+    },
+    {
+      "index": 27,
+      "sample_id": "7105-2330-0000",
+      "speaker_id": "7105",
+      "audio_path": "LibriSpeech/test-other/7105/2330/7105-2330-0000.flac",
+      "reference": "unfortunately there could be no doubt or misconception as to platterbaff's guilt",
+      "hypothesis": "unfortunately there could be no doubt or misconception as to platterbath's guilt",
+      "latency_sec": 0.29372879200673196
+    },
+    {
+      "index": 28,
+      "sample_id": "7902-96591-0000",
+      "speaker_id": "7902",
+      "audio_path": "LibriSpeech/test-other/7902/96591/7902-96591-0000.flac",
+      "reference": "i am from the cutter lying off the coast",
+      "hypothesis": "i'm from the cutter lying off the coast",
+      "latency_sec": 0.19768491700233426
+    },
+    {
+      "index": 29,
+      "sample_id": "7975-280057-0000",
+      "speaker_id": "7975",
+      "audio_path": "LibriSpeech/test-other/7975/280057/7975-280057-0000.flac",
+      "reference": "these hatreds were soon to make trouble for me of which i had never dreamed",
+      "hypothesis": "these hatreds were soon to make trouble for me of which i had never dreamed",
+      "latency_sec": 0.3051432909996947
+    },
+    {
+      "index": 30,
+      "sample_id": "8131-117016-0000",
+      "speaker_id": "8131",
+      "audio_path": "LibriSpeech/test-other/8131/117016/8131-117016-0000.flac",
+      "reference": "captain murdoch",
+      "hypothesis": "captain murdoch",
+      "latency_sec": 0.07596208399627358
+    },
+    {
+      "index": 31,
+      "sample_id": "8188-269288-0000",
+      "speaker_id": "8188",
+      "audio_path": "LibriSpeech/test-other/8188/269288/8188-269288-0000.flac",
+      "reference": "annie colchester had begun to make friends with leslie",
+      "hypothesis": "anne colchester had begun to make friends with leslie",
+      "latency_sec": 0.18754491698928177
+    },
+    {
+      "index": 32,
+      "sample_id": "8280-266249-0000",
+      "speaker_id": "8280",
+      "audio_path": "LibriSpeech/test-other/8280/266249/8280-266249-0000.flac",
+      "reference": "old mister dinsmore had accepted a pressing invitation from his granddaughter and her husband to join the party and with the addition of servants it was a large one",
+      "hypothesis": "old mister dinsmore had accepted a pressing invitation from his granddaughter and her husband to join the party and with the addition of servants it was a large one",
+      "latency_sec": 0.5221602079982404
+    },
+    {
+      "index": 33,
+      "sample_id": "8461-258277-0000",
+      "speaker_id": "8461",
+      "audio_path": "LibriSpeech/test-other/8461/258277/8461-258277-0000.flac",
+      "reference": "when it was the seven hundred and eighteenth night",
+      "hypothesis": "when it was the seven hundred and eighteenth night",
+      "latency_sec": 0.20579554101277608
+    },
+    {
+      "index": 34,
+      "sample_id": "1688-142285-0001",
+      "speaker_id": "1688",
+      "audio_path": "LibriSpeech/test-other/1688/142285/1688-142285-0001.flac",
+      "reference": "margaret said mister hale as he returned from showing his guest downstairs i could not help watching your face with some anxiety when mister thornton made his confession of having been a shop boy",
+      "hypothesis": "margaret said mister hale as he returned from showing his guests downstairs i could not help watching your face with some anxiety when mister thornton made his confession of having been a shop boy",
+      "latency_sec": 0.6645394590013893
+    },
+    {
+      "index": 35,
+      "sample_id": "1998-15444-0001",
+      "speaker_id": "1998",
+      "audio_path": "LibriSpeech/test-other/1998/15444/1998-15444-0001.flac",
+      "reference": "he should make inquiries as to symptoms and time at which food or medicine was last taken",
+      "hypothesis": "he should make inquiries as to symptoms and time at which food or medicine was last taken",
+      "latency_sec": 0.3629812500003027
+    },
+    {
+      "index": 36,
+      "sample_id": "2033-164914-0001",
+      "speaker_id": "2033",
+      "audio_path": "LibriSpeech/test-other/2033/164914/2033-164914-0001.flac",
+      "reference": "but she said whomsoever thou seest awake he is the reciter",
+      "hypothesis": "but she said whomsoever thou seest awake he is the reciter",
+      "latency_sec": 0.3572213750012452
+    },
+    {
+      "index": 37,
+      "sample_id": "2414-128291-0001",
+      "speaker_id": "2414",
+      "audio_path": "LibriSpeech/test-other/2414/128291/2414-128291-0001.flac",
+      "reference": "he asked himself something warm and living quickeneth me it must be in the neighbourhood",
+      "hypothesis": "he asked himself something warm and living quickened me it must be in the neighborhood",
+      "latency_sec": 0.3693970000022091
+    },
+    {
+      "index": 38,
+      "sample_id": "2609-156975-0001",
+      "speaker_id": "2609",
+      "audio_path": "LibriSpeech/test-other/2609/156975/2609-156975-0001.flac",
+      "reference": "hold on hold fast hold out patience is genius",
+      "hypothesis": "hold on hold fast hold out patience is genius",
+      "latency_sec": 0.20253733299614396
+    },
+    {
+      "index": 39,
+      "sample_id": "3005-163389-0001",
+      "speaker_id": "3005",
+      "audio_path": "LibriSpeech/test-other/3005/163389/3005-163389-0001.flac",
+      "reference": "some sung out tear down the fence tear down the fence",
+      "hypothesis": "some sung out tear down the fence tear down the fence",
+      "latency_sec": 0.2227172499988228
+    },
+    {
+      "index": 40,
+      "sample_id": "3080-5032-0001",
+      "speaker_id": "3080",
+      "audio_path": "LibriSpeech/test-other/3080/5032/3080-5032-0001.flac",
+      "reference": "i knew you could not choose but like her but yet let me tell you you have seen but the worst of her",
+      "hypothesis": "i knew you could not choose but like her but yet let me tell you you have seen but the worst of her",
+      "latency_sec": 0.3697034170036204
+    },
+    {
+      "index": 41,
+      "sample_id": "3331-159605-0001",
+      "speaker_id": "3331",
+      "audio_path": "LibriSpeech/test-other/3331/159605/3331-159605-0001.flac",
+      "reference": "the more proposals the more credit",
+      "hypothesis": "the more proposals the more credit",
+      "latency_sec": 0.17741466700681485
+    },
+    {
+      "index": 42,
+      "sample_id": "3528-168656-0001",
+      "speaker_id": "3528",
+      "audio_path": "LibriSpeech/test-other/3528/168656/3528-168656-0001.flac",
+      "reference": "it was her pleasure and her vanity to drag in these names on every pretext",
+      "hypothesis": "it was her pleasure and her vanity to drag in these names on every pretext",
+      "latency_sec": 0.23561412499111611
+    },
+    {
+      "index": 43,
+      "sample_id": "3538-142836-0001",
+      "speaker_id": "3538",
+      "audio_path": "LibriSpeech/test-other/3538/142836/3538-142836-0001.flac",
+      "reference": "the expense of preserving them with sugar is a serious objection for except the sugar is used in considerable quantities the success is very uncertain",
+      "hypothesis": "the expense of preserving them with sugar is a serious objection for except the sugar is used in considerable quantities the success is very uncertain",
+      "latency_sec": 0.4016456249955809
+    },
+    {
+      "index": 44,
+      "sample_id": "367-130732-0001",
+      "speaker_id": "367",
+      "audio_path": "LibriSpeech/test-other/367/130732/367-130732-0001.flac",
+      "reference": "when is a lobster not a lobster when it is a crayfish",
+      "hypothesis": "when is a lobster not a lobster when it is a crayfish",
+      "latency_sec": 0.236140749999322
+    },
+    {
+      "index": 45,
+      "sample_id": "3764-168670-0001",
+      "speaker_id": "3764",
+      "audio_path": "LibriSpeech/test-other/3764/168670/3764-168670-0001.flac",
+      "reference": "cosette had waked up",
+      "hypothesis": "cosette had waked up",
+      "latency_sec": 0.1425196250056615
+    },
+    {
+      "index": 46,
+      "sample_id": "3997-180294-0001",
+      "speaker_id": "3997",
+      "audio_path": "LibriSpeech/test-other/3997/180294/3997-180294-0001.flac",
+      "reference": "yes but if i should already ask for something what",
+      "hypothesis": "yes but if i should already ask for something what",
+      "latency_sec": 0.2245021669950802
+    },
+    {
+      "index": 47,
+      "sample_id": "4198-12259-0001",
+      "speaker_id": "4198",
+      "audio_path": "LibriSpeech/test-other/4198/12259/4198-12259-0001.flac",
+      "reference": "so my friend so whip me off this glass neatly bring me hither some claret a full weeping glass till it run over",
+      "hypothesis": "so my friend so whip me off this glass neatly bring me hither some claret a full weeping glass till it run over",
+      "latency_sec": 0.582466583000496
+    },
+    {
+      "index": 48,
+      "sample_id": "4294-14317-0001",
+      "speaker_id": "4294",
+      "audio_path": "LibriSpeech/test-other/4294/14317/4294-14317-0001.flac",
+      "reference": "when i saw that this bust came out sharp and clean i set at once to construct a little furnace in the workshop erected for me by the duke after my own plans and design in the house which the duke had given me",
+      "hypothesis": "when i saw that this bust came out sharp and clean i set at once to construct a little furnace in the workshop erected for me by the duke after my own plans and design in the house which the duke had given me",
+      "latency_sec": 0.8161877910024486
+    },
+    {
+      "index": 49,
+      "sample_id": "4350-10919-0001",
+      "speaker_id": "4350",
+      "audio_path": "LibriSpeech/test-other/4350/10919/4350-10919-0001.flac",
+      "reference": "before her he decided to scatter his pearls",
+      "hypothesis": "before her he decided to scatter his pearls",
+      "latency_sec": 0.24959912498889025
+    },
+    {
+      "index": 50,
+      "sample_id": "4852-28311-0001",
+      "speaker_id": "4852",
+      "audio_path": "LibriSpeech/test-other/4852/28311/4852-28311-0001.flac",
+      "reference": "chris looked from a nickel plated flashlight to a car jack and spark plug",
+      "hypothesis": "chris looked from a nickel plated flashlight to a car jack and spark plug",
+      "latency_sec": 0.31160249999084044
+    },
+    {
+      "index": 51,
+      "sample_id": "533-1066-0001",
+      "speaker_id": "533",
+      "audio_path": "LibriSpeech/test-other/533/1066/533-1066-0001.flac",
+      "reference": "i knew well enough that he might be carried thousands of miles in the box car locked in perhaps without water or food",
+      "hypothesis": "i knew well enough that he might be carried thousands of miles in the box car locked in perhaps without water or food",
+      "latency_sec": 0.38858837498992216
+    },
+    {
+      "index": 52,
+      "sample_id": "5442-32873-0001",
+      "speaker_id": "5442",
+      "audio_path": "LibriSpeech/test-other/5442/32873/5442-32873-0001.flac",
+      "reference": "there was a very natural savagery and dejection there and a wild leer in his yellow eyes rachel sat down",
+      "hypothesis": "there was a very natural savagery and dejection there and a wild leer in his yellow eyes rachel sat down",
+      "latency_sec": 0.4014794999966398
+    },
+    {
+      "index": 53,
+      "sample_id": "5484-24317-0001",
+      "speaker_id": "5484",
+      "audio_path": "LibriSpeech/test-other/5484/24317/5484-24317-0001.flac",
+      "reference": "but hermon was not in the mood to share a joyous revel and he frankly said so although immediately after his return he had accepted the invitation to the festival which the whole fellowship of artists would give the following day in honour of the seventieth birthday of the old sculptor euphranor",
+      "hypothesis": "but hermon was not in the mood to share a joyous revel and he frankly said so although immediately after his return he had accepted the invitation to the festival which the whole fellowship of artists would give the following day in honor of the seventieth birthday of the old sculptor euphranor",
+      "latency_sec": 0.9920369580067927
+    },
+    {
+      "index": 54,
+      "sample_id": "5764-299665-0001",
+      "speaker_id": "5764",
+      "audio_path": "LibriSpeech/test-other/5764/299665/5764-299665-0001.flac",
+      "reference": "whether he was the creator of yourself and myself",
+      "hypothesis": "whether he was the creator of yourself and myself",
+      "latency_sec": 0.22691766700882
+    },
+    {
+      "index": 55,
+      "sample_id": "6070-63485-0001",
+      "speaker_id": "6070",
+      "audio_path": "LibriSpeech/test-other/6070/63485/6070-63485-0001.flac",
+      "reference": "the two monsters took off their shoes and moved stealthily along keeping in the shadows of the houses",
+      "hypothesis": "the two monsters took off their shoes and moved stealthily along keeping in the shadows of the houses",
+      "latency_sec": 0.385834665998118
+    },
+    {
+      "index": 56,
+      "sample_id": "6128-63240-0001",
+      "speaker_id": "6128",
+      "audio_path": "LibriSpeech/test-other/6128/63240/6128-63240-0001.flac",
+      "reference": "that has an unflattering sound for me said the young man",
+      "hypothesis": "that has an unflattering sound for me said the young man",
+      "latency_sec": 0.2444864170101937
+    },
+    {
+      "index": 57,
+      "sample_id": "6432-63722-0001",
+      "speaker_id": "6432",
+      "audio_path": "LibriSpeech/test-other/6432/63722/6432-63722-0001.flac",
+      "reference": "and shag with the freedom of an old servant stood looking at his master as if not quite understanding the new twist the affairs had taken",
+      "hypothesis": "and shag with the freedom of an old servant stood looking at his master as if not quite understanding the new twist the affairs had taken",
+      "latency_sec": 0.4573054590000538
+    },
+    {
+      "index": 58,
+      "sample_id": "6938-70848-0001",
+      "speaker_id": "6938",
+      "audio_path": "LibriSpeech/test-other/6938/70848/6938-70848-0001.flac",
+      "reference": "the colds and rheumatism of the rainy months vanished",
+      "hypothesis": "the colds and rheumatism of the rainy months vanished",
+      "latency_sec": 0.22857624999596737
+    },
+    {
+      "index": 59,
+      "sample_id": "7018-75788-0001",
+      "speaker_id": "7018",
+      "audio_path": "LibriSpeech/test-other/7018/75788/7018-75788-0001.flac",
+      "reference": "behold a ship was making for the island through the dashing sea and clashing waves",
+      "hypothesis": "behold a ship was making for the island through the dashing sea and clashing waves",
+      "latency_sec": 0.3394852089986671
+    },
+    {
+      "index": 60,
+      "sample_id": "7105-2330-0001",
+      "speaker_id": "7105",
+      "audio_path": "LibriSpeech/test-other/7105/2330/7105-2330-0001.flac",
+      "reference": "he had not only pleaded guilty but had expressed his intention of repeating his escapade in other directions as soon as circumstances permitted throughout the trial he was busy examining a small model of the free trade hall in manchester",
+      "hypothesis": "he had not only pleaded guilty but had expressed his intention of repeating his escapade in other directions as soon as circumstances permitted throughout the trial he was busy examining a small model of the free trade hall in manchester",
+      "latency_sec": 0.6844382080016658
+    },
+    {
+      "index": 61,
+      "sample_id": "7902-96591-0001",
+      "speaker_id": "7902",
+      "audio_path": "LibriSpeech/test-other/7902/96591/7902-96591-0001.flac",
+      "reference": "don't cry he said i was obliged to come",
+      "hypothesis": "don't cry he said i was obliged to come",
+      "latency_sec": 0.21613916599017102
+    },
+    {
+      "index": 62,
+      "sample_id": "7975-280057-0001",
+      "speaker_id": "7975",
+      "audio_path": "LibriSpeech/test-other/7975/280057/7975-280057-0001.flac",
+      "reference": "henry washington younger my father represented jackson county three times in the legislature and was also judge of the county court",
+      "hypothesis": "henry washington younger my father represented jackson county three times in the legislature and was also a judge of the county court",
+      "latency_sec": 0.44835516600869596
+    },
+    {
+      "index": 63,
+      "sample_id": "8131-117016-0001",
+      "speaker_id": "8131",
+      "audio_path": "LibriSpeech/test-other/8131/117016/8131-117016-0001.flac",
+      "reference": "but marsport had flourished enough to kill it off",
+      "hypothesis": "but marshport had flourished enough to kill it off",
+      "latency_sec": 0.26071404200047255
+    },
+    {
+      "index": 64,
+      "sample_id": "8188-269288-0001",
+      "speaker_id": "8188",
+      "audio_path": "LibriSpeech/test-other/8188/269288/8188-269288-0001.flac",
+      "reference": "leslie determined to try for honors in english language and literature",
+      "hypothesis": "leslie determined to try for honors in english language and literature",
+      "latency_sec": 0.23385308300203178
+    },
+    {
+      "index": 65,
+      "sample_id": "8280-266249-0001",
+      "speaker_id": "8280",
+      "audio_path": "LibriSpeech/test-other/8280/266249/8280-266249-0001.flac",
+      "reference": "as they were in no haste and the confinement of a railroad car would be very irksome to the younger children it had been decided to make the journey by water",
+      "hypothesis": "as they were in no haste and the confinement of a railroad car would be very irksome to the younger children it had been decided to make the journey by water",
+      "latency_sec": 0.5621421669929987
+    },
+    {
+      "index": 66,
+      "sample_id": "8461-258277-0001",
+      "speaker_id": "8461",
+      "audio_path": "LibriSpeech/test-other/8461/258277/8461-258277-0001.flac",
+      "reference": "but he answered needs must i have zaynab also now suddenly there came a rap at the door and the maid said who is at the door",
+      "hypothesis": "but he answered needs must thy have zainab also now suddenly there came a rap at the door and the maid said who is at the door",
+      "latency_sec": 0.5270912919950206
+    },
+    {
+      "index": 67,
+      "sample_id": "1688-142285-0002",
+      "speaker_id": "1688",
+      "audio_path": "LibriSpeech/test-other/1688/142285/1688-142285-0002.flac",
+      "reference": "you don't mean that you thought me so silly",
+      "hypothesis": "you don't mean that you thought me so silly",
+      "latency_sec": 0.17554337499313988
+    },
+    {
+      "index": 68,
+      "sample_id": "1998-15444-0002",
+      "speaker_id": "1998",
+      "audio_path": "LibriSpeech/test-other/1998/15444/1998-15444-0002.flac",
+      "reference": "he should notice the position and temperature of the body the condition of rigor mortis marks of violence appearance of lips and mouth",
+      "hypothesis": "he should notice the position and temperature of the body the condition of rigor mortis marks of violence appearance of lips and mouth",
+      "latency_sec": 0.5031619999936083
+    },
+    {
+      "index": 69,
+      "sample_id": "2033-164914-0002",
+      "speaker_id": "2033",
+      "audio_path": "LibriSpeech/test-other/2033/164914/2033-164914-0002.flac",
+      "reference": "then said the eunuch art thou he who repeated poetry but now and my lady heard him",
+      "hypothesis": "then said the eunuch art thou he who repeated poetry but now and my lady heard him",
+      "latency_sec": 0.38430250000965316
+    },
+    {
+      "index": 70,
+      "sample_id": "2414-128291-0002",
+      "speaker_id": "2414",
+      "audio_path": "LibriSpeech/test-other/2414/128291/2414-128291-0002.flac",
+      "reference": "when however zarathustra was quite nigh unto them then did he hear plainly that a human voice spake in the midst of the kine and apparently all of them had turned their heads towards the speaker",
+      "hypothesis": "when however the tushra was quite nigh unto them then did he hear plainly that human voice spake in the midst of the kind and apparently all of them had turned their heads towards the speaker",
+      "latency_sec": 0.6423878750065342
+    },
+    {
+      "index": 71,
+      "sample_id": "2609-156975-0002",
+      "speaker_id": "2609",
+      "audio_path": "LibriSpeech/test-other/2609/156975/2609-156975-0002.flac",
+      "reference": "let us have faith that right makes might and in that faith let us dare to do our duty as we understand it lincoln",
+      "hypothesis": "let us have faith that right makes might and in that faith let us dare to do our duty as we understand it lincoln",
+      "latency_sec": 0.4856719579984201
+    },
+    {
+      "index": 72,
+      "sample_id": "3005-163389-0002",
+      "speaker_id": "3005",
+      "audio_path": "LibriSpeech/test-other/3005/163389/3005-163389-0002.flac",
+      "reference": "the stillness was awful creepy and uncomfortable",
+      "hypothesis": "the stillness was awful creepy and uncomfortable",
+      "latency_sec": 0.21867112499603536
+    },
+    {
+      "index": 73,
+      "sample_id": "3080-5032-0002",
+      "speaker_id": "3080",
+      "audio_path": "LibriSpeech/test-other/3080/5032/3080-5032-0002.flac",
+      "reference": "her conversation has more charms than can be in mere beauty and her humour and disposition would make a deformed person appear lovely",
+      "hypothesis": "her conversation has more charms than can be in mere beauty and her humor and disposition would make a deformed person appear lovely",
+      "latency_sec": 0.4459195419913158
+    },
+    {
+      "index": 74,
+      "sample_id": "3331-159605-0002",
+      "speaker_id": "3331",
+      "audio_path": "LibriSpeech/test-other/3331/159605/3331-159605-0002.flac",
+      "reference": "i ve tried it and liked it and maybe this is the consequence of that night's fun",
+      "hypothesis": "i've tried it and liked it and maybe this is the consequence of that night's fun",
+      "latency_sec": 0.3697611250099726
+    },
+    {
+      "index": 75,
+      "sample_id": "3528-168656-0002",
+      "speaker_id": "3528",
+      "audio_path": "LibriSpeech/test-other/3528/168656/3528-168656-0002.flac",
+      "reference": "every year she solemnly renewed her vows and at the moment of taking the oath she said to the priest monseigneur saint francois gave it to monseigneur saint julien monseigneur saint julien gave it to monseigneur saint eusebius monseigneur saint eusebius gave it to monseigneur saint procopius et cetera et cetera",
+      "hypothesis": "every year she solemnly renewed her vows and at the moment of taking the oath she said to the priest monseigneur saint fran ois gave it to monseigneur saint julian monseigneur saint julian gave it to monseigneur saint eusebius monseigneur saint eusebius gave it to monseigneur saint procopius etc etc",
+      "latency_sec": 1.2673314999992726
+    },
+    {
+      "index": 76,
+      "sample_id": "3538-142836-0002",
+      "speaker_id": "3538",
+      "audio_path": "LibriSpeech/test-other/3538/142836/3538-142836-0002.flac",
+      "reference": "fruit gathered in wet or foggy weather will soon be mildewed and be of no service for preserves",
+      "hypothesis": "fruit gathered in wet or foggy weather will soon be mildewed and be of no service for preserves",
+      "latency_sec": 0.38301324998610653
+    },
+    {
+      "index": 77,
+      "sample_id": "367-130732-0002",
+      "speaker_id": "367",
+      "audio_path": "LibriSpeech/test-other/367/130732/367-130732-0002.flac",
+      "reference": "this question and answer might well go into the primer of information for those who come to san francisco from the east for what is called a lobster in san francisco is not a lobster at all but a crayfish",
+      "hypothesis": "this question and answer might well go into the primer of information for those who come to san francisco from the east for what is called a lobster in san francisco is not a lobster at all but a crayfish",
+      "latency_sec": 1.1742659169976832
+    },
+    {
+      "index": 78,
+      "sample_id": "3764-168670-0002",
+      "speaker_id": "3764",
+      "audio_path": "LibriSpeech/test-other/3764/168670/3764-168670-0002.flac",
+      "reference": "jean valjean had placed her near the fire",
+      "hypothesis": "jean valjean had placed her near the fire",
+      "latency_sec": 0.26811966599780135
+    },
+    {
+      "index": 79,
+      "sample_id": "3997-180294-0002",
+      "speaker_id": "3997",
+      "audio_path": "LibriSpeech/test-other/3997/180294/3997-180294-0002.flac",
+      "reference": "well do it for me for i swear to you that i don't love you as the others have loved you",
+      "hypothesis": "well do it for me for i swear to you that i don't love you as the others have loved you",
+      "latency_sec": 1.3694183339976007
+    },
+    {
+      "index": 80,
+      "sample_id": "4198-12259-0002",
+      "speaker_id": "4198",
+      "audio_path": "LibriSpeech/test-other/4198/12259/4198-12259-0002.flac",
+      "reference": "a cessation and truce with thirst",
+      "hypothesis": "a cessation and truce with thirst",
+      "latency_sec": 0.4038762080017477
+    },
+    {
+      "index": 81,
+      "sample_id": "4294-14317-0002",
+      "speaker_id": "4294",
+      "audio_path": "LibriSpeech/test-other/4294/14317/4294-14317-0002.flac",
+      "reference": "it was an extremely difficult task and i was anxious to observe all the niceties of art which i had learned so as not to lapse into some error",
+      "hypothesis": "it was an extremely difficult task and i was anxious to observe all the niceties of art which i had learned so as not to lapse into some error",
+      "latency_sec": 0.6626827089930885
+    },
+    {
+      "index": 82,
+      "sample_id": "4350-10919-0002",
+      "speaker_id": "4350",
+      "audio_path": "LibriSpeech/test-other/4350/10919/4350-10919-0002.flac",
+      "reference": "the princess was distracted and did not know what to do she felt she had sinned against kitty",
+      "hypothesis": "the princess was distracted and did not know what to do she felt she had sinned against kitty",
+      "latency_sec": 0.3398564999952214
+    },
+    {
+      "index": 83,
+      "sample_id": "4852-28311-0002",
+      "speaker_id": "4852",
+      "audio_path": "LibriSpeech/test-other/4852/28311/4852-28311-0002.flac",
+      "reference": "know who needs a job bad that's jakey harris",
+      "hypothesis": "know who needs a job bad that's jakey harris",
+      "latency_sec": 0.2241176249954151
+    },
+    {
+      "index": 84,
+      "sample_id": "533-1066-0002",
+      "speaker_id": "533",
+      "audio_path": "LibriSpeech/test-other/533/1066/533-1066-0002.flac",
+      "reference": "i am sure i kissed liddy and i have had terrible moments since when i seem to remember kissing mister jamieson too in the excitement",
+      "hypothesis": "i am sure i kissed lady and i've had terrible moments since when i seem to remember kissing mister jameson too in the excitement",
+      "latency_sec": 0.6868242920027114
+    },
+    {
+      "index": 85,
+      "sample_id": "5442-32873-0002",
+      "speaker_id": "5442",
+      "audio_path": "LibriSpeech/test-other/5442/32873/5442-32873-0002.flac",
+      "reference": "a slave only think a slave",
+      "hypothesis": "a slave only think a slave",
+      "latency_sec": 0.14489679200050887
+    },
+    {
+      "index": 86,
+      "sample_id": "5484-24317-0002",
+      "speaker_id": "5484",
+      "audio_path": "LibriSpeech/test-other/5484/24317/5484-24317-0002.flac",
+      "reference": "she would appear herself at dessert and the banquet must therefore begin at an unusually early hour",
+      "hypothesis": "she would appear herself at dessert and the banquet must therefore begin at an unusually early hour",
+      "latency_sec": 0.35524995799642056
+    },
+    {
+      "index": 87,
+      "sample_id": "5764-299665-0002",
+      "speaker_id": "5764",
+      "audio_path": "LibriSpeech/test-other/5764/299665/5764-299665-0002.flac",
+      "reference": "whether any prayer was ever answered",
+      "hypothesis": "whether any prayer was ever answered",
+      "latency_sec": 0.1774119170004269
+    },
+    {
+      "index": 88,
+      "sample_id": "6070-63485-0002",
+      "speaker_id": "6070",
+      "audio_path": "LibriSpeech/test-other/6070/63485/6070-63485-0002.flac",
+      "reference": "by means of this stratagem they followed so closely that although within a few steps of sarah and tom they did not hear them",
+      "hypothesis": "by means of this stratagem they followed so closely that although within a few steps of sarah and tom they did not hear them",
+      "latency_sec": 0.4565332920028595
+    },
+    {
+      "index": 89,
+      "sample_id": "6128-63240-0002",
+      "speaker_id": "6128",
+      "audio_path": "LibriSpeech/test-other/6128/63240/6128-63240-0002.flac",
+      "reference": "she is willing to risk that",
+      "hypothesis": "she is willing to risk that",
+      "latency_sec": 0.13660254199930932
+    },
+    {
+      "index": 90,
+      "sample_id": "6432-63722-0002",
+      "speaker_id": "6432",
+      "audio_path": "LibriSpeech/test-other/6432/63722/6432-63722-0002.flac",
+      "reference": "i'm going off fishing i may not catch anything i may not want to after i get there",
+      "hypothesis": "i'm going off fishing i may not catch anything and may not want to after i get there",
+      "latency_sec": 1.5471247499954188
+    },
+    {
+      "index": 91,
+      "sample_id": "6938-70848-0002",
+      "speaker_id": "6938",
+      "audio_path": "LibriSpeech/test-other/6938/70848/6938-70848-0002.flac",
+      "reference": "asked a worker last sunday you did it when the yunkers",
+      "hypothesis": "asked a worker last sunday you did it when the youngsters",
+      "latency_sec": 0.9930092919967137
+    },
+    {
+      "index": 92,
+      "sample_id": "7018-75788-0002",
+      "speaker_id": "7018",
+      "audio_path": "LibriSpeech/test-other/7018/75788/7018-75788-0002.flac",
+      "reference": "hearing this i was sore troubled remembering what i had before suffered from the ape kind",
+      "hypothesis": "hearing this i was sore troubled remembering what i had before suffered from the ape kind",
+      "latency_sec": 1.2527367079892429
+    },
+    {
+      "index": 93,
+      "sample_id": "7105-2330-0002",
+      "speaker_id": "7105",
+      "audio_path": "LibriSpeech/test-other/7105/2330/7105-2330-0002.flac",
+      "reference": "the jury could not possibly find that the prisoner had not deliberately and intentionally blown up the albert hall the question was could they find any extenuating circumstances which would permit of an acquittal",
+      "hypothesis": "the jury could not possibly find that the prisoner had not deliberately and intentionally blown up the albert hall the question was could they find any extenuating circumstances which would permit of an acquittal",
+      "latency_sec": 0.8665662080020411
+    },
+    {
+      "index": 94,
+      "sample_id": "7902-96591-0002",
+      "speaker_id": "7902",
+      "audio_path": "LibriSpeech/test-other/7902/96591/7902-96591-0002.flac",
+      "reference": "and and you have not found out anything came in quick frightened tones",
+      "hypothesis": "and and you have not found out anything came in quick frightened tones",
+      "latency_sec": 0.24182187500991859
+    },
+    {
+      "index": 95,
+      "sample_id": "7975-280057-0002",
+      "speaker_id": "7975",
+      "audio_path": "LibriSpeech/test-other/7975/280057/7975-280057-0002.flac",
+      "reference": "my mother who was bursheba fristoe of independence was the daughter of richard fristoe who fought under general andrew jackson at new orleans jackson county having been so named at my grandfather fristoe's insistence",
+      "hypothesis": "my mother who was brerisha fristoe of independence was the daughter of richard fristoe who fought under general andrew jackson at new orleans jackson county having been so named at my grandfather fristoe's insistence",
+      "latency_sec": 0.7102327500033425
+    },
+    {
+      "index": 96,
+      "sample_id": "8131-117016-0002",
+      "speaker_id": "8131",
+      "audio_path": "LibriSpeech/test-other/8131/117016/8131-117016-0002.flac",
+      "reference": "some of mars laws dated from the time when law enforcement had been hampered by lack of men rather than by the type of men",
+      "hypothesis": "some of mars' laws dated from the time when law enforcement had been hampered by lack of men rather than by the type of men",
+      "latency_sec": 0.4515465000004042
+    },
+    {
+      "index": 97,
+      "sample_id": "8188-269288-0002",
+      "speaker_id": "8188",
+      "audio_path": "LibriSpeech/test-other/8188/269288/8188-269288-0002.flac",
+      "reference": "her tastes all lay in this direction her idea being by and by to follow her mother's profession of journalism for which she already showed considerable aptitude",
+      "hypothesis": "her tastes all lay in this direction her idea being by and by to follow her mother's profession of journalism for which she already showed considerable aptitude",
+      "latency_sec": 0.49760045899893157
+    },
+    {
+      "index": 98,
+      "sample_id": "8280-266249-0002",
+      "speaker_id": "8280",
+      "audio_path": "LibriSpeech/test-other/8280/266249/8280-266249-0002.flac",
+      "reference": "there were no sad leave takings to mar their pleasure the children were in wild spirits and all seemed cheerful and happy as they sat or stood upon the deck watching the receding shore as the vessel steamed out of the harbor",
+      "hypothesis": "there were no sad leave takings to mar their pleasure the children were in wild spirits and all seemed cheerful and happy as they sat or stood upon the deck watching the receding shore as the vessel steamed out of the harbor",
+      "latency_sec": 0.9042421659978572
+    },
+    {
+      "index": 99,
+      "sample_id": "8461-258277-0002",
+      "speaker_id": "8461",
+      "audio_path": "LibriSpeech/test-other/8461/258277/8461-258277-0002.flac",
+      "reference": "the knocker replied kamar daughter of azariah the jew say me is ali of cairo with you",
+      "hypothesis": "the knocker replied kamar daughter of azariah the jew say me is ali of cairo with you",
+      "latency_sec": 0.44233116701070685
+    },
+    {
+      "index": 100,
+      "sample_id": "1688-142285-0003",
+      "speaker_id": "1688",
+      "audio_path": "LibriSpeech/test-other/1688/142285/1688-142285-0003.flac",
+      "reference": "i really liked that account of himself better than anything else he said",
+      "hypothesis": "i really like that account of himself better than anything else he said",
+      "latency_sec": 0.2230857500107959
+    }
+  ],
+  "model_revision": "8c2a8871f1304aa2f634da4fb95e24438c4945b9"
+}

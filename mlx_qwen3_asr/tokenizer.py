@@ -169,7 +169,10 @@ def _get_pairs(word: tuple[str, ...]) -> set[tuple[str, str]]:
 
 def _resolve_tokenizer_dir(model_path: str) -> Path:
     path = Path(model_path)
-    if path.exists() and (path / "vocab.json").exists() and (path / "merges.txt").exists():
+    if path.exists() and (
+        ((path / "vocab.json").exists() and (path / "merges.txt").exists())
+        or (path / "tokenizer.json").exists()
+    ):
         return path
     # Reuse model resolver so repo IDs map to local snapshot directories.
     from .load_models import _resolve_path
@@ -182,22 +185,44 @@ class _NativeQwenBPETokenizer:
 
     def __init__(self, model_path: str):
         model_dir = _resolve_tokenizer_dir(model_path)
-        self._encoder: dict[str, int] = json.loads((model_dir / "vocab.json").read_text("utf-8"))
+        vocab_path = model_dir / "vocab.json"
+        merges_path = model_dir / "merges.txt"
+        tok_json_path = model_dir / "tokenizer.json"
+        tok_json_data: dict = {}
+
+        if vocab_path.exists() and merges_path.exists():
+            self._encoder: dict[str, int] = json.loads(vocab_path.read_text("utf-8"))
+            merges_raw = merges_path.read_text("utf-8").splitlines()
+        elif tok_json_path.exists():
+            tok_json_data = json.loads(tok_json_path.read_text("utf-8"))
+            model_section = tok_json_data.get("model") or {}
+            self._encoder = dict(model_section.get("vocab") or {})
+            merges_raw = list(model_section.get("merges") or [])
+        else:
+            raise FileNotFoundError(
+                f"Expected vocab.json+merges.txt or tokenizer.json in {model_dir}"
+            )
+
         self._decoder: dict[int, str] = {v: k for k, v in self._encoder.items()}
         self._byte_encoder = _bytes_to_unicode()
         self._byte_decoder = {v: k for k, v in self._byte_encoder.items()}
         self._pat = re.compile(PRETOKENIZE_REGEX)
 
-        merges = (model_dir / "merges.txt").read_text("utf-8").splitlines()
         self._bpe_ranks: dict[tuple[str, str], int] = {}
-        for i, line in enumerate(merges):
-            line = line.strip()
+        rank = 0
+        for entry in merges_raw:
+            if isinstance(entry, (list, tuple)) and len(entry) == 2:
+                self._bpe_ranks[(str(entry[0]), str(entry[1]))] = rank
+                rank += 1
+                continue
+            line = str(entry).strip()
             if not line or line.startswith("#"):
                 continue
             parts = line.split()
             if len(parts) != 2:
                 continue
-            self._bpe_ranks[(parts[0], parts[1])] = i
+            self._bpe_ranks[(parts[0], parts[1])] = rank
+            rank += 1
         self._bpe_cache: dict[str, str] = {}
 
         tok_cfg_path = model_dir / "tokenizer_config.json"
@@ -222,6 +247,18 @@ class _NativeQwenBPETokenizer:
                 continue
             self._added_tokens_encoder[content] = tid
             self._added_tokens_decoder[tid] = content
+            if bool(meta.get("special", False)):
+                self._special_added_token_ids.add(tid)
+        for meta in tok_json_data.get("added_tokens") or []:
+            if not isinstance(meta, dict):
+                continue
+            content = str(meta.get("content", ""))
+            tid_raw = meta.get("id")
+            if not content or tid_raw is None:
+                continue
+            tid = int(tid_raw)
+            self._added_tokens_encoder.setdefault(content, tid)
+            self._added_tokens_decoder.setdefault(tid, content)
             if bool(meta.get("special", False)):
                 self._special_added_token_ids.add(tid)
 

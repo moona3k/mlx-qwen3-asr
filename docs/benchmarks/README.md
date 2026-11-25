@@ -230,6 +230,15 @@ Post-canonicalization multilingual triage artifacts (2026-02-15):
 - `docs/benchmarks/2026-02-15-nonnear-parity-matrix.json`
 - `docs/benchmarks/2026-02-15-nonnear-parity-matrix.md`
 
+Apple M5 Max + `transformers>=5.24` native checkpoint benchmark (`oruk/oruk-fourier-2b`, 2026-11-25):
+
+- Machine: Apple M5 Max (128 GB), macOS 26.4.1, MLX 0.32.5
+- Model: `oruk/oruk-fourier-2b` (`8c2a8871`, `CC BY-NC 4.0`, English-specialized Qwen3-ASR 1.7B), dtype `float16`, greedy MLX decoding
+- Artifacts:
+  - `docs/benchmarks/2026-11-25-librispeech-test-clean-100-oruk-fourier-2b-fp16-m5-max.json`
+  - `docs/benchmarks/2026-11-25-librispeech-test-other-100-oruk-fourier-2b-fp16-m5-max.json`
+  - `docs/benchmarks/2026-11-25-latency-oruk-fourier-2b-fp16-m5-max-short.json`
+
 Generate with:
 
 ```bash
