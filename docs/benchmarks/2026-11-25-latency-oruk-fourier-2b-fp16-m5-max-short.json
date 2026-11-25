@@ -1,0 +1,28 @@
+{
+  "audio_path": "tests/fixtures/test_speech.wav",
+  "audio_duration_sec": 2.53325,
+  "model": "oruk/oruk-fourier-2b",
+  "dtype": "float16",
+  "runs": 5,
+  "warmup_runs": 3,
+  "latency_sec": {
+    "mean": 0.12193166659853887,
+    "median": 0.12176275000092573,
+    "min": 0.12065020800218917,
+    "max": 0.1230820839991793,
+    "std": 0.0008548264346101948
+  },
+  "rtf": 0.04813250433180258,
+  "runtime": {
+    "host_chip": "Apple M5 Max",
+    "memory_gb": 128.0,
+    "os": "Darwin 25.4.0",
+    "macos_version": "26.4.1",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "mlx_version": "0.32.5",
+    "git_commit": "41878a1"
+  },
+  "transcript_preview": "The quick brown fox jumps over the lazy dog.",
+  "model_revision": "8c2a8871f1304aa2f634da4fb95e24438c4945b9"
+}

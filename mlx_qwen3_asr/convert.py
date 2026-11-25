@@ -26,16 +26,31 @@ def remap_weights(weights: dict[str, mx.array]) -> dict[str, mx.array]:
     remapped = {}
 
     for key, value in weights.items():
-        # Strip thinker. prefix
+        # Normalize both legacy Qwen3-ASR (`thinker.*`) and Hugging Face
+        # transformers>=5.24 native (`model.audio_tower.*`,
+        # `model.multi_modal_projector.*`, `model.language_model.*`) layouts.
         new_key = key
-        had_thinker_prefix = new_key.startswith("thinker.")
+        is_pytorch_checkpoint = False
         if new_key.startswith("thinker."):
             new_key = new_key[len("thinker."):]
+            is_pytorch_checkpoint = True
+        elif new_key.startswith("model.audio_tower."):
+            new_key = new_key[len("model."):]
+            is_pytorch_checkpoint = True
+        elif new_key.startswith("model.multi_modal_projector.linear_1."):
+            new_key = "audio_tower.proj1." + new_key[len("model.multi_modal_projector.linear_1."):]
+            is_pytorch_checkpoint = True
+        elif new_key.startswith("model.multi_modal_projector.linear_2."):
+            new_key = "audio_tower.proj2." + new_key[len("model.multi_modal_projector.linear_2."):]
+            is_pytorch_checkpoint = True
+        elif new_key.startswith("model.language_model."):
+            new_key = "model." + new_key[len("model.language_model."):]
+            is_pytorch_checkpoint = True
 
         # Transpose Conv2d weights
         # Conv2d weight keys match pattern: audio_tower.conv2d{1,2,3}.weight
         if (
-            had_thinker_prefix
+            is_pytorch_checkpoint
             and "conv2d" in new_key
             and new_key.endswith(".weight")
             and value.ndim == 4
